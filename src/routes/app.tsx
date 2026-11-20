@@ -1,3 +1,4 @@
+import { ThemeToggle } from "@/components/theme-toggle";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
   useCallback,
@@ -224,7 +225,8 @@ function App() {
         setSession(s);
         const i = new URLSearchParams(location.hash.slice(1)).get("invite");
         if (i) {
-          await request("/invites/accept", "POST", { token: i }, "");
+          const accepted = await request("/invites/accept", "POST", { token: i }, "");
+          setOrg(accepted.org_id);
           history.replaceState(null, "", "/app");
           setNotice("Invitation accepted. Your team workspace is ready.");
         }
@@ -565,6 +567,9 @@ function App() {
             <span className="app-slash">/</span>
             <strong>{nav.find((n) => n.id === tab)?.label}</strong>
           </div>
+          <div className="topbar-actions">
+          <ThemeToggle />
+          {org && isAdmin && <Button className="invite-shortcut" size="sm" variant="outline" onClick={() => setTab("team")}><Users size={14} /> Invite teammates</Button>}
           <Button
             className="app-mobile-signout"
             variant="ghost"
@@ -596,6 +601,7 @@ function App() {
             )}{" "}
             Refresh
           </Button>
+          </div>
         </header>
         <main className="app-content">
           {error && (
@@ -1988,6 +1994,7 @@ function App() {
                         <h2>Organization members</h2>
                         <Badge variant="outline">{settings.role}</Badge>
                       </div>
+                      <p className="data-note">Unlimited teammates. No per-seat fees. Members share this organization’s workspaces and usage limits.</p>
                       {members.map((m) => (
                         <div className="member-row" key={m.user_id}>
                           <span>

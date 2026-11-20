@@ -1,3 +1,4 @@
+import { ThemeToggle } from "@/components/theme-toggle";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState, type FormEvent } from "react";
 import { ArrowLeft, ArrowRight, KeyRound, Mail } from "lucide-react";
@@ -113,6 +114,7 @@ function Login() {
   }
   return (
     <main className="auth-page">
+      <div className="auth-theme"><ThemeToggle /></div>
       <Link to="/" className="auth-back">
         <ArrowLeft size={14} /> TrackRank home
       </Link>

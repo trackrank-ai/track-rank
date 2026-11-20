@@ -35,8 +35,9 @@ export const Route = createRootRoute({
 
 function RootDocument({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" className="dark" suppressHydrationWarning>
       <head>
+        <script dangerouslySetInnerHTML={{ __html: `(function(){try{document.documentElement.classList.toggle('dark',localStorage.getItem('trackrank-theme')!=='light')}catch(e){}})()` }} />
         <HeadContent />
       </head>
       <body>

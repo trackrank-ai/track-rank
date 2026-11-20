@@ -38,6 +38,17 @@ Rendered desktop/mobile homepage and login inspected; login has no horizontal ov
 - Billing, subscription lifecycle, privacy/terms and operator support/recovery process.
 - Encryption-key rotation migration and restore drill; stable keys must be retained securely. Never replace CREDENTIALS_KEY casually.
 - Representative multi-tenant/load/failure testing, operational alerting, D1/R2 retention and full deletion controls.
-- Separate staging environment, production Docker/self-hosting package and portable storage/execution adapters.
+- Separate staging environment before routine production changes.
+
+## Not required for hosted launch
+
+Docker/self-hosting and portable storage/execution adapters are a separate distribution roadmap, not Cloudflare hosted launch blockers. A small free invited beta does not require Stripe.
+
+## Hosted rollout order
+
+1. Complete real-account authentication/email, second-account invitation, all provider engines and one scheduled workflow acceptance checks above.
+2. Invite a small free beta cohort with clear BYOK/provider-cost and beta-limit disclosures. No seat or agent-key caps; this does not remove API rate, run-count or provider concurrency limits.
+3. Before paid access: publish pricing, integrate checkout/customer portal and verified idempotent subscription webhooks, enforce organization entitlements server-side, test cancellation/payment failure. Publish terms/privacy and a support contact.
+4. Verify recoverable D1/R2 backups with stable encryption keys, add failure/queue alerts, test representative tenant/load/failure cases and define retention/deletion. Dollar budgeting is required if promising a dollar spending cap; existing run caps are not monetary budgets.
 
 The app can be used as an early hosted beta after authentication/provider acceptance checks. Do not describe it as fully production-hardened or billing-ready.

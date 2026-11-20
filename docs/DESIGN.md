@@ -6,7 +6,8 @@ Use shadcn/ui (New York / neutral, CSS-variable theming) and Tailwind CSS v4. Co
 
 ## Brand
 
-- Warm-white canvas `#faf9f6`, charcoal ink `#20201f`, signal-orange mark `#ef5c2a`.
+- Default theme: ink-black canvas `#0b0e14`, layered slate surfaces, soft-white ink, signal-orange accents. Header/app/auth toggles persist a light/dark preference locally; a pre-paint script prevents a light flash.
+- Light mode retains the warm-white canvas `#faf9f6`, charcoal ink `#20201f`, signal-orange mark `#ef5c2a`.
 - Primary interactive orange `#b93b13` is darker for legible white button text. Decorative orange is not the text/button token.
 - Geist Variable, self-hosted via Fontsource. Tight headline tracking, generous whitespace, restrained small labels.
 - Ascending three-bar mark, shared visual language for wordmark and favicon. No bitmap logo dependency.

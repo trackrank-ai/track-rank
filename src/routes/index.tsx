@@ -1,3 +1,4 @@
+import { ThemeToggle } from "@/components/theme-toggle";
 import { createFileRoute } from "@tanstack/react-router";
 import {
   ArrowUpRight,
@@ -340,6 +341,7 @@ function Home() {
       <header className="header shell">
         <Brand />
         <nav aria-label="Main navigation">
+          <ThemeToggle />
           <a href="#product">Product</a>
           <a href="#principles">Why TrackRank</a>
           <Button asChild size="sm">
