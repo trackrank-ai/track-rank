@@ -18,3 +18,5 @@ todos.json
 .dev.vars.*
 *.pem
 *.key
+
+!.dev.vars.example

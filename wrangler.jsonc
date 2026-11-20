@@ -1,9 +1,45 @@
 {
-  "$schema": "node_modules/wrangler/config-schema.json",
   "name": "trackrank-ai",
   "workers_dev": true,
-  "routes": [{ "pattern": "trackrank.ai", "custom_domain": true }],
+  "keep_vars": true,
+  "routes": [
+    {
+      "pattern": "trackrank.ai",
+      "custom_domain": true,
+    },
+  ],
   "compatibility_date": "2025-09-02",
   "compatibility_flags": ["nodejs_compat"],
-  "main": "@tanstack/react-start/server-entry",
+  "main": "src/worker.ts",
+  "vars": {
+    "BASE_URL": "https://trackrank.ai",
+    "SIGNUP_ENABLED": "true",
+    "EMAIL_FROM": "TrackRank <login@mail.trackrank.ai>",
+    "GOOGLE_CLIENT_ID": "193274538094-m765kc4c4c98302fpftkuge4e72tu3lj.apps.googleusercontent.com",
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "trackrank-db",
+      "database_id": "50b16780-7ff1-4e31-8000-d99d81e11122",
+      "migrations_dir": "migrations",
+    },
+  ],
+  "r2_buckets": [
+    {
+      "binding": "ANSWERS",
+      "bucket_name": "trackrank-answers",
+    },
+  ],
+  "triggers": {
+    "crons": ["*/5 * * * *"],
+  },
+  "workflows": [
+    {
+      "name": "trackrank-tracking",
+      "binding": "RUN_WORKFLOW",
+      "class_name": "TrackingWorkflow",
+    },
+  ],
+  "$schema": "node_modules/wrangler/config-schema.json",
 }
