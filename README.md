@@ -24,9 +24,9 @@ npm run build
 
 ## Deployment
 
-The project uses the official TanStack CLI Cloudflare adapter. `wrangler.jsonc` contains no production resource IDs or domain routes. No cloud resources are provisioned by local development.
+The project uses the official TanStack CLI Cloudflare adapter. Production runs on Cloudflare Workers at https://trackrank.ai, with https://trackrank-ai.edninodel.workers.dev available for deployment checks. The custom domain is managed in `wrangler.jsonc`. Local development does not provision cloud resources.
 
-`npm run deploy` deploys the Worker after Cloudflare authentication; do not attach the production domain until staging checks pass. D1, R2 and scheduled execution will be added alongside their implementations, not as unused resources.
+`npm run deploy` builds and deploys the Worker and configured custom domain after Cloudflare authentication. Verify the Worker URL and production domain after deployment. D1, R2 and scheduled execution will be added alongside their implementations, not as unused resources. Source repository: https://github.com/trackrank-ai/track-rank (private during development).
 
 ## Product boundaries
 
