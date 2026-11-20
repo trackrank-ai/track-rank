@@ -17,6 +17,12 @@
 - Real local Worker HTTP checks: Better Auth password login/session/logout, D1 organization/default workspace, brand/prompt persistence, clean-SERP default, schedule timing edit, API key, MCP initialize/tools/list/get_context, scope enforcement, revocation and CSV response.
 - No paid DataForSEO or OpenRouter calls and no real emails were sent by automated tests.
 
+## Hosted smoke checks
+
+Deployed to https://trackrank.ai (Worker version d49369e4-dd3b-47a9-a3b3-c3bdc4f15998). Homepage, login/setup and login assets return 200; anonymous organization/MCP access returns 401. Google authorization initiation returns accounts.google.com with callback https://trackrank.ai/api/auth/callback/google. Invalid-account password login returns 401 rather than a server failure. Runtime availability flags confirm Google/email configured and signup enabled; active-version metadata confirms D1, R2, Workflow, Google/Resend, auth and encryption bindings.
+
+Rendered desktop/mobile homepage and login inspected; login has no horizontal overflow and no browser errors. shadcn preview tabs change content. Authenticated workspace operations were HTTP-tested locally; the real signed-in hosted browser UI still needs user acceptance. No real emails or paid provider requests were sent during these smoke tests.
+
 ## User acceptance still required before broader beta
 
 1. Google consent flow with the actual configured Cloud client and an authorized test user; verify callback and sign-out.
