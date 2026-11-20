@@ -1,4 +1,5 @@
 import { defineConfig } from "vite";
+import tailwindcss from "@tailwindcss/vite";
 
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 
@@ -8,6 +9,7 @@ import { cloudflare } from "@cloudflare/vite-plugin";
 const config = defineConfig({
   resolve: { tsconfigPaths: true },
   plugins: [
+    tailwindcss(),
     cloudflare({ viteEnvironment: { name: "ssr" } }),
 
     tanstackStart(),
