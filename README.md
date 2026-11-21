@@ -27,6 +27,7 @@ See [launch status](docs/LAUNCH.md), [operations and support](docs/OPERATIONS.md
 
 - Use the sidebar to switch between client workspaces or select **All workspaces** for the organization-wide view. **Default workspace** is a regular workspace. Workspaces share the organization's team, provider credentials, and billing.
 - Use **Manage workspaces**, **Brands**, and **Prompts** to manage those records. Deleting a workspace or prompt removes its schedules and preserves collected run history and evidence.
+- In **Prompts**, select prompts from one workspace and choose **Run selected** to queue up to 500 runs per collection, including repeated samples. Each run has its own status in run history and uses one run from your monthly allowance. Provider charges apply separately.
 - In **Sources & research**, select a domain, cited page, or grounding query to see matching answers and brand mentions. Copy the detail URL to share it with teammates who have access. Open a matching answer to see its full run.
 - Open **Settings** to manage the organization and providers and to access hosted billing. Your current organization appears below your email in the sidebar. Pricing, Privacy, Terms, Support, and Security links are at the bottom of Settings.
 

@@ -29,7 +29,7 @@ Scopes: `read` for GET, `write` for research mutations, `run` for paid execution
 | PATCH | `/prompts/bulk-tags` | Add or remove tags on up to 100 prompts with `{ids, action: "add" or "remove", tags}` |
 | DELETE | `/prompts/:id` or `/prompts/bulk` | Delete one prompt or a batch with `{ids}`, along with its schedules |
 | POST | `/prompts/:id/run` | Paid collection; `Idempotency-Key` recommended, 8–128 chars |
-| POST | `/runs/bulk` | Queue up to 100 runs with `{prompt_ids, repetitions?, batch_key}`. Repetitions are 1–10. Reuse the same batch key and payload on retries. |
+| POST | `/runs/bulk` | Queue up to 500 independent runs from one workspace with `{prompt_ids, repetitions?, batch_key}`. Repetitions are 1–10. The limit applies to prompts × repetitions. Reuse the same batch key and payload on retries. |
 | POST | `/prompt-ideas` | Free deterministic templates `{topic, location?}` |
 | GET | `/runs` | Up to 100 runs with optional workspace, history filters, and cursor |
 | GET | `/runs/:id` | Full normalized result and analysis |
@@ -62,6 +62,8 @@ Errors return JSON `{error}` and an HTTP status. JSON requests have a 32 KiB bod
 The prompt library spans the organization when `workspace` is omitted. It supports `q` for prompt text, `engine`, `schedule=active` or `schedule=inactive`, `brand`, and `tag` (exact tag match, case insensitive). The response includes `tags`, the distinct tags on saved prompts within the workspace or organization before other filters are applied. A prompt is actively scheduled when the prompt and at least one of its schedules are enabled. Brand matching uses the prompt's associated brand or falls back to the workspace's primary brand. Pass the returned `next_cursor` as `before` and `before_id` to load the next page.
 
 Manual and scheduled runs share the organization's monthly allowance.
+
+One manual collection can span several workflow launch calls and several provider requests. Each admitted run has its own status. The response lists the admitted runs and uses HTTP 202 for complete admission or HTTP 207 when the batch was only partly admitted. A run that is queued can be dispatched even if the client disconnects.
 
 Provider-specific deletion preserves the other provider. Credential saves and provider-specific deletions return saved-status flags and the OpenRouter model identifier. TrackRank stores secrets encrypted and provider account controls handle revocation.
 

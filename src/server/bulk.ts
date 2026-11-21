@@ -2,19 +2,28 @@ import {z} from 'zod';import {all,exec,HttpError,now,one,required,uuid,type Env,
 import { prepareRunAdmission, runUsage, runUsagePeriods } from './run-admission';
 import { trackedWorkspaceBrands } from './workspace-brands';
 import { nextScheduleSlot } from './schedule-slots';
-const ids=z.array(z.string().min(1).max(100)).min(1).max(100);
-export const bulkRunSchema=z.object({prompt_ids:ids,repetitions:z.number().int().min(1).max(10).default(1),batch_key:z.string().regex(/^[A-Za-z0-9_-]{8,100}$/)}).strict();
+import { MAX_COLLECTION_RUNS } from '../lib/collection-limits';
+const selectedIds = z.array(z.string().min(1).max(100)).min(1);
+const ids = selectedIds.max(100);
+export const MAX_COLLECTION_REQUEST_BYTES = 64 * 1024;
+export const bulkRunSchema = z.object({
+ prompt_ids: selectedIds.max(MAX_COLLECTION_RUNS),
+ repetitions: z.number().int().min(1).max(10).default(1),
+ batch_key: z.string().regex(/^[A-Za-z0-9_-]{8,100}$/),
+}).strict();
 export const bulkScheduleSchema=z.object({prompt_ids:ids,name:z.string().trim().max(100).default('Scheduled prompts'),preset:z.enum(['daily','weekly','mwf','custom']),days:z.array(z.number().int().min(0).max(6)).min(1).max(7),times:z.array(z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/)).min(1).max(8),timezone:z.string().min(1).max(100),repetitions:z.number().int().min(1).max(10).default(1),enabled:z.boolean().default(false)}).strict();
 export const bulkToggleSchema=z.object({ids,enabled:z.boolean().optional(),mode:z.enum(["standard","priority","live"]).optional()}).strict().refine(b=>b.enabled!==undefined||b.mode!==undefined,"Choose settings to update");
-export async function selectedRows(env:Env,org:string,table:'prompts'|'schedules',selected:string[]){
- const unique=[...new Set(selected)];if(!unique.length||unique.length>100)throw new HttpError(400,'Choose 1–100 items');
+export async function selectedRows(env:Env,org:string,table:'prompts'|'schedules',selected:string[],limit=100){
+ const unique=[...new Set(selected)];if(!unique.length||unique.length>limit)throw new HttpError(400,`Choose 1–${limit} items`);
  const rows=await all<Row>(env,`SELECT * FROM ${table} WHERE org_id=? AND id IN (SELECT value FROM json_each(?))${table === 'prompts' ? ' AND archived_at IS NULL' : ''}`,org,JSON.stringify(unique));
  if(rows.length!==unique.length)throw new HttpError(404,'One or more selected items are not in this organization');return rows;
 }
 export async function createBulkRuns(env:Env,org:string,input:unknown){
- const b=bulkRunSchema.parse(input),selected=[...new Set(b.prompt_ids)].sort();const rows=await selectedRows(env,org,'prompts',selected);
+ const b=bulkRunSchema.parse(input),selected=[...new Set(b.prompt_ids)].sort();
+ const total=selected.length*b.repetitions;
+ if(total>MAX_COLLECTION_RUNS)throw new HttpError(400,`A collection can queue at most ${MAX_COLLECTION_RUNS} independent runs`);
+ const rows=await selectedRows(env,org,'prompts',selected,MAX_COLLECTION_RUNS);
  if(rows.some(p=>!p.enabled))throw new HttpError(409,'Enable all selected prompts before running them');
- const total=selected.length*b.repetitions;if(total>100)throw new HttpError(400,'A batch can queue at most 100 independent runs');
  const plan=await organizationPlan(env,org);
  const prefix = `bulk:${b.batch_key}:`;
  const prefixEnd = `bulk:${b.batch_key};`;
@@ -44,8 +53,9 @@ export async function createBulkRuns(env:Env,org:string,input:unknown){
  for(const p of rows)await assertProviderOptions([p.engine as Engine],String(p.location_name),String(p.language_code));
  const organization=await one<Row>(env,'SELECT resolve_poisoned_results FROM organizations WHERE id=?',org);
  const brands=await trackedWorkspaceBrands(env,org,workspace);
+ const promptsById = new Map(rows.map(row => [row.id, row]));
  const statements=[];
- for(const id of selected){const p=rows.find(row=>row.id===id)!;for(let sample=1;sample<=b.repetitions;sample++){
+ for(const id of selected){const p=promptsById.get(id)!;for(let sample=1;sample<=b.repetitions;sample++){
   const config={engine:p.engine,mode:p.mode,location_name:p.location_name,language_code:p.language_code,resolve_poisoned_results:!!organization?.resolve_poisoned_results,brands,sample_index:sample,sample_count:b.repetitions,batch_key:b.batch_key};
   statements.push(prepareRunAdmission(env, {
    org, prompt: id, workspace, text: String(p.text), config, key: `${prefix}${id}:${sample}`,

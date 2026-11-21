@@ -5,6 +5,7 @@ import { enforceLimit, safetyCeiling } from "./rate-limit";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { z } from "zod";
+import { MAX_COLLECTION_RUNS } from "../lib/collection-limits";
 import { api } from "./api";
 import { bulkRunSchema, bulkScheduleSchema, bulkScheduleUpdateSchema } from "./bulk";
 import { runHistoryFilters } from "./run-history";
@@ -248,7 +249,7 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
   server.registerTool(
     "run_prompts",
     {
-      description: "Queue a batch of prompt samples using one stable batch key. Obtain authorization for provider costs first.",
+      description: `Queue up to ${MAX_COLLECTION_RUNS} independent runs from one workspace (selected prompts × samples). Reuse the same batch key and payload on retry. Obtain authorization for provider costs first.`,
       inputSchema: bulkRunSchema,
     },
     async (args) => invoke("/runs/bulk", "POST", args),

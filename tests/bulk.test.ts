@@ -17,16 +17,50 @@ test('bulk sampling creates independent runs, replays safely, and rejects change
 test('bulk monthly quotas and cross-tenant selections are checked before any partial queueing',async()=>{
  const {env,sql}=await setup();assignRunLimit(sql,3);await assert.rejects(createBulkRuns(env,'org',{prompt_ids:['p1','p2'],repetitions:2,batch_key:'batch-too-large'}),/needs 4 new runs.*3 runs left/);assert.equal(sql.prepare('SELECT count(*) AS n FROM runs').get()?.n,0);await assert.rejects(createBulkRuns(env,'other',{prompt_ids:['p1'],batch_key:'foreign-batch'}),/not in this organization/);
 });
-test('an 87-run batch is admitted when the monthly allowance is available', async () => {
+test('REST queues 500 independent runs, Cron recovers a missed workflow, and replay preserves run IDs', async () => {
   const { env, sql } = await setup();
-  assignRunLimit(sql, 100);
+  assignRunLimit(sql, 500);
   const insert = sql.prepare("INSERT INTO prompts(id,org_id,workspace_id,text,created_at,updated_at) VALUES(?,'org','w',?,0,0)");
-  const prompt_ids = Array.from({length:87}, (_, i) => "batch-prompt-" + i);
+  const prompt_ids = Array.from({ length: 250 }, (_, i) => "batch-prompt-" + i);
   for (const id of prompt_ids) insert.run(id, "Question " + id);
-  const batch = await createBulkRuns(env, "org", { prompt_ids, batch_key:"batch-above-daily-limit" });
-  assert.equal(batch.runs.length,87);
-  assert.equal(batch.complete,true);
-  assert.equal((await runUsage(env,"org",runUsagePeriods(Date.now())))?.monthly,87);
+  const launches: number[] = [];
+  env.RUN_WORKFLOW = { createBatch: async ({ instances }: { instances: { id: string }[] }) => {
+    launches.push(instances.length);
+    // One instance in the first page fails to start. Subsequent pages still launch.
+    return launches.length === 1
+      ? { created: instances.slice(1), errors: [{ index: 0, code: 1 }] }
+      : { created: instances, errors: [] };
+  }} as unknown as typeof env.RUN_WORKFLOW;
+  const { api } = await import('../src/server/api');
+  const pending: Promise<unknown>[] = [];
+  const context = { waitUntil: (promise: Promise<unknown>) => pending.push(promise) } as unknown as import('../src/server/types').Ctx;
+  const payload = { prompt_ids, repetitions: 2, batch_key: 'large-collection' };
+  const queue = (input = payload) => api(new Request('https://example.test/api/v1/runs/bulk?org=org', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+  }), env, context, { userId: 'alice', orgId: 'org' });
+
+  await assert.rejects(queue({ ...payload, repetitions: 3 }), { status: 400 });
+  await assert.rejects(queue({ ...payload, prompt_ids: [...prompt_ids.slice(1), 'foreign'] }), { status: 404 });
+  assert.equal(sql.prepare('SELECT count(*) AS n FROM runs').get()?.n, 0);
+  const response = await queue();
+  assert.equal(response.status, 202);
+  const batch = await response.json() as { runs: { id: string }[]; complete: boolean; requested: number };
+  assert.equal(batch.complete, true);
+  assert.equal(batch.requested, 500);
+  assert.equal(new Set(batch.runs.map(run => run.id)).size, 500);
+  await Promise.all(pending);
+  assert.deepEqual(launches, [100, 100, 100, 100, 100]);
+  assert.equal(sql.prepare('SELECT count(*) AS n FROM runs WHERE workflow_started=0').get()?.n, 1);
+
+  // Cron can recover the admitted run without another action from the client.
+  await sweep(env);
+  assert.deepEqual(launches, [100, 100, 100, 100, 100, 1]);
+  assert.equal(sql.prepare('SELECT count(*) AS n FROM runs WHERE workflow_started=0').get()?.n, 0);
+  const replay = await (await queue()).json() as typeof batch;
+  assert.deepEqual(replay.runs.map(run => run.id), batch.runs.map(run => run.id));
+  await Promise.all(pending);
+  assert.deepEqual(launches, [100, 100, 100, 100, 100, 1]);
+  assert.equal((await runUsage(env, 'org', runUsagePeriods(Date.now())))?.monthly, 500);
 });
 test('retrying a partially admitted batch queues only its missing samples', async () => {
   const { env, sql } = await setup();
@@ -250,7 +284,7 @@ test('dispatch confirms only created or existing IDs and reclaims queued work wi
 });
 
 test('MCP run_prompts shares REST admission and launches the submitted batch', async () => {
-  const { env } = await setup();
+  const { env, sql } = await setup();
   const { hashToken } = await import('../src/server/crypto');
   const { mcp } = await import('../src/server/mcp');
   const db = env.DB;
@@ -259,6 +293,9 @@ test('MCP run_prompts shares REST admission and launches the submitted batch', a
   await db.prepare("INSERT INTO memberships VALUES('org','owner','owner',0)").run();
   await db.prepare(`INSERT INTO api_keys(id,org_id,user_id,name,prefix,token_hash,scopes,expires_at,created_at)
     VALUES('dispatch-key','org','owner','Agent','trk',?,'["run"]',?,0)`).bind(await hashToken(key),Date.now()+60_000).run();
+  const insert = sql.prepare("INSERT INTO prompts(id,org_id,workspace_id,text,created_at,updated_at) VALUES(?,'org','w',?,0,0)");
+  const prompt_ids = Array.from({ length: 101 }, (_, i) => `agent-prompt-${i}`);
+  for (const id of prompt_ids) insert.run(id, `Question ${id}`);
   let started = 0;
   env.RUN_WORKFLOW = { createBatch: async ({instances}: {instances: {id:string}[]}) => {
     started += instances.length;
@@ -266,13 +303,18 @@ test('MCP run_prompts shares REST admission and launches the submitted batch', a
   }} as unknown as typeof env.RUN_WORKFLOW;
   const pending: Promise<unknown>[] = [];
   const context = {waitUntil: (promise: Promise<unknown>) => pending.push(promise)} as unknown as import('../src/server/types').Ctx;
-  const req = new Request('https://example.test/mcp', {
+  const call = async () => (await mcp(new Request('https://example.test/mcp', {
     method:'POST', headers:{Authorization:`Bearer ${key}`,'Content-Type':'application/json',Accept:'application/json, text/event-stream'},
-    body:JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/call',params:{name:'run_prompts',arguments:{prompt_ids:['p1','p2'],repetitions:2,batch_key:'agent-batch-test'}}}),
-  });
-  const response = await (await mcp(req,env,context)).json() as {result:{isError:boolean;content:{text:string}[]}};
+    body:JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/call',params:{name:'run_prompts',arguments:{prompt_ids,batch_key:'agent-batch-test'}}}),
+  }), env, context)).json() as Promise<{result:{isError:boolean;content:{text:string}[]}}>;
+  sql.exec(`UPDATE api_keys SET scopes='["read"]' WHERE id='dispatch-key'`);
+  const denied = await call();
+  assert.equal(denied.result.isError, true);
+  assert.equal(JSON.parse(denied.result.content[0].text).status, 403);
+  sql.exec(`UPDATE api_keys SET scopes='["run"]' WHERE id='dispatch-key'`);
+  const response = await call();
   assert.equal(response.result.isError,false);
-  assert.equal(JSON.parse(response.result.content[0].text).runs.length,4);
+  assert.equal(JSON.parse(response.result.content[0].text).runs.length,101);
   await Promise.all(pending);
-  assert.equal(started,4);
+  assert.equal(started,101);
 });

@@ -1,6 +1,6 @@
 import { all, HttpError, now, type Env, type Row } from "./types";
 import { collectRun, credentials } from "./provider";
-import { launchRuns, recoverQueuedWorkflows } from "./dispatch";
+import { launchRuns, recoverQueuedWorkflows, WORKFLOW_BATCH_SIZE } from "./dispatch";
 import { localSlot, nextScheduleSlot } from "./schedule-slots";
 import { organizationPlan } from "./plans";
 import { trackedWorkspaceBrands } from "./workspace-brands";
@@ -115,7 +115,7 @@ async function dispatchDueRuns(env: Env, time: number) {
   for (let batch = 0; batch < 16; batch++) {
     // A partial launch stays eligible for the next sweep. Full batches are spaced
     // to respect Cloudflare's per-Workflow instance creation rate.
-    if (await launchRuns(env) < 100) break;
+    if (await launchRuns(env) < WORKFLOW_BATCH_SIZE) break;
     if (batch < 15) await new Promise(resolve => setTimeout(resolve, 1000));
   }
 }
