@@ -141,6 +141,8 @@ Then the test subscription was canceled; direct webhook enforcement returned
 HTTP402 for paid settings/API while the billing portal still returned HTTP200.
 No real funds, production user records or live subscription were involved.
 
-Edwin identified USA as the market/location; specific state sales-tax registrations
-are not yet identified. This does not authorize inventing a registration or
-enabling collection. Automatic tax remains off pending state-level clarification.
+Edwin confirmed November 21, 2026: TrackRank has no sales-tax registrations yet.
+Automatic tax remains off; STRIPE_TAX_READY and BILLING_TAX_REVIEWED remain false.
+No registrations were created. This fact alone does not establish that collection
+is unnecessary; actual registration/collection obligations still need review
+before live launch. Do not invent registrations or mark the tax preflight passed.
