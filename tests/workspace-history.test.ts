@@ -14,9 +14,9 @@ function setup() {
     INSERT INTO workspaces(id,org_id,name,created_at) VALUES('source','org','Source',0),('target','org','Target',0),('foreign','other','Foreign',0);
     INSERT INTO prompts(id,org_id,workspace_id,text,created_at,updated_at) VALUES
       ('prompt','org','source','First question',0,0),('alt','org','source','Other question',0,0),('foreign-prompt','other','foreign','Foreign question',0,0);`);
-  const call = (path: string, body?: unknown, userId = "owner") => api(
+  const call = (path: string, body?: unknown, userId = "owner", method = body ? "POST" : "GET") => api(
     new Request("https://example.test/api/v1" + path, {
-      method: body ? "POST" : "GET",
+      method,
       headers: { "Content-Type": "application/json" },
       body: body ? JSON.stringify(body) : undefined,
     }), env, { waitUntil() {} } as any, { userId, orgId: "org" },
@@ -98,4 +98,58 @@ test("All workspaces spans the organization and collection snapshots use only ex
   }).prompts.map(prompt => prompt.workspace_id);
   assert.deepEqual(new Set(await readPrompts()), new Set(["source", "target"]));
   assert.deepEqual(await readPrompts("&workspace=target"), ["target"]);
+});
+
+test("resource edits and deletes preserve collected evidence and confine changes to the organization", async () => {
+  const { sql, env, call } = setup();
+  env.CREDENTIALS_KEY = Buffer.alloc(32, 7).toString("base64");
+  sql.prepare("INSERT INTO credentials VALUES('org',?,1,0)").run(await seal(env, "org", { login: "test", password: "fixture" }));
+  const { id: brand } = await (await call("/brands", { name: "Client", workspace_id: "source" })).json() as { id: string };
+  await call("/workspaces/source", { name: "Renamed client", brand_id: brand }, "owner", "PATCH");
+  await call("/brands/" + brand, { name: "Client renamed", kind: "client" }, "owner", "PATCH");
+  await call("/prompts/prompt", { text: "Edited prompt", workspace_id: "source", brand_id: brand }, "owner", "PATCH");
+  const run = await createRun(env, "org", "prompt", "keep-collected-history");
+  sql.exec(`INSERT INTO schedules(id,org_id,prompt_id,preset,days,local_time,timezone,enabled,created_at)
+    VALUES('p-schedule','org','prompt','daily','[1]','09:00','UTC',1,0),
+    ('a-schedule','org','alt','daily','[1]','09:00','UTC',1,0)`);
+
+  await assert.rejects(call("/prompts/bulk", { ids: ["prompt", "foreign-prompt"] }, "owner", "DELETE"), { status: 404 });
+  await assert.rejects(call("/workspaces/source", undefined, "viewer", "DELETE"), { status: 403 });
+  await assert.rejects(call("/workspaces/foreign", undefined, "owner", "DELETE"), { status: 404 });
+  await call("/brands/" + brand, undefined, "owner", "DELETE");
+  assert.equal(sql.prepare("SELECT brand_id FROM workspaces WHERE id='source'").get()?.brand_id, null);
+  assert.equal(sql.prepare("SELECT brand_id FROM prompts WHERE id='prompt'").get()?.brand_id, null);
+  await call("/prompts/bulk", { ids: ["prompt"] }, "owner", "DELETE");
+  await assert.rejects(call("/prompts/prompt"), { status: 404 });
+  await assert.rejects(createRun(env, "org", "prompt", "deleted-prompt-fails"), { status: 404 });
+  assert.equal(sql.prepare("SELECT id FROM schedules WHERE id='p-schedule'").get(), undefined);
+  await call("/workspaces/source", undefined, "owner", "DELETE");
+  assert.equal(sql.prepare("SELECT id FROM schedules WHERE id='a-schedule'").get(), undefined);
+  assert.equal((await (await call("/prompts?view=library")).json() as { prompts: unknown[] }).prompts.length, 0);
+  const historical = await (await call("/runs?workspace=source")).json() as { runs: { id: string; config: { brands: { name: string }[] } }[] };
+  assert.equal(historical.runs[0].id, run.id);
+  assert.equal(historical.runs[0].config.brands[0].name, "Client renamed");
+  assert.equal((await call("/runs/" + run.id)).status, 200);
+  const { workspaces } = await (await call("/workspaces")).json() as { workspaces: { id: string }[] };
+  assert.deepEqual(workspaces.map(workspace => workspace.id), ["target"]);
+});
+
+test("research drill-downs match exact stored source evidence across the selected workspace", async () => {
+  const { sql, call } = setup();
+  const insert = sql.prepare(`INSERT INTO runs(id,org_id,prompt_id,workspace_id,prompt_text,config,status,has_answer,citations,grounding_queries,idempotency_key,created_at,updated_at)
+    VALUES(?,'org','prompt',?,'Question','{}','succeeded',?,?,?,?,100,100)`);
+  const source = (url: string) => JSON.stringify([{ domain: "example.test", url }]);
+  insert.run("matching", "source", 1, source("https://example.test/a"), '["compare source"]', "matching");
+  insert.run("same-domain-other-page", "source", 1, source("https://example.test/b"), '["compare another"]', "other-page");
+  insert.run("other-workspace", "target", 1, source("https://example.test/a"), '["compare source"]', "other-workspace");
+  insert.run("no-answer", "source", 0, source("https://example.test/a"), '["compare source"]', "no-answer");
+  const list = async (type: string, value: string) => {
+    const query = new URLSearchParams({ workspace: "source", research_type: type, research_value: value });
+    const result = await (await call("/runs?" + query)).json() as { runs: { id: string }[] };
+    return result.runs.map(run => run.id);
+  };
+  assert.deepEqual(await list("domain", "example.test"), ["same-domain-other-page", "matching"]);
+  assert.deepEqual(await list("page", "https://example.test/a"), ["matching"]);
+  assert.deepEqual(await list("query", "compare source"), ["matching"]);
+  await assert.rejects(call("/runs?research_type=domain"), { status: 400 });
 });

@@ -15,7 +15,7 @@ export async function listSavedPrompts(env: Env, org: string, params: URLSearchP
   const parsed = libraryFilters.safeParse(Object.fromEntries(params));
   if (!parsed.success) throw new HttpError(400, "Invalid saved prompt filters or cursor");
   const filters = parsed.data;
-  const conditions = ["p.org_id=?"];
+  const conditions = ["p.org_id=?", "p.archived_at IS NULL"];
   const values: unknown[] = [org];
   if (filters.workspace) {
     conditions.push("p.workspace_id=?");

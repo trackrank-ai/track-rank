@@ -7,12 +7,15 @@ export const runHistoryFilters = z.object({
   q: z.string().trim().max(200).optional(),
   status: z.enum(["queued", "submitting", "submitted", "succeeded", "failed", "uncertain"]).optional(),
   brand_id: z.string().min(1).max(100).optional(),
+  research_type: z.enum(["domain", "page", "query"]).optional(),
+  research_value: z.string().trim().min(1).max(4096).optional(),
 });
 
 export function historyWhere(org: string, params: URLSearchParams) {
   const parsed = runHistoryFilters.safeParse(Object.fromEntries(params));
   if (!parsed.success) throw new HttpError(400, "Invalid run history filters");
   const filters = parsed.data;
+  if (!!filters.research_type !== !!filters.research_value) throw new HttpError(400, "Choose a research item");
   const conditions = ["org_id=?"];
   const bindings: unknown[] = [org];
   const workspace = params.get("workspace");
@@ -45,6 +48,22 @@ export function historyWhere(org: string, params: URLSearchParams) {
         ) END
     )`);
     bindings.push(filters.brand_id);
+  }
+  if (filters.research_type) {
+    conditions.push("status='succeeded' AND has_answer=1");
+    if (filters.research_type === "query") {
+      conditions.push(`EXISTS (
+        SELECT 1 FROM json_each(CASE WHEN json_valid(grounding_queries) THEN grounding_queries ELSE '[]' END)
+        WHERE type='text' AND value=?
+      )`);
+    } else {
+      const field = filters.research_type === "domain" ? "$.domain" : "$.url";
+      conditions.push(`EXISTS (
+        SELECT 1 FROM json_each(CASE WHEN json_valid(citations) THEN citations ELSE '[]' END) AS source
+        WHERE CASE WHEN source.type='object' THEN json_extract(source.value,'${field}') END=?
+      )`);
+    }
+    bindings.push(filters.research_value);
   }
   return { conditions, bindings };
 }

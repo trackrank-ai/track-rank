@@ -7,7 +7,7 @@ export const bulkScheduleSchema=z.object({prompt_ids:ids,name:z.string().trim().
 export const bulkToggleSchema=z.object({ids,enabled:z.boolean().optional(),mode:z.enum(["standard","priority","live"]).optional()}).strict().refine(b=>b.enabled!==undefined||b.mode!==undefined,"Choose settings to update");
 export async function selectedRows(env:Env,org:string,table:'prompts'|'schedules',selected:string[]){
  const unique=[...new Set(selected)];if(!unique.length||unique.length>100)throw new HttpError(400,'Choose 1–100 items');
- const rows=await all<Row>(env,`SELECT * FROM ${table} WHERE org_id=? AND id IN (${unique.map(()=>'?').join(',')})`,org,...unique);
+ const rows=await all<Row>(env,`SELECT * FROM ${table} WHERE org_id=? AND id IN (SELECT value FROM json_each(?))${table === 'prompts' ? ' AND archived_at IS NULL' : ''}`,org,JSON.stringify(unique));
  if(rows.length!==unique.length)throw new HttpError(404,'One or more selected items are not in this organization');return rows;
 }
 export async function createBulkRuns(env:Env,org:string,input:unknown){

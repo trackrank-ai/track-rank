@@ -8,6 +8,8 @@ test("app links preserve the selected organization, workspace and record through
   assert.equal(login.hash, "#invite=example");
   assert.equal(appReturnPath(login.searchParams.get("next")), "/app" + search);
   assert.equal(appReturnPath("/app?tab=runs&runPrompt=prompt-abc"), "/app?tab=runs&runPrompt=prompt-abc");
+  assert.equal(appReturnPath("/app?tab=research&researchType=page&researchValue=https%3A%2F%2Fexample.test%2Fa"),
+    "/app?tab=research&researchType=page&researchValue=https%3A%2F%2Fexample.test%2Fa");
   assert.equal(appReturnPath("/app?org=second-org&prompt=prompt-abc"), "/app?org=second-org&tab=prompts&prompt=prompt-abc");
   assert.equal(new URL(appLoginPath("?trial=start", ""), login).searchParams.get("trial"), "start");
 });

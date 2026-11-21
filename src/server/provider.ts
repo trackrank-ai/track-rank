@@ -82,7 +82,7 @@ export async function createRun(
   const p = required(
     await one<Row>(
       env,
-      "SELECT * FROM prompts WHERE org_id=? AND id=? AND enabled=1",
+      "SELECT * FROM prompts WHERE org_id=? AND id=? AND enabled=1 AND archived_at IS NULL",
       orgId,
       promptId,
     ),
@@ -119,6 +119,8 @@ export async function createRun(
   }, periods, plan).run();
   const result = await replay();
   if (!result) {
+    if (!await one(env, "SELECT id FROM prompts WHERE org_id=? AND id=? AND workspace_id=? AND enabled=1 AND archived_at IS NULL", orgId, promptId, p.workspace_id))
+      throw new HttpError(409, "The prompt changed before it could be queued. Refresh and try again.");
     const usage = await runUsage(env, orgId, periods);
     if (usage?.plan_version_id !== plan.version)
       throw new HttpError(409, "Organization plan changed. Retry the request.");

@@ -15,15 +15,18 @@ Scopes: `read` for GET, `write` for research mutations, `run` for paid execution
 | GET | `/organizations` | Membership-scoped organizations |
 | POST | `/organizations` | Interactive session: `{name}`; also creates default workspace |
 | GET, POST | `/workspaces` | List/create `{name, brand_id?}` |
+| PATCH, DELETE | `/workspaces/:id` | Edit name and primary brand or delete the workspace and its prompts and schedules |
 | POST | `/workspaces/:id/brands` | Attach `{brand_id, kind}` to workspace |
 | DELETE | `/workspaces/:id/brands/:brand_id` | Unlink; future runs use remaining set |
 | GET, POST | `/brands` | List/create `{name, domain?, kind: own\|client\|competitor, aliases?: string[], workspace_id?}` |
 | PATCH | `/brands/:id` | Update name/domain/kind/aliases; future runs use changes |
+| DELETE | `/brands/:id` | Remove a brand from the organization and its workspaces |
 | GET, POST | `/prompts` | Optional GET `?workspace=id`; use `view=library` for filtered pagination |
 | POST | `/prompts/bulk` | Save up to 500 prompt/engine combinations per request |
 | POST | `/prompts/move` | Move up to 100 prompt IDs to another workspace in the same organization with `{ids, workspace_id}` |
 | GET | `/prompts/:id` | Read a saved prompt in the selected organization |
 | PATCH | `/prompts/:id` | Full prompt configuration, same as creation |
+| DELETE | `/prompts/:id` or `/prompts/bulk` | Delete one prompt or a batch with `{ids}`, along with its schedules |
 | POST | `/prompts/:id/run` | Paid collection; `Idempotency-Key` recommended, 8–128 chars |
 | POST | `/prompt-ideas` | Free deterministic templates `{topic, location?}` |
 | GET | `/runs` | Up to 100 runs with optional workspace, history filters, and cursor |
@@ -61,7 +64,11 @@ Provider-specific deletion preserves the other provider. Credential saves and pr
 
 Run history and CSV export support `workspace`, `engine`, `prompt_id`, `status`, `q` for prompt text or answer text, and `brand_id` for mentions or citations in eligible collected answers. Use the same filters on every page. CSV exports up to 1,000 matching runs.
 
+Research drill-downs use `research_type=domain|page|query` and an exact `research_value`. They match citations or grounding queries in collected AI answers.
+
 Moving prompts preserves their IDs and schedules. The associated brand follows the prompt when the destination tracks it. Each queued or completed run retains the workspace it had when it was created.
+
+Deleting a prompt or workspace archives its metadata for existing runs and removes its schedules. Run history, raw evidence, and historical brand snapshots remain available. `GET /workspaces?include_archived=1` includes archived workspace labels for history links.
 
 Create a brand with `workspace_id` to track it in that workspace immediately. New runs match the brands explicitly tracked in their workspace. Listing schedules accepts an optional `workspace` filter.
 

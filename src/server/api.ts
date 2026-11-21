@@ -4,6 +4,7 @@ import { MAX_PROMPT_BATCH_BYTES, promptBatchSchema, savePromptBatch } from "./pr
 import { listSavedPrompts } from "./prompt-library";
 import { historyWhere } from "./run-history";
 import { requireWorkspaceBrand } from "./workspace-brands";
+import { archivePrompts, archiveWorkspace, deleteBrand } from "./resource-archive";
 import { startTrial } from "./trials";
 import { billingRoute } from "./billing";
 import { localAuthEnabled } from "./local-auth";
@@ -96,12 +97,13 @@ async function belongs(
   table: "brands" | "workspaces" | "prompts",
   orgId: string,
   resourceId: unknown,
+  includeArchived = false,
 ) {
   if (resourceId)
     required(
       await one(
         env,
-        `SELECT id FROM ${table} WHERE org_id=? AND id=?`,
+        `SELECT id FROM ${table} WHERE org_id=? AND id=?${table !== "brands" && !includeArchived ? " AND archived_at IS NULL" : ""}`,
         orgId,
         resourceId,
       ),
@@ -235,7 +237,8 @@ export async function api(
     return json({
       workspaces: await all(
         env,
-        "SELECT w.*, (SELECT json_group_array(brand_id) FROM workspace_brands wb WHERE wb.org_id=w.org_id AND wb.workspace_id=w.id) AS brand_ids FROM workspaces w WHERE org_id=? ORDER BY created_at LIMIT 500",
+        "SELECT w.*, (SELECT json_group_array(brand_id) FROM workspace_brands wb WHERE wb.org_id=w.org_id AND wb.workspace_id=w.id) AS brand_ids FROM workspaces w WHERE org_id=?" +
+          (u.searchParams.get("include_archived") === "1" ? "" : " AND archived_at IS NULL") + " ORDER BY archived_at,created_at LIMIT 500",
         org,
       ),
     });
@@ -263,6 +266,29 @@ export async function api(
   const workspaceBrand = path.match(
     /^\/workspaces\/([^/]+)\/brands(?:\/([^/]+))?$/,
   );
+  const workspaceItem = path.match(/^\/workspaces\/([^/]+)$/);
+  if (workspaceItem && method === "PATCH") {
+    const wid = workspaceItem[1];
+    const b = await body(req, z.object({ name, brand_id: id.nullable().optional() }).strict());
+    await belongs(env, "workspaces", org, wid);
+    await belongs(env, "brands", org, b.brand_id);
+    const rename = env.DB.prepare(
+      "UPDATE workspaces SET name=?,brand_id=CASE WHEN ? THEN ? ELSE brand_id END WHERE org_id=? AND id=? AND archived_at IS NULL",
+    ).bind(b.name, Number(b.brand_id !== undefined), b.brand_id ?? null, org, wid);
+    if (b.brand_id) {
+      await env.DB.batch([rename, env.DB.prepare(
+        `INSERT OR IGNORE INTO workspace_brands(org_id,workspace_id,brand_id,kind)
+         SELECT b.org_id,w.id,b.id,b.kind FROM brands b JOIN workspaces w ON w.org_id=b.org_id
+         WHERE b.org_id=? AND b.id=? AND w.id=? AND w.archived_at IS NULL`,
+      ).bind(org, b.brand_id, wid)]);
+    } else await rename.run();
+    return json({ ok: true });
+  }
+  if (workspaceItem && method === "DELETE") {
+    await belongs(env, "workspaces", org, workspaceItem[1]);
+    await archiveWorkspace(env, org, workspaceItem[1]);
+    return json({ ok: true });
+  }
   if (workspaceBrand && method === "POST") {
     const b = await body(
       req,
@@ -334,8 +360,14 @@ export async function api(
     } else await brand.run();
     return json({ id: bid }, 201);
   }
-  if (path.startsWith("/brands/") && method === "PATCH") {
-    const bid = path.split("/")[2];
+  const brandItem = path.match(/^\/brands\/([^/]+)$/);
+  if (brandItem && method === "DELETE") {
+    await belongs(env, "brands", org, brandItem[1]);
+    await deleteBrand(env, org, brandItem[1]);
+    return json({ ok: true });
+  }
+  if (brandItem && method === "PATCH") {
+    const bid = brandItem[1];
     await belongs(env, "brands", org, bid);
     const b = await body(
       req,
@@ -371,7 +403,7 @@ export async function api(
     return json({
       prompts: await all(
         env,
-        "SELECT * FROM prompts WHERE org_id=?" +
+        "SELECT * FROM prompts WHERE org_id=? AND archived_at IS NULL" +
           (w ? " AND workspace_id=?" : "") +
           " ORDER BY created_at DESC LIMIT 500",
         org,
@@ -381,6 +413,12 @@ export async function api(
   }
   if (path === "/prompts/bulk" && method === "POST")
     return json(await savePromptBatch(env, org, await body(req, promptBatchSchema, MAX_PROMPT_BATCH_BYTES)), 201);
+  if (path === "/prompts/bulk" && method === "DELETE") {
+    const b = await body(req, z.object({ ids: z.array(id).min(1).max(100) }).strict());
+    const rows = await selectedRows(env, org, "prompts", b.ids);
+    await archivePrompts(env, org, rows.map(row => String(row.id)));
+    return json({ deleted: rows.length });
+  }
   if (path === "/prompts/move" && method === "POST") {
     const b = await body(req, z.object({ ids: z.array(id).min(1).max(100), workspace_id: id }).strict());
     await belongs(env, "workspaces", org, b.workspace_id);
@@ -392,7 +430,7 @@ export async function api(
         `UPDATE prompts SET workspace_id=?,updated_at=?,
          brand_id=CASE WHEN EXISTS(SELECT 1 FROM workspace_brands wb
            WHERE wb.org_id=prompts.org_id AND wb.workspace_id=? AND wb.brand_id=prompts.brand_id)
-         THEN brand_id ELSE NULL END WHERE org_id=? AND id=?`,
+         THEN brand_id ELSE NULL END WHERE org_id=? AND id=? AND archived_at IS NULL`,
       ).bind(b.workspace_id, movedAt, b.workspace_id, org, p.id)));
     }
     return json({ moved: changed.length });
@@ -425,12 +463,17 @@ export async function api(
   if (path === "/prompts/bulk-settings" && method === "PATCH") {
     const b=await body(req,bulkToggleSchema);const table=path.startsWith('/prompts')?'prompts':'schedules';
     const rows=await selectedRows(env,org,table,b.ids);
-    await env.DB.batch(rows.map(row=>env.DB.prepare(`UPDATE ${table} SET enabled=?,mode=? WHERE org_id=? AND id=?`).bind(b.enabled===undefined?row.enabled:Number(b.enabled),b.mode||row.mode,org,row.id)));
+    await env.DB.batch(rows.map(row=>env.DB.prepare(`UPDATE ${table} SET enabled=?,mode=? WHERE org_id=? AND id=? AND archived_at IS NULL`).bind(b.enabled===undefined?row.enabled:Number(b.enabled),b.mode||row.mode,org,row.id)));
     return json({updated:rows.length});
   }
   const match = path.match(/^\/prompts\/([^/]+)(?:\/(run))?$/);
+  if (match && !match[2] && method === "DELETE") {
+    await belongs(env, "prompts", org, match[1]);
+    await archivePrompts(env, org, [match[1]]);
+    return json({ ok: true });
+  }
   if (match && !match[2] && method === "GET") {
-    const prompt = required(await one(env, "SELECT * FROM prompts WHERE org_id=? AND id=?", org, match[1]), "Prompt not found");
+    const prompt = required(await one(env, "SELECT * FROM prompts WHERE org_id=? AND id=? AND archived_at IS NULL", org, match[1]), "Prompt not found");
     return json({ prompt });
   }
   if (match && method === "PATCH") {
@@ -441,7 +484,7 @@ export async function api(
     await requireWorkspaceBrand(env, org, b.workspace_id, b.brand_id);
     await exec(
       env,
-      "UPDATE prompts SET workspace_id=?,brand_id=?,text=?,engine=?,mode=?,location_name=?,language_code=?,enabled=?,updated_at=? WHERE id=? AND org_id=?",
+      "UPDATE prompts SET workspace_id=?,brand_id=?,text=?,engine=?,mode=?,location_name=?,language_code=?,enabled=?,updated_at=? WHERE id=? AND org_id=? AND archived_at IS NULL",
       b.workspace_id,
       b.brand_id || null,
       b.text,
@@ -503,14 +546,14 @@ export async function api(
       (!timestamp || !Number.isSafeInteger(before) || !id.safeParse(beforeId).success))) {
       throw new HttpError(400, "Invalid run history cursor");
     }
-    if (w) await belongs(env, "workspaces", org, w);
+    if (w) await belongs(env, "workspaces", org, w, true);
     const { conditions, bindings } = historyWhere(org, u.searchParams);
     conditions.push(beforeId === null ? "created_at<?" : "(created_at,id)<(?,?)");
     bindings.push(before, ...(beforeId === null ? [] : [beforeId]));
     const pageSize = 100;
     const runs = await all(
       env,
-      "SELECT id,prompt_id,workspace_id,prompt_text,config,status,mentions,citations,grounding_queries,has_answer,error,provider_cost,created_at,updated_at FROM runs WHERE " +
+      "SELECT id,prompt_id,workspace_id,prompt_text,config,status,mentions,citations,grounding_queries,discovered_brands,has_answer,error,provider_cost,created_at,updated_at FROM runs WHERE " +
         conditions.join(" AND ") + " ORDER BY created_at DESC,id DESC LIMIT ?",
       ...bindings,
       pageSize + 1,
@@ -575,7 +618,7 @@ export async function api(
         env,
         `SELECT s.*,p.workspace_id,p.text AS prompt_text FROM schedules s
          JOIN prompts p ON p.org_id=s.org_id AND p.id=s.prompt_id
-         WHERE s.org_id=?${workspace ? " AND p.workspace_id=?" : ""} ORDER BY s.created_at DESC LIMIT 500`,
+         WHERE s.org_id=? AND p.archived_at IS NULL${workspace ? " AND p.workspace_id=?" : ""} ORDER BY s.created_at DESC LIMIT 500`,
         org,
         ...(workspace ? [workspace] : []),
       ),
@@ -913,7 +956,7 @@ export async function api(
   }
   if (path === "/export" && method === "GET") {
     const workspace = u.searchParams.get("workspace");
-    if (workspace) await belongs(env, "workspaces", org, workspace);
+    if (workspace) await belongs(env, "workspaces", org, workspace, true);
     const { conditions, bindings } = historyWhere(org, u.searchParams);
     const rows = await all<Row>(
       env,

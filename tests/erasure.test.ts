@@ -4,7 +4,7 @@ function setup(){const f=fixture();f.sql.exec(`
  INSERT INTO user VALUES('owner','Owner','owner@example.invalid',1,NULL,0,0);
  INSERT INTO memberships VALUES('org','owner','owner',0);
  INSERT INTO brands VALUES('brand','org','Brand','','[]','own',0);
- INSERT INTO workspaces VALUES('space','org','Workspace','brand',0);
+ INSERT INTO workspaces(id,org_id,name,brand_id,created_at) VALUES('space','org','Workspace','brand',0);
  INSERT INTO workspace_brands VALUES('org','space','brand','own');
  INSERT INTO prompts(id,org_id,workspace_id,brand_id,text,created_at,updated_at) VALUES('prompt','org','space','brand','Question',0,0);
  INSERT INTO runs(id,org_id,prompt_id,workspace_id,prompt_text,config,status,idempotency_key,created_at,updated_at) VALUES('run','org','prompt','space','Question','{}','succeeded','unique',0,0);

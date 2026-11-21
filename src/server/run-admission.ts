@@ -32,9 +32,10 @@ export function prepareRunAdmission(env: Env, run: {
     FROM organizations o JOIN organization_plans a ON a.org_id=o.id
     LEFT JOIN run_usage monthly ON monthly.org_id=o.id AND monthly.period=?
     WHERE o.id=? AND a.plan_version_id=?
+      AND EXISTS (SELECT 1 FROM prompts p WHERE p.org_id=o.id AND p.id=? AND p.workspace_id=? AND p.enabled=1 AND p.archived_at IS NULL)
       AND coalesce(monthly.runs,0)<?`).bind(
     uuid(), run.prompt, run.workspace, run.text, JSON.stringify(run.config),
     run.key, periods.timestamp, periods.timestamp, periods.month.key,
-    run.org, plan.version, plan.limits.runs_per_month,
+    run.org, plan.version, run.prompt, run.workspace, plan.limits.runs_per_month,
   );
 }

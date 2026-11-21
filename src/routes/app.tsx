@@ -4,6 +4,7 @@ import { Tooltip as HelpTooltip } from "radix-ui";
 import { LegalLinks } from "@/components/legal-layout";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { ProviderCredentialsCard } from "@/components/provider-credentials-card";
+import { ResearchDrilldown } from "@/components/research-drilldown";
 import { RunStatus, WorkspaceRunHistory } from "@/components/workspace-run-history";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
@@ -183,7 +184,7 @@ function App() {
   const [session, setSession] = useState<Item | null>(null),
     [initializing, setInitializing] = useState(true),
     [orgs, setOrgs] = useState<Item[]>([]),
-    [workspaces, setWorkspaces] = useState<Item[]>([]),
+    [workspaceRecords, setWorkspaces] = useState<Item[]>([]),
     [brands, setBrands] = useState<Item[]>([]),
     [prompts, setPrompts] = useState<Item[]>([]),
     [runs, setRuns] = useState<Item[]>([]),
@@ -211,6 +212,10 @@ function App() {
     [pendingBatch, setPendingBatch] = useState<{ scope: string; batch: PendingRunBatch } | null>(null);
   const org = search.org ?? orgs[0]?.id ?? "";
   const tab = search.tab ?? "overview";
+  const paneName = tab === "workspaces" ? "Workspaces" : nav.find(item => item.id === tab)?.label;
+  const workspaces = workspaceRecords.filter(w => !w.archived_at);
+  const [editingWorkspace, setEditingWorkspace] = useState("");
+  const [editingBrand, setEditingBrand] = useState<Item | null>(null);
   const orgReady = !!org && loadedOrg === org;
   const workspaceReady = orgReady && !billingBlocksWorkspace(billing.access_status);
   const linkedPrompt = promptDetail?.id === search.prompt && promptDetail?.org_id === org ? promptDetail : null;
@@ -220,9 +225,10 @@ function App() {
   const workspaceId = allWorkspaces ? "" : workspace;
   const workspaceKey = org + ":" + workspaceId;
   const scoped = workspaceData?.key === workspaceKey ? workspaceData : null;
-  const workspaceNames = Object.fromEntries(workspaces.map(w => [w.id, w.name]));
+  const workspaceNames = Object.fromEntries(workspaceRecords.map(w => [w.id, w.archived_at ? w.name + " (deleted)" : w.name]));
   const workspaceName = allWorkspaces ? "All workspaces" : workspaceNames[workspace] || "this workspace";
-  const unavailableWorkspace = workspaceReady && !allWorkspaces && !workspaces.some(w => w.id === workspace);
+  const archivedHistory = tab === "runs" && workspaceRecords.some(w => w.id === workspace && w.archived_at);
+  const unavailableWorkspace = workspaceReady && !allWorkspaces && !archivedHistory && !workspaces.some(w => w.id === workspace);
   const libraryQuery = new URLSearchParams({ view: "library" });
   if (workspaceId) libraryQuery.set("workspace", workspaceId);
   if (promptSearch.trim()) libraryQuery.set("q", promptSearch.trim());
@@ -365,7 +371,7 @@ function App() {
         return;
       }
       const results = await Promise.all([
-        request("/workspaces"),
+        request("/workspaces?include_archived=1"),
         request("/brands"),
         request("/prompts"),
         request("/runs"),
@@ -393,6 +399,7 @@ function App() {
   useEffect(() => {
     if (!workspaceReady || !workspaceId || unavailableWorkspace ||
       !["overview", "research", "prompts", "schedules"].includes(tab)) return;
+    if (tab === "research" && search.researchType && search.researchValue) return;
     let canceled = false;
     const query = "?" + new URLSearchParams({ workspace: workspaceId });
     Promise.all([request("/prompts" + query), request("/runs" + query), request("/schedules" + query)])
@@ -403,7 +410,7 @@ function App() {
         });
       }).catch(error => { if (!canceled) setError(error.message); });
     return () => { canceled = true; };
-  }, [workspaceReady, workspaceId, unavailableWorkspace, workspaceKey, prompts, request, tab]);
+  }, [workspaceReady, workspaceId, unavailableWorkspace, workspaceKey, prompts, request, tab, search.researchType, search.researchValue]);
   useEffect(() => {
     if (!workspaceReady || !workspace || unavailableWorkspace || tab !== "prompts") return;
     let canceled = false;
@@ -423,6 +430,8 @@ function App() {
     setPromptScheduleFilter("");
     setPromptBrandFilter("");
     setPromptWorkspace("");
+    setEditingWorkspace("");
+    setEditingBrand(null);
   }, [org, workspace]);
   useEffect(() => {
     if (initializing || pendingInvite || !org || search.trial || !orgReady) return;
@@ -548,6 +557,25 @@ function App() {
     } finally {
       setBusy(false);
     }
+  }
+  function editSavedPrompt(prompt: Item) {
+    setEditPrompt(prompt);
+    setPromptText(prompt.text);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+  function removePrompts(ids: string[]) {
+    if (!confirm(`Delete ${ids.length === 1 ? "this prompt" : ids.length + " prompts"} and their schedules? Previously queued and collected runs stay in Run history.`)) return;
+    void action(async () => {
+      const result = await request("/prompts/bulk", "DELETE", { ids });
+      setSelectedPromptIds([]);
+      if (editPrompt && ids.includes(editPrompt.id)) {
+        setEditPrompt(null);
+        setPromptText("");
+      }
+      if (search.prompt && ids.includes(search.prompt)) setTab("prompts");
+      await load();
+      setNotice(`Deleted ${result.deleted} ${result.deleted === 1 ? "prompt" : "prompts"}.`);
+    });
   }
   async function action(fn: () => Promise<void>) {
     setBusy(true);
@@ -788,7 +816,7 @@ function App() {
           <select aria-label="Workspace" value={workspace} disabled={!workspaceReady || busy}
             onChange={e => { setWorkspace(e.target.value); setError(""); setNotice(""); }}>
             <option value={ALL_WORKSPACES}>All workspaces</option>
-            {unavailableWorkspace && <option value={workspace}>Unavailable workspace</option>}
+            {(unavailableWorkspace || archivedHistory) && <option value={workspace}>{workspaceNames[workspace] || "Unavailable workspace"}</option>}
             {workspaces.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
           </select>
         </label>
@@ -832,9 +860,7 @@ function App() {
               </form>
             </details>
         )}
-        <Link className="workspace-org-link" to="/app" search={sectionSearch("settings")}>
-          {orgs.find(o => o.id === org)?.name || "Organization settings"}
-        </Link>
+        {workspaceReady && <Link className="workspace-management-link" to="/app" search={sectionSearch("workspaces")}>Manage workspaces</Link>}
         <nav className="app-nav" aria-label="Application">
           {nav.map(({ id, label, Icon }) => (
             <Link
@@ -851,11 +877,15 @@ function App() {
           ))}
         </nav>
         <div className="app-sidebar-bottom">
-          <LegalLinks />
           <Badge variant="outline">Early beta</Badge>
           <span>
             {session.user.name}
             <small>{session.user.email}</small>
+            {orgs.some(o => o.id === org) && (
+              <small><Link className="workspace-org-link" to="/app" search={sectionSearch("settings")}>
+                {orgs.find(o => o.id === org)?.name}
+              </Link></small>
+            )}
           </span>
           <Button
             size="sm"
@@ -883,7 +913,7 @@ function App() {
               {orgs.find((o) => o.id === org)?.name || "Your account"}
             </span>
             <span className="app-slash">/</span>
-            <strong>{nav.find((n) => n.id === tab)?.label}</strong>
+            <strong>{paneName}</strong>
           </div>
           <div className="topbar-actions">
           <ThemeToggle />
@@ -985,7 +1015,8 @@ function App() {
               </details>
             </CardContent></Card>
           )}
-          {orgReady && (billing.enabled || billing.free_trial_enabled) && <Card><CardContent>
+          {tab === "settings" && orgReady && (billing.enabled || billing.free_trial_enabled) && <Card><CardContent>
+            <p className="section-eyebrow">Billing</p>
             <h2>{billing.access_status === "trial_expired" ? "Your free trial has ended. Choose a plan to continue." : billing.access_status === "free_trial" ? "Your 14-day free trial is active" : "Plan & billing"}</h2>
             {billing.access_status === "free_trial" && <p>Full Starter access until {new Date(billing.free_trial.ends_at).toLocaleString()}. No card is on file for this trial and no automatic charge will happen at expiry.</p>}
             <p>Starter: $10 USD/month before applicable tax. Full product allowances, billed per organization. Your first paid charge is refundable within 7 days. Provider usage is billed separately.</p>
@@ -1063,7 +1094,11 @@ function App() {
               {error ? <p>Use Refresh to try loading this organization again.</p> : <p role="status">Loading organization…</p>}
             </CardContent></Card>
           ) : billingBlocksWorkspace(billing.access_status) ? (
-            <Card><CardContent><h2>Choose your plan</h2><p>Starter includes 6,000 tracking runs and 200,000 API operations per calendar month, 3 concurrent runs, and team/API access. Complete payment above to continue. Existing data stays in your organization.</p></CardContent></Card>
+            tab === "settings" ? null : <Card><CardContent>
+              <h2>Workspace access paused</h2>
+              <p>Open billing settings to see your plan and payment options. Your existing data stays in this organization.</p>
+              <Button asChild><Link to="/app" search={sectionSearch("settings")}>Open billing settings</Link></Button>
+            </CardContent></Card>
           ) : unavailableWorkspace ? (
             <Card><CardContent>
               <h2>Workspace unavailable</h2>
@@ -1082,7 +1117,7 @@ function App() {
                   <h1>
                     {tab === "overview"
                       ? "Your next move, clearer."
-                      : nav.find((n) => n.id === tab)?.label + "."}
+                      : paneName}
                   </h1>
                   <p>
                     {tab === "overview"
@@ -1287,6 +1322,53 @@ function App() {
                   </p>
                 </>
               )}
+              {tab === "workspaces" && (
+                <Card><CardContent>
+                  <h2>Manage workspaces</h2>
+                  <p className="data-note">Use New workspace in the sidebar to create a workspace.</p>
+                  {workspaces.map(w => (
+                    <div className="workspace-manager-row" key={w.id}>
+                      {editingWorkspace === w.id ? (
+                        <form className="form-stack" onSubmit={e => submit(e, async f => {
+                          await request("/workspaces/" + w.id, "PATCH", { name: f.get("name"), brand_id: f.get("brand_id") || null });
+                          setEditingWorkspace("");
+                          await load();
+                          setNotice("Workspace updated.");
+                        })}>
+                          <FormField label="Edit workspace name"><input name="name" required maxLength={100} defaultValue={w.name} /></FormField>
+                          <FormField label="Workspace primary brand">
+                            <select name="brand_id" defaultValue={w.brand_id || ""}>
+                              <option value="">No primary brand</option>
+                              {brands.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                            </select>
+                          </FormField>
+                          <div className="form-actions">
+                            <Button disabled={busy}>Save workspace</Button>
+                            <Button type="button" variant="ghost" onClick={() => setEditingWorkspace("")}>Cancel</Button>
+                          </div>
+                        </form>
+                      ) : (
+                        <div className="simple-row">
+                          <Link to="/app" search={{ org, workspace: w.id, tab: "overview" }}><strong>{w.name}</strong></Link>
+                          {canWrite && <div className="form-actions flex-wrap">
+                            <Button size="sm" variant="outline" onClick={() => setEditingWorkspace(w.id)}>Edit workspace</Button>
+                            <Button size="sm" variant="outline" disabled={busy} onClick={() => {
+                              if (!confirm(`Delete ${w.name} and its prompts and schedules? Previously queued and collected runs stay in Run history.`)) return;
+                              void action(async () => {
+                                await request("/workspaces/" + w.id, "DELETE");
+                                if (workspace === w.id) setWorkspace(ALL_WORKSPACES);
+                                await load();
+                                setNotice("Workspace deleted.");
+                              });
+                            }}>Delete workspace</Button>
+                          </div>}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  {!workspaces.length && <p className="data-note">No active workspaces.</p>}
+                </CardContent></Card>
+              )}
               {tab === "prompts" && (
                 <>
                   {search.prompt && (
@@ -1311,6 +1393,10 @@ function App() {
                             <Button variant="ghost" size="sm" asChild>
                               <Link to="/app" search={{ ...sectionSearch("runs"), runPrompt: linkedPrompt.id }}>View prompt runs</Link>
                             </Button>
+                            {canWrite && <div className="form-actions flex-wrap">
+                              <Button variant="outline" size="sm" onClick={() => editSavedPrompt(linkedPrompt)}>Edit prompt</Button>
+                              <Button variant="outline" size="sm" disabled={busy} onClick={() => removePrompts([linkedPrompt.id])}>Delete prompt</Button>
+                            </div>}
                           </>
                         ) : <p role="status">Loading prompt…</p>}
                       </CardContent>
@@ -1588,6 +1674,8 @@ function App() {
                         <Button variant="outline" disabled={!savedSelection.length||savedSelection.length>100} onClick={()=>{setSelectedPromptIds(savedSelection);setEditingScheduleSelection(false);setTab("schedules");}}>Schedule selected</Button>
                         <Button variant="outline" disabled={busy||!savedSelection.length||savedSelection.length>100} onClick={()=>action(async()=>{await request("/prompts/bulk-settings","PATCH",{ids:savedSelection,enabled:true});await load();setNotice("Selected prompts enabled.");})}>Enable selected</Button>
                         <Button variant="outline" disabled={busy||!savedSelection.length||savedSelection.length>100} onClick={()=>action(async()=>{await request("/prompts/bulk-settings","PATCH",{ids:savedSelection,enabled:false});await load();setNotice("Selected prompts paused; history retained.");})}>Pause selected</Button>
+                        <Button variant="outline" disabled={busy || !savedSelection.length || savedSelection.length > 100}
+                          onClick={() => removePrompts(savedSelection)}>Delete selected prompts</Button>
                         {savedSelection.length > 0 && savedSelection.length <= 100 && workspaces.length > 1 && (
                           <details>
                             <summary>Move selected prompts</summary>
@@ -1640,14 +1728,7 @@ function App() {
                                     <Button
                                       variant="outline"
                                       size="sm"
-                                      onClick={() => {
-                                        setEditPrompt(p);
-                                        setPromptText(p.text);
-                                        window.scrollTo({
-                                          top: 0,
-                                          behavior: "smooth",
-                                        });
-                                      }}
+                                      onClick={() => editSavedPrompt(p)}
                                     >
                                       Edit
                                     </Button>
@@ -1663,6 +1744,7 @@ function App() {
                                     >
                                       <Play size={12} /> Run
                                     </Button>
+                                    <Button variant="outline" size="sm" disabled={busy} onClick={() => removePrompts([p.id])}>Delete</Button>
                                   </>
                                 )}
                               </div>
@@ -1686,7 +1768,12 @@ function App() {
                   </Card>
                 </>
               )}
-              {tab === "research" && (
+              {tab === "research" && (search.researchType && search.researchValue ? (
+                <ResearchDrilldown
+                  key={JSON.stringify([org, workspace, search.researchType, search.researchValue])}
+                  org={org} workspace={workspace} type={search.researchType} value={search.researchValue} request={request}
+                />
+              ) : (
                 <>
                   <Card>
                     <CardContent>
@@ -1711,7 +1798,9 @@ function App() {
                           {sources.domains.length ? (
                             sources.domains.map((d) => (
                               <div className="simple-row" key={d.domain}>
-                                <strong>{d.domain}</strong>
+                                <Link to="/app" search={{ ...sectionSearch("research"), researchType: "domain", researchValue: d.domain }}>
+                                  <strong>{d.domain}</strong>
+                                </Link>
                                 <span>
                                   {d.count} / {successful.length} answers ·{" "}
                                   {percent(d.count, successful.length)}
@@ -1729,13 +1818,12 @@ function App() {
                           {sources.pages.length ? (
                             sources.pages.map((p) => (
                               <div className="citation-row" key={p.url}>
-                                <a
-                                  href={p.url}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                >
+                                <Link to="/app" search={{ ...sectionSearch("research"), researchType: "page", researchValue: p.url }}>
                                   <strong>{p.title}</strong>
                                   <span>{p.url}</span>
+                                </Link>
+                                <a className="small-link" href={p.url} target="_blank" rel="noreferrer" aria-label="Open original page">
+                                  <ExternalLink size={14} />
                                 </a>
                                 <Badge variant="secondary">
                                   {p.count} answers
@@ -1753,7 +1841,7 @@ function App() {
                           {sources.queries.length ? (
                             sources.queries.map(([q, count]) => (
                               <div className="simple-row" key={q}>
-                                <span>{q}</span>
+                                <Link to="/app" search={{ ...sectionSearch("research"), researchType: "query", researchValue: q }}>{q}</Link>
                                 <Badge variant="secondary">
                                   {count} answers
                                 </Badge>
@@ -1816,7 +1904,7 @@ function App() {
                     </CardContent>
                   </Card>
                 </>
-              )}
+              ))}
               {tab === "runs" && (
                 <>
                   {search.run && !selectedRun && (
@@ -2040,15 +2128,16 @@ function App() {
                   <Card>
                     <CardContent>
                       <div className="panel-title">
-                        <h2>Add a brand</h2>
+                        <h2>{editingBrand ? "Edit brand" : "Add a brand"}</h2>
                       </div>
                       {canWrite ? (
                         <form
+                          key={editingBrand?.id || "new-brand"}
                           className="form-stack"
                           onSubmit={(e) =>
                             submit(e, async (f) => {
-                              await request("/brands", "POST", {
-                                ...(workspaceId ? {workspace_id: workspaceId} : {}),
+                              await request(editingBrand ? "/brands/" + editingBrand.id : "/brands", editingBrand ? "PATCH" : "POST", {
+                                ...(!editingBrand && workspaceId ? {workspace_id: workspaceId} : {}),
                                 name: f.get("name"),
                                 domain: f.get("domain") || "",
                                 kind: f.get("kind"),
@@ -2058,8 +2147,9 @@ function App() {
                                   .filter(Boolean),
                               });
                               setNotice(
-                                workspaceId ? "Brand added and tracked in this workspace." : "Brand added to the organization. Assign it to a workspace to track it.",
+                                editingBrand ? "Brand updated." : workspaceId ? "Brand added and tracked in this workspace." : "Brand added to the organization. Assign it to a workspace to track it.",
                               );
+                              setEditingBrand(null);
                               await load();
                             })
                           }
@@ -2069,6 +2159,7 @@ function App() {
                               <input
                                 required
                                 name="name"
+                                defaultValue={editingBrand?.name}
                                 maxLength={100}
                                 placeholder="Puget Sound Cleaners"
                               />
@@ -2076,12 +2167,13 @@ function App() {
                             <FormField label="Canonical domain (optional)">
                               <input
                                 name="domain"
+                                defaultValue={editingBrand?.domain}
                                 placeholder="pugetsoundcleaners.com"
                                 maxLength={253}
                               />
                             </FormField>
                             <FormField label="Relationship">
-                              <select name="kind">
+                              <select name="kind" defaultValue={editingBrand?.kind || "own"}>
                                 <option value="own">Our brand</option>
                                 <option value="client">Agency client</option>
                                 <option value="competitor">Competitor</option>
@@ -2093,14 +2185,16 @@ function App() {
                             >
                               <input
                                 name="aliases"
+                                defaultValue={editingBrand ? JSON.parse(editingBrand.aliases || "[]").join(", ") : ""}
                                 maxLength={1500}
                                 placeholder="PSC, Puget Sound Cleaning"
                               />
                             </FormField>
                           </div>
-                          <Button disabled={busy}>
-                            <Plus size={14} /> Add brand
-                          </Button>
+                          <div className="form-actions">
+                            <Button disabled={busy}>{editingBrand ? "Save brand" : "Add brand"}</Button>
+                            {editingBrand && <Button type="button" variant="ghost" onClick={() => setEditingBrand(null)}>Cancel</Button>}
+                          </div>
                         </form>
                       ) : (
                         <p className="data-note">Viewer access is read-only.</p>
@@ -2177,6 +2271,21 @@ function App() {
                             </span>
                             <div className="form-actions">
                               <Badge variant="outline">{b.kind}</Badge>
+                              {canWrite && <>
+                                <Button size="sm" variant="outline" disabled={busy} onClick={() => {
+                                  setEditingBrand(b);
+                                  window.scrollTo({ top: 0, behavior: "smooth" });
+                                }}>Edit brand</Button>
+                                <Button size="sm" variant="outline" disabled={busy} onClick={() => {
+                                  if (!confirm(`Delete ${b.name} from this organization and all its workspaces? Existing run evidence stays available.`)) return;
+                                  void action(async () => {
+                                    await request("/brands/" + b.id, "DELETE");
+                                    if (editingBrand?.id === b.id) setEditingBrand(null);
+                                    await load();
+                                    setNotice("Brand deleted.");
+                                  });
+                                }}>Delete brand</Button>
+                              </>}
                               {!allWorkspaces && canWrite && <Button size="sm" variant="ghost" disabled={busy}
                                 onClick={() => action(async () => {
                                   await request("/workspaces/" + workspaceId + "/brands/" + b.id, "DELETE");
@@ -2845,6 +2954,7 @@ function App() {
               )}
             </>
           )}
+          {tab === "settings" && <footer className="settings-legal"><LegalLinks /></footer>}
         </main>
       </div>
     </div>
