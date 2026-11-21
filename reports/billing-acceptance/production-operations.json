@@ -1,7 +1,7 @@
 {
   "checked_at": "2026-11-21T03:01:29.569Z",
   "readiness": {
-    "cron_succeeded_at": null,
+    "cron_succeeded_at": 1795230654851,
     "queue": {
       "queued": null,
       "oldest_queued_at": null,
@@ -25,7 +25,7 @@
       "organizations": 0,
       "runs": 0,
       "billing_customers": 0,
-      "unresolved_alerts": 1
+      "unresolved_alerts": 0
     }
   },
   "recovery": {
@@ -103,8 +103,12 @@
     "failure_alert_after": 2,
     "cooldown_minutes": 60,
     "destination": "owner Telegram",
-    "scheduled_execution_verified": false,
-    "history_tool_visibility": "not-found; do not infer absence or recreate"
+    "scheduled_execution_verified": true,
+    "history_tool_visibility": "not-found; do not infer absence or recreate",
+    "checked_at": "2026-11-21T03:11:27.764Z",
+    "cron_succeeded_at": 1795230654851,
+    "failures": [],
+    "proof": "State file advanced to the scheduled five-minute execution at 03:11:27 UTC, after the final manual monitor check; successful production cron heartbeat observed independently."
   },
   "deployed_at": "2026-11-21T03:06:15.146846Z"
 }
