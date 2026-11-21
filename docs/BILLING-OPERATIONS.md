@@ -37,8 +37,7 @@ confirmed. No invented registrations, head-office address or product tax code.
    Stripe account charges/payouts eligibility and required business details.
 5. Create live Product/Price (USD 10 monthly, tax-exclusive) and portal (invoices,
    payment update and at-period-end cancellation). Document tax obligations and
-   verify the product tax code and active registrations. Live Checkout always
-   uses Stripe Tax. Use live Price and portal IDs.
+   verify the product tax code and active registrations. Current Checkout follows the owner-approved Studio configuration with automatic tax off. Use live Price and portal IDs.
 6. Insert live Price → starter-v1 mapping with livemode=1. Configure the live
    portal ID, live secret and unique production webhook signing secret.
 7. Register production `/api/billing/webhook` for the lifecycle, checkout and risk
@@ -119,7 +118,7 @@ reconciling state, record the support-case reason outside the SQL command. Only
 an operator may release a hold; customers cannot self-release payment risk:
 
 ```sql
-UPDATE billing_customers SET risk_hold=0 WHERE org_id='<verified org>';
+UPDATE billing_accounts SET risk_hold=0 WHERE org_id='<verified org>';
 UPDATE billing_alerts SET resolved_at=<current epoch milliseconds>
 WHERE id='<reviewed alert>';
 ```
@@ -247,3 +246,11 @@ The API validates canonical values rather than trusting dropdowns.
 ## Three-tier catalog preparation
 
 Apply migration `0021_three_tier_plans.sql` before deployment. Run `node scripts/configure-tier-catalog.mjs` on the Gateway for a read-only preview; `--apply` creates missing Products/Prices using deterministic idempotency keys and writes nonsecret `docs/stripe-tier-catalog.json`. It checks the merchant identity, reuses one Product per tier, preserves old Prices and takes the existing account tax classification without changing Tax Settings or registrations. Map each resulting live Price to its exact revision using `npm run plans -- price-map ... --apply --remote --config wrangler.jsonc`. Do not publish offers until preflight and the existing launch gates pass. Catalog setup does not create Customers, subscriptions, Checkout Sessions or charges.
+
+## Current prelaunch billing-account cutover (supersedes historical tax gates)
+
+The owner instructed us to treat tax policy as reviewed and complete and approved the Studio configuration with automatic tax disabled. No registrations, addresses or Tax Settings are changed. Tax review is not a pending gate for this change. Historical tax notes above record earlier rollout decisions, not the current configuration.
+
+Take and independently verify a fresh D1 backup. Enable maintenance on the currently deployed Worker, then apply migration `0022` and deploy the matching build before restoring traffic. No old-table adapter exists. Account IDs are stable and customer/subscription IDs remain uniquely bound to the organization. `trial-v2` is the supported new trial; old trial assignments are cut over without resetting claim/expiry dates. Do not deploy an old Worker after dropping its table; roll forward on failures. One-account-per-organization is enforced; consolidated enterprise payers are not enabled.
+
+Use `billing_accounts` for reconciliation/risk review and account-scoped Checkout locks. `billing_account_admins` is owner-managed and cascades with membership removal; organization admins cannot grant themselves financial permissions. Live offers remain empty pending the unrelated real-account acceptance checks, not tax. See [Stripe integration TODO](../STRIPE_INTEGRATION_TODO.md).

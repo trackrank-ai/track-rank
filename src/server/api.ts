@@ -158,7 +158,7 @@ export async function api(
       : path.includes("/run") || path.includes("/analyze")
         ? "run"
         : "write";
-  const t = await tenant(env, p, u.searchParams.get("org"), scope),
+  const t = await tenant(env, p, u.searchParams.get("org"), path.startsWith("/billing") ? "read" : scope),
     org = t.orgId;
   if (path === "/billing" || path.startsWith("/billing/")) return billingRoute(req, env, t, path);
   await customerLimit(env, org);
@@ -696,7 +696,7 @@ export async function api(
     return json({
       members: await all(
         env,
-        "SELECT m.user_id,m.role,u.name,u.email,u.emailVerified FROM memberships m JOIN user u ON u.id=m.user_id WHERE m.org_id=?",
+        "SELECT m.user_id,m.role,u.name,u.email,u.emailVerified,EXISTS(SELECT 1 FROM billing_account_admins ba WHERE ba.org_id=m.org_id AND ba.user_id=m.user_id) AS billing_admin FROM memberships m JOIN user u ON u.id=m.user_id WHERE m.org_id=?",
         org,
       ),
     });

@@ -21,7 +21,7 @@ export async function organizationPlan(env: Env, org: string) {
   }
   if (Number(row.price_cents) > 0) {
     // Paid catalog assignments never grant access by themselves, even if billing is disabled.
-    const billing = await one<Row>(env, "SELECT status,price_id,risk_hold,updated_at FROM billing_customers WHERE org_id=?", org);
+    const billing = await one<Row>(env, "SELECT status,price_id,risk_hold,updated_at FROM billing_accounts WHERE org_id=?", org);
     const mapped = billing && await one<Row>(env, "SELECT plan_version_id FROM billing_prices WHERE price_id=? AND livemode=?", billing.price_id, Number(!env.STRIPE_SECRET_KEY?.includes("_test_")));
     if (env.BILLING_ENABLED !== "true" || !env.STRIPE_SECRET_KEY || billing?.status !== "active" || billing?.risk_hold === 1 || Number(billing?.updated_at) < now() - 24 * 3600000 || mapped?.plan_version_id !== row.id)
       throw new HttpError(402, "Subscription payment required; the organization owner can use billing management");

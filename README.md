@@ -116,4 +116,10 @@ Google and password methods share a verified same-email user identity. Google-on
 | Agency | $39 | 60,000 | 90 days |
 | Scale | $99 | 250,000 | 180 days |
 
-Apply migration `0021` before deploying these entitlements. Searchable history covers run lists, research and CSV exports, not automatic data deletion. Direct evidence links remain accessible with authorized product access. Existing subscriptions retain their revision. Live prices are prepared but offers remain unpublished until the [billing launch gates](docs/BILLING-OPERATIONS.md) pass.
+Apply migration `0021` before deploying these entitlements. Searchable history covers run lists, research and CSV exports, not automatic data deletion. Direct evidence links remain accessible with authorized product access. This prelaunch deployment uses one supported billing-account model. Live prices are prepared but offers remain unpublished until the [billing launch gates](docs/BILLING-OPERATIONS.md) pass.
+
+## Team billing
+
+Each organization owns one billing account, Stripe Customer and subscription; workspaces share its allowance without per-seat fees. Owners can bulk grant/revoke billing access under **Settings → Billing administrators**, including when product access is paused. Delegation never changes workspace permissions, and removing membership revokes billing access. Billing admins can select a plan or manage payment details/invoices in the hosted portal. Agent billing tools return verified sign-in handoffs instead of payment-session bearer URLs.
+
+Apply migration `0022` under maintenance before deploying: it replaces the old billing table without a compatibility adapter. Hosted trials use `trial-v2` (10,000 monthly checks, 30-day searchable history). Checkout follows the approved hosted configuration with automatic tax disabled; no tax registrations are changed. Cross-organization invoice consolidation and SSO/SCIM are not implemented. See [remaining Stripe setup](STRIPE_INTEGRATION_TODO.md).

@@ -18,7 +18,11 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
       "MCP requires an organization API key in Authorization: Bearer",
     );
   // Also bound discovery/initialize requests that never invoke an API tool.
-  await enforceLimit(env, `mcp:${p.orgId}`, safetyCeiling(env.API_REQUESTS_PER_MINUTE, (await organizationPlan(env, p.orgId!)).limits.api_per_minute));
+  let transportBudget = 60;
+  try { transportBudget = (await organizationPlan(env, p.orgId!)).limits.api_per_minute; }
+  catch (error) { if (!(error instanceof HttpError) || error.status !== 402) throw error; }
+  // Discovery and billing recovery remain available when product access is paused.
+  await enforceLimit(env, `mcp:${p.orgId}`, safetyCeiling(env.API_REQUESTS_PER_MINUTE, transportBudget));
   const server = new McpServer(
     { name: "trackrank", version: "0.1.0" },
     {
@@ -63,6 +67,18 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
       };
     }
   };
+  server.registerTool("get_billing", {
+    description: "Read this organization's billing account, offers, access status and billing permissions. Available while product access is paused.",
+    inputSchema: {},
+  }, async () => invoke("/billing"));
+  server.registerTool("billing_management_handoff", {
+    description: "Get a sign-in-required app link for an authorized owner/billing admin to purchase or manage billing. Never creates charges or returns a Stripe bearer link.",
+    inputSchema: {},
+  }, async () => invoke("/billing/handoff"));
+  server.registerTool("billing_admin_handoff", {
+    description: "Owner-only sign-in handoff to delegate/revoke billing access in bulk. API keys cannot change billing permissions.",
+    inputSchema: {},
+  }, async () => invoke("/billing/admin-handoff"));
   server.registerTool(
     "get_context",
     {

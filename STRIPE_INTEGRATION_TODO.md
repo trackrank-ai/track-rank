@@ -1,68 +1,79 @@
-# Stripe integration status and remaining setup
+# Stripe integration — remaining setup
 
 ## Values to replace
 
-No placeholder Checkout values were found. The existing subscription flow in
-[billing.ts](src/server/billing.ts) resolves real Price IDs from the D1 offer catalog
-and uses the deployment's organization-specific Settings URL for success/cancel.
-Server credentials use `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`; neither is
-browser-accessible or prefixed with `VITE_`. The installed Stripe SDK is 23.x.
+None. [billing.ts](src/server/billing.ts) uses real catalog Price IDs, subscription mode,
+and organization-specific Settings URLs. Server keys are `STRIPE_SECRET_KEY` and
+`STRIPE_WEBHOOK_SECRET`; neither is browser-accessible. Stripe SDK: 23.2.0.
 
-## Checkout Studio parameters — pending compatibility confirmation
+## Configured parameters
 
-Scenario A applies: [billing.ts](src/server/billing.ts) already creates Checkout Sessions.
-The supplied configuration requests the following parameters. **They have not yet
-been applied**, because the literal removal rule conflicts with existing ownership
-and session-reuse logic. Only this Checkout change is pending; catalog preparation
-is independent.
+Scenario A: the existing Checkout call in [billing.ts](src/server/billing.ts) is used;
+no extra Checkout endpoint or webhook stack was added.
 
-| Parameter | Requested value |
+| Parameter | Value |
 |---|---|
 | ui_mode | hosted_page |
-| mode | subscription (preserve existing) |
+| mode | subscription |
 | billing_address_collection | auto |
 | phone_number_collection.enabled | false |
 | automatic_tax.enabled | false |
 | allow_promotion_codes | false |
 | payment_method_collection | always |
-| submit_type | auto (payment-mode only; omit for subscriptions) |
 | integration_identifier | hosted_web_0001 |
 | origin_context | web |
-| success_url / cancel_url | Existing organization Settings URL |
-| line_items | Selected real catalog Price, quantity 1 |
+| success_url / cancel_url | Real organization Settings URL |
+| line_items | Real selected catalog Price, quantity 1 |
 
-Confirm preserving the `customer` parameter: lifecycle webhooks map that Customer
-ID to the organization; removing it would create an unrelated Customer and prevent
-paid entitlement assignment. Existing metadata supports safe open-session reuse.
-The template also removes terms consent and changes automatic tax to false, while
-the surrounding existing live Checkout gate requires verified tax configuration.
-A parameter-only patch cannot make those two tax policies consistent. Keep live
-offers unpublished until this policy conflict and existing launch gates are resolved.
+`submit_type` is omitted because Stripe only accepts it in payment mode. The
+existing `customer` binding is retained as explicitly approved: Stripe Customers
+belong to billing accounts, never the acting employee. Metadata and bounded expiry
+are retained for safe session reuse/idempotency. Tax-ID collection, customer-update
+settings, custom terms text and consent parameters were removed per the supplied
+configuration. The owner instructed us to treat tax policy as reviewed and complete;
+Checkout has automatic tax off. No Tax Settings or registrations were changed.
 
-## Catalog and setup
+## Billing model
 
-The live catalog identifiers are in [stripe-tier-catalog.json](docs/stripe-tier-catalog.json).
-Starter v2 is $10 / 10,000 checks / 30-day searchable history; Agency v1 is $39 /
-60,000 / 90 days; Scale v1 is $99 / 250,000 / 180 days. Existing Starter v1 terms
-and immutable Price mappings are preserved. No live subscription or charge was made.
+Organization → billing account → Stripe Customer → subscription. One account per
+organization; all its workspaces share the monthly allowance. Billing access is a
+separate permission delegated by owners to organization members; it does not change
+workspace roles. Organization removal revokes delegated billing access. API keys can
+read billing and obtain a sign-in-required management/delegation handoff, but cannot
+purchase plans, obtain Stripe bearer sessions, or change billing administrators.
+Billing recovery and delegation stay available while product access is suspended.
 
-Apply migration `0021` and deploy the matching Worker before using the new revisions.
-Map each Price to its exact revision; publish offers only after the pre-enable gates
-in [billing operations](docs/BILLING-OPERATIONS.md) pass. Current live Tax Settings
-are active, but no tax registrations exist; registrations and tax policy need review.
-Do not infer a registration obligation or invent registrations from this configuration.
+Consolidated billing across multiple organizations, finance-only identities outside
+organization membership, enterprise SSO/SCIM and automated contract negotiation are
+not implemented. The explicit account boundary is the foundation for those features;
+sharing a Stripe Customer across unrelated organizations is deliberately prohibited.
 
-## Flow and testing
+## Deployment and next steps
 
-The owner chooses an offer → authenticated server validates price/ownership → Stripe
-hosted Checkout → signed lifecycle/risk webhooks reconcile the subscription and exact
-revision. A success redirect never grants access. Billing portal, reconciliation,
-and existing tenant authorization remain in place; no new endpoint is needed.
+1. Apply migrations through `0022` during coordinated maintenance, then deploy the
+   matching Worker. This is a clean cutover: `billing_customers` is replaced, not
+   supported by an adapter or dual-read path. Trial enrollment uses `trial-v2`.
+2. Verify the nonsecret catalog and D1 mappings in
+   [stripe-tier-catalog.json](docs/stripe-tier-catalog.json): Starter $10 / 10,000 checks /
+   30 days; Agency $39 / 60,000 / 90 days; Scale $99 / 250,000 / 180 days.
+3. Live offers remain unpublished until the remaining real-account acceptance gates
+   in [billing operations](docs/BILLING-OPERATIONS.md) pass. Do not create a live charge
+   as part of this implementation. Tax review is not a pending gate for this change.
+4. Browser interaction verification of the new delegation controls is still pending:
+   the environment blocked navigation to the local app. Automated REST/MCP and local
+   HTTP verification are recorded separately; do not label them browser acceptance.
 
-Run `npm test`, `npm run typecheck`, and `npm run build`. Real sandbox Checkout
-acceptance is separate: use test credentials and Stripe's test card `4242 4242 4242 4242`,
-any future expiry and test CVC. Never enter that card into a live Checkout Session.
-Do not claim live payment acceptance until an explicitly authorized real-card test
-and signed webhook have been verified.
+## Testing and flow
+
+Authenticated billing admin selects an offer → server validates its real Price and
+billing account → hosted Checkout → signed webhook reconciles the account and
+commercial plan. Redirects alone never grant access. Portal and subscription/risk
+webhooks remain required. Plan limits are independent of membership roles.
+
+Run `npm test`, `npm run typecheck`, `npm run build`; the opt-in real TEST Checkout
+smoke is `TRACKRANK_STRIPE_SMOKE=1 node --import tsx --test --test-name-pattern='sandbox: real checkout' tests/billing.test.ts`.
+It creates and cleans up a TEST customer/session, never a live charge. Card completion
+is a separate sandbox acceptance step using test card `4242 4242 4242 4242`, any future
+expiry and test CVC. Never use test cards in live mode.
 
 Resources: https://support.stripe.com and https://docs.stripe.com/mcp

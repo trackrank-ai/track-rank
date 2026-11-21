@@ -236,7 +236,7 @@ test("tier search windows apply to REST, research, export and MCP without deleti
     const price = "price_"+revision;
     sql.prepare("INSERT INTO billing_prices VALUES(?,?,0)").run(price,revision);
     sql.prepare("UPDATE organization_plans SET plan_version_id=? WHERE org_id='org'").run(revision);
-    sql.prepare("UPDATE billing_customers SET status='active',price_id=?,updated_at=? WHERE org_id='org'").run(price,Date.now());
+    sql.prepare("UPDATE billing_accounts SET status='active',price_id=?,updated_at=? WHERE org_id='org'").run(price,Date.now());
     sql.exec("DELETE FROM runs");
     const boundary = Date.now()-days*86400000;
     insert.run("inside","inside-"+revision,boundary+60000,boundary+60000);

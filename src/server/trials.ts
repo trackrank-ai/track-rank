@@ -17,7 +17,7 @@ export function trialEnrollment(env: Env, userId: string, orgId: string, time: n
       ) ON CONFLICT(org_id) DO NOTHING
     `).bind(orgId, time, time + trialDuration, userId, orgId),
     env.DB.prepare(`
-      UPDATE organization_plans SET plan_version_id='trial-v1',assigned_at=?,reason='Card-free 14-day introductory trial'
+      UPDATE organization_plans SET plan_version_id='trial-v2',assigned_at=?,reason='Card-free 14-day introductory trial'
       WHERE org_id=? AND plan_version_id='pending-v1'
         AND EXISTS(SELECT 1 FROM organization_trials WHERE org_id=?)
     `).bind(time, orgId, orgId),
