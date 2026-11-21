@@ -1,4 +1,5 @@
-import {z} from 'zod';import {all,exec,HttpError,now,one,uuid,type Env,type Row} from './types';import {calendarMonth,organizationPlan} from './plans';import {credentials,type Engine} from './provider';import {assertProviderOptions} from './provider-options';import {hashToken} from './crypto';
+import {z} from 'zod';import {all,exec,HttpError,now,one,required,uuid,type Env,type Row} from './types';import {organizationPlan} from './plans';import {credentials,type Engine} from './provider';import {assertProviderOptions} from './provider-options';import {hashToken} from './crypto';
+import { prepareRunAdmission, runUsage, runUsagePeriods } from './run-admission';
 const ids=z.array(z.string().min(1).max(100)).min(1).max(100);
 export const bulkRunSchema=z.object({prompt_ids:ids,repetitions:z.number().int().min(1).max(10).default(1),batch_key:z.string().regex(/^[A-Za-z0-9_-]{8,100}$/)}).strict();
 export const bulkScheduleSchema=z.object({prompt_ids:ids,name:z.string().trim().max(100).default('Scheduled prompts'),preset:z.enum(['daily','weekly','mwf','custom']),days:z.array(z.number().int().min(0).max(6)).min(1).max(7),times:z.array(z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/)).min(1).max(8),timezone:z.string().min(1).max(100),repetitions:z.number().int().min(1).max(10).default(1),enabled:z.boolean().default(false)}).strict();
@@ -13,13 +14,24 @@ export async function createBulkRuns(env:Env,org:string,input:unknown){
  if(rows.some(p=>!p.enabled))throw new HttpError(409,'Enable all selected prompts before running them');
  const total=selected.length*b.repetitions;if(total>100)throw new HttpError(400,'A batch can queue at most 100 independent runs');
  const plan=await organizationPlan(env,org);if(plan.family==='pending')throw new HttpError(402,'Choose a plan to start tracking');
- const prefix=`bulk:${b.batch_key}:`;const existing=await all<Row>(env,'SELECT id,idempotency_key FROM runs WHERE org_id=? AND substr(idempotency_key,1,?)=?',org,prefix.length,prefix);
+ const prefix = `bulk:${b.batch_key}:`;
+ const prefixEnd = `bulk:${b.batch_key};`;
  const payloadHash=await hashToken(JSON.stringify({selected,repetitions:b.repetitions}));const prior=await one(env,'SELECT payload_hash FROM run_batches WHERE org_id=? AND batch_key=?',org,b.batch_key);if(prior && prior.payload_hash!==payloadHash)throw new HttpError(409,'This batch key belongs to a different request');
- const t=now(),month=calendarMonth(t),day=new Date(new Date(t).toISOString().slice(0,10)).getTime();
- const usage=await one<Row>(env,'SELECT (SELECT daily_run_ceiling FROM organizations WHERE id=?) AS ceiling,sum(CASE WHEN created_at>=? THEN 1 ELSE 0 END) AS daily,count(*) AS monthly FROM runs WHERE org_id=? AND created_at>=? AND created_at<?',org,day,org,month.start,month.end);
- const needed=total-existing.length;
- if(needed>0 && (Number(usage?.daily||0)+needed>Number(usage?.ceiling)||Number(usage?.monthly||0)+needed>plan.limits.runs_per_month))throw new HttpError(429,`This batch needs ${needed} new runs and exceeds your remaining daily or monthly allowance. Reduce the batch or review Settings.`);
- await exec(env,'INSERT OR IGNORE INTO run_batches VALUES(?,?,?,?)',org,b.batch_key,payloadHash,t);
+ const existing = required(await one<{ admitted: number; available: number }>(env,
+   `SELECT count(*) AS admitted,count(r.id) AS available FROM run_admissions a
+     LEFT JOIN runs r ON r.org_id=a.org_id AND r.idempotency_key=a.idempotency_key
+     WHERE a.org_id=? AND a.idempotency_key>=? AND a.idempotency_key<?`,
+   org,prefix,prefixEnd,
+ ));
+ if (existing.admitted > existing.available)
+   throw new HttpError(410, 'Some results from this batch are no longer available. Its batch key cannot be reused.');
+ const periods = runUsagePeriods(now());
+ const usage = await runUsage(env, org, periods);
+ if (usage?.plan_version_id !== plan.version)
+   throw new HttpError(409, 'Organization plan changed. Retry the request.');
+ const needed=total-existing.admitted;
+ if(needed>0 && (usage.daily+needed>usage.ceiling||usage.monthly+needed>plan.limits.runs_per_month))throw new HttpError(429,`This batch needs ${needed} new runs and exceeds your remaining daily or monthly allowance. Reduce the batch or review Settings.`);
+ await exec(env,'INSERT OR IGNORE INTO run_batches VALUES(?,?,?,?)',org,b.batch_key,payloadHash,periods.timestamp);
  const stored=await one(env,'SELECT payload_hash FROM run_batches WHERE org_id=? AND batch_key=?',org,b.batch_key);if(stored?.payload_hash!==payloadHash)throw new HttpError(409,'Batch key conflict');
  const workspace=String(rows[0].workspace_id);
  if(rows.some(p=>p.workspace_id!==workspace))throw new HttpError(400,'Run one workspace per batch');
@@ -30,11 +42,12 @@ export async function createBulkRuns(env:Env,org:string,input:unknown){
  const statements=[];
  for(const id of selected){const p=rows.find(row=>row.id===id)!;for(let sample=1;sample<=b.repetitions;sample++){
   const config={engine:p.engine,mode:p.mode,location_name:p.location_name,language_code:p.language_code,resolve_poisoned_results:!!organization?.resolve_poisoned_results,brands,sample_index:sample,sample_count:b.repetitions,batch_key:b.batch_key};
-  statements.push(env.DB.prepare("INSERT OR IGNORE INTO runs(id,org_id,prompt_id,workspace_id,prompt_text,config,status,idempotency_key,created_at,updated_at) SELECT ?,?,?,?,?,?,'queued',?,?,? WHERE (SELECT count(*) FROM runs WHERE org_id=? AND created_at>=?)<? AND (SELECT count(*) FROM runs WHERE org_id=? AND created_at>=? AND created_at<?)<?").bind(uuid(),org,id,workspace,p.text,JSON.stringify(config),`${prefix}${id}:${sample}`,t,t,org,day,usage?.ceiling,org,month.start,month.end,plan.limits.runs_per_month));
+  statements.push(prepareRunAdmission(env, {
+   org, prompt: id, workspace, text: String(p.text), config, key: `${prefix}${id}:${sample}`,
+  }, periods, plan));
  }}
- statements.push(env.DB.prepare('INSERT INTO usage_daily(org_id,day,runs) SELECT ?,?,count(*) FROM runs WHERE org_id=? AND created_at>=? ON CONFLICT(org_id,day) DO UPDATE SET runs=excluded.runs').bind(org,new Date(t).toISOString().slice(0,10),org,day));
  await env.DB.batch(statements);
- const accepted=await all<Row>(env,'SELECT * FROM runs WHERE org_id=? AND substr(idempotency_key,1,?)=? ORDER BY prompt_id,idempotency_key',org,prefix.length,prefix);
+ const accepted=await all<Row>(env,'SELECT * FROM runs WHERE org_id=? AND idempotency_key>=? AND idempotency_key<? ORDER BY prompt_id,idempotency_key',org,prefix,prefixEnd);
  return {runs:accepted,requested:total,complete:accepted.length===total,...(accepted.length<total?{error:'Your available allowance changed while the batch was being prepared. Only the listed runs were queued; retry the same batch key safely.'}:{})};
 }
 export async function createBulkSchedules(env:Env,org:string,input:unknown){
@@ -49,6 +62,12 @@ export async function createBulkSchedules(env:Env,org:string,input:unknown){
 export const bulkScheduleUpdateSchema=z.object({ids,enabled:z.boolean().optional(),preset:z.enum(['daily','weekly','mwf','custom']).optional(),days:z.array(z.number().int().min(0).max(6)).min(1).max(7).optional(),times:z.array(z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/)).min(1).max(8).optional(),timezone:z.string().min(1).max(100).optional(),repetitions:z.number().int().min(1).max(10).optional()}).strict().refine(b=>Object.keys(b).length>1,'Choose settings to update');
 export async function updateBulkSchedules(env:Env,org:string,input:unknown){
  const b=bulkScheduleUpdateSchema.parse(input);const rows=await selectedRows(env,org,'schedules',b.ids);
+ if (b.enabled !== undefined && Object.keys(b).length === 2) {
+  await env.DB.batch(rows.map(row =>
+   env.DB.prepare('UPDATE schedules SET enabled=? WHERE org_id=? AND id=?').bind(Number(b.enabled),org,row.id),
+  ));
+  return {updated:rows.length};
+ }
  if(b.timezone)try{new Intl.DateTimeFormat('en',{timeZone:b.timezone}).format();}catch{throw new HttpError(400,'Choose a valid timezone');}
  const {localSlot}=await import('./scheduler');
  await env.DB.batch(rows.map(row=>{

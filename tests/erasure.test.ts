@@ -23,6 +23,8 @@ test('organization preview is non-destructive; R2 failure preserves SQL inventor
  const dry=await eraseData(env,{kind:'organization',id:'org'});assert.equal(dry.dry_run,true);assert.equal(objects.size,2);
  setFail(true);await assert.rejects(eraseData(env,{kind:'organization',id:'org',confirm:'erase:organization:org'}),/R2 unavailable/);assert.ok(sql.prepare("SELECT id FROM organizations WHERE id='org'").get());
  setFail(false);const done=await eraseData(env,{kind:'organization',id:'org',confirm:'erase:organization:org'});assert.equal(done.erased,true);assert.deepEqual([...objects.keys()],['other/keep.json']);assert.equal(sql.prepare("SELECT count(*) AS n FROM organizations WHERE id='org'").get()?.n,0);assert.equal(sql.prepare("SELECT count(*) AS n FROM billing_customers WHERE org_id='org'").get()?.n,0);assert.ok(sql.prepare("SELECT id FROM organizations WHERE id='other'").get());assert.equal(sql.prepare('PRAGMA foreign_key_check').all().length,0);
+ assert.equal(sql.prepare("SELECT count(*) AS n FROM run_usage WHERE org_id='org'").get()?.n,0);
+ assert.equal(sql.prepare("SELECT count(*) AS n FROM run_admissions WHERE org_id='org'").get()?.n,0);
 });
 test('account erasure refuses unresolved memberships then removes auth and verification records',async()=>{
  const {env,sql}=setup();sql.exec("INSERT INTO user VALUES('person','Person','test@example.invalid',1,NULL,0,0);INSERT INTO memberships VALUES('org','person','owner',0);INSERT INTO session VALUES('sess',1,'token',0,0,NULL,NULL,'person');INSERT INTO account(id,accountId,providerId,userId,createdAt,updatedAt) VALUES('acct','person','credential','person',0,0);INSERT INTO verification VALUES('verify','test@example.invalid','token',0,0,0)");

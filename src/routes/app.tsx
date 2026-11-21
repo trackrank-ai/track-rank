@@ -153,6 +153,17 @@ function CopyValue({
     </Button>
   );
 }
+type RunHistoryCursor = { before: number; beforeId: string };
+const billingBlocksWorkspace = (status: unknown) =>
+  status === "trial_expired" || status === "choose_plan" || status === "payment_required";
+
+type PendingRunBatch = {
+  prompt_ids: string[];
+  repetitions: number;
+  batch_key: string;
+  accepted?: number;
+};
+
 function App() {
   const [selectedPromptIds,setSelectedPromptIds]=useState<string[]>([]);
   const [selectedScheduleIds,setSelectedScheduleIds]=useState<string[]>([]);
@@ -190,6 +201,7 @@ function App() {
     [notice, setNotice] = useState(""),
     [busy, setBusy] = useState(false),
     [loading, setLoading] = useState(false),
+    [loadedOrg, setLoadedOrg] = useState(""),
     [invite, setInvite] = useState(""),
     [pendingInvite, setPendingInvite] = useState<Item | null>(null),
     [newKey, setNewKey] = useState(""),
@@ -197,11 +209,27 @@ function App() {
     [editPrompt, setEditPrompt] = useState<Item | null>(null),
     [promptText, setPromptText] = useState(""),
     [ideas, setIdeas] = useState<string[]>([]),
-    [nextBefore, setNextBefore] = useState<number | null>(null);
+    [nextRunCursor, setNextRunCursor] = useState<RunHistoryCursor | null>(null),
+    [pendingBatch, setPendingBatch] = useState<{ scope: string; batch: PendingRunBatch } | null>(null);
+  const batchInFlight = useRef(false);
+  const batchScope = org && session ? `trackrank:pending-run:${session.user.id}:${org}` : "";
+  const pendingRun = pendingBatch?.scope === batchScope ? pendingBatch.batch : null;
   const activeOrg = useRef(org);
+  const latestLoad = useRef(0);
   activeOrg.current = org;
-  const isAdmin = ["owner", "admin"].includes(settings.role),
-    canWrite = settings.role !== "viewer";
+  useEffect(() => {
+    if (!batchScope) return;
+    try {
+      const saved = sessionStorage.getItem(batchScope);
+      setPendingBatch(saved ? { scope: batchScope, batch: JSON.parse(saved) as PendingRunBatch } : null);
+    } catch {
+      setPendingBatch(null);
+    }
+  }, [batchScope]);
+  const orgReady = !!org && loadedOrg === org;
+  const workspaceReady = orgReady && !billingBlocksWorkspace(billing.access_status);
+  const isAdmin = workspaceReady && ["owner", "admin"].includes(settings.role),
+    canWrite = workspaceReady && ["owner", "admin", "member"].includes(settings.role);
   const request = useCallback(
     async (
       path: string,
@@ -278,13 +306,18 @@ function App() {
     };
   }, []);
   const load = useCallback(async () => {
-    if (!org) return;
+    if (!org || activeOrg.current !== org) return;
+    const loadId = ++latestLoad.current;
+    const isCurrent = () => activeOrg.current === org && latestLoad.current === loadId;
     setLoading(true);
     try {
       const billingState = await request("/billing");
-      if (activeOrg.current !== org) return;
-      setBilling(billingState);
-      if (["trial_expired", "choose_plan", "payment_required"].includes(billingState.access_status)) return;
+      if (!isCurrent()) return;
+      if (billingBlocksWorkspace(billingState.access_status)) {
+        setBilling(billingState);
+        setLoadedOrg(org);
+        return;
+      }
       const results = await Promise.all([
         request("/workspaces"),
         request("/brands"),
@@ -293,12 +326,15 @@ function App() {
         request("/schedules"),
         request("/settings"),
       ]);
-      if (activeOrg.current !== org) return;
+      if (!isCurrent()) return;
+      setBilling(billingState);
       setWorkspaces(results[0].workspaces);
       setBrands(results[1].brands);
       setPrompts(results[2].prompts);
       setRuns(results[3].runs);
-      setNextBefore(results[3].next_before);
+      setNextRunCursor(results[3].next_before_id
+        ? { before: results[3].next_before, beforeId: results[3].next_before_id }
+        : null);
       setSchedules(results[4].schedules);
       setSettings(results[5]);
       setWorkspace((current) =>
@@ -306,10 +342,11 @@ function App() {
           ? current
           : results[0].workspaces[0]?.id || "",
       );
+      setLoadedOrg(org);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Unable to load workspace");
+      if (isCurrent()) setError(e instanceof Error ? e.message : "Unable to load workspace");
     } finally {
-      setLoading(false);
+      if (isCurrent()) setLoading(false);
     }
   }, [org, request]);
   useEffect(() => { setSelectedPromptIds([]); setSelectedScheduleIds([]); setEditingScheduleSelection(false); }, [org,workspace]);
@@ -320,7 +357,7 @@ function App() {
     setLocationQuery("");
   }, [editPrompt?.id]);
   useEffect(() => {
-    if (!org || tab !== "prompts" || !promptEngineChoices.length || ["trial_expired", "choose_plan", "payment_required"].includes(billing.access_status)) return;
+    if (!workspaceReady || tab !== "prompts" || !promptEngineChoices.length) return;
     let canceled = false;
     setProviderChoicesLoading(true);
     const timer = window.setTimeout(() => {
@@ -332,25 +369,34 @@ function App() {
       }).catch(() => { if (!canceled) setProviderChoices({ error: "Supported locations and languages could not load. Retry or refresh before saving." }); }).finally(() => { if (!canceled) setProviderChoicesLoading(false); });
     }, 250);
     return () => { canceled = true; window.clearTimeout(timer); };
-  }, [org, tab, promptEngineChoices, locationQuery, promptLocation, promptLanguage, billing.access_status, request]);
+  }, [workspaceReady, tab, promptEngineChoices, locationQuery, promptLocation, promptLanguage, request]);
   useEffect(() => {
-    if (billing.access_status !== "free_trial" || !billing.free_trial?.ends_at) return;
+    if (!orgReady || billing.access_status !== "free_trial" || !billing.free_trial?.ends_at) return;
     const delay = Math.max(0, Number(billing.free_trial.ends_at) - Date.now());
     const timer = window.setTimeout(() => { load(); }, Math.min(delay + 50, 2147483647));
     return () => window.clearTimeout(timer);
-  }, [billing.access_status, billing.free_trial?.ends_at, load]);
+  }, [orgReady, billing.access_status, billing.free_trial?.ends_at, load]);
   useEffect(() => {
+    setLoadedOrg("");
+    setMembers([]);
+    setInvites([]);
+    setKeys([]);
+    setIdeas([]);
+    setProviderChoices(null);
     setSelectedPromptIds([]);
     setSelectedScheduleIds([]);
     setEditingScheduleSelection(false);
     setSelectedRun(null);
+    setEditPrompt(null);
+    setPromptText("");
     setBrand("");
     setNewKey("");
     setInvite("");
-    load();
+    if (org) void load();
+    else setLoading(false);
   }, [org, load]);
   useEffect(() => {
-    if (!org || !["team", "agents"].includes(tab)) return;
+    if (!workspaceReady || !["team", "agents"].includes(tab)) return;
     let canceled = false;
     (async () => {
       try {
@@ -374,7 +420,7 @@ function App() {
     return () => {
       canceled = true;
     };
-  }, [tab, org, isAdmin, request]);
+  }, [tab, workspaceReady, isAdmin, request]);
   useEffect(() => {
     setEditPrompt(null);
     setPromptText("");
@@ -479,21 +525,64 @@ function App() {
       setTab("runs");
     });
   }
-  async function queuePromptBatch(ids:string[],samples:number) {
-    if (!ids.length || !confirm(`Queue ${ids.length * samples} independent provider runs (${ids.length} saved prompts × ${samples} samples)? Each engine variant and sample consumes its own run and DataForSEO charges.`)) return;
-    await action(async () => {
-      const result=await request("/runs/bulk","POST",{prompt_ids:ids,repetitions:samples,batch_key:crypto.randomUUID()});
-      setNotice(`${result.runs.length} of ${result.requested} runs queued. Existing concurrency and spending guardrails apply.`);
-      if(result.error)setError(result.error);
-      await load();if(result.runs.length)setTab("runs");
-    });
+  function savePendingRun(batch: PendingRunBatch | null) {
+    if (batch) sessionStorage.setItem(batchScope, JSON.stringify(batch));
+    else sessionStorage.removeItem(batchScope);
+    if (activeOrg.current === org) setPendingBatch(batch ? { scope: batchScope, batch } : null);
+  }
+  async function submitRunBatch(batch: PendingRunBatch) {
+    if (!batchScope || batchInFlight.current) return;
+    batchInFlight.current = true;
+    try {
+      await action(async () => {
+        savePendingRun(batch);
+        const { prompt_ids, repetitions, batch_key } = batch;
+        const result = await request("/runs/bulk", "POST", { prompt_ids, repetitions, batch_key });
+        savePendingRun(result.complete ? null : { ...batch, accepted: result.runs.length });
+        if (activeOrg.current !== org) return;
+        setNotice(`${result.runs.length} of ${result.requested} runs queued. Existing concurrency and spending guardrails apply.`);
+        if (result.error) setError(result.error);
+        await load();
+        if (result.complete && activeOrg.current === org) setTab("runs");
+      });
+    } finally {
+      batchInFlight.current = false;
+    }
+  }
+  async function queuePromptBatch(ids: string[], samples: number) {
+    if (!ids.length || !batchScope || batchInFlight.current) return;
+    if (ids.length * samples > 100) {
+      setError("Select at most 100 runs per batch. Reduce the selection or samples per prompt.");
+      return;
+    }
+    try {
+      const saved = sessionStorage.getItem(batchScope);
+      if (saved) {
+        setPendingBatch({ scope: batchScope, batch: JSON.parse(saved) as PendingRunBatch });
+        setError("Resolve the pending batch before starting another.");
+        return;
+      }
+    } catch {
+      setError("Enable browser session storage before queueing runs so an interrupted batch can be retried safely.");
+      return;
+    }
+    if (!confirm(`Queue ${ids.length * samples} independent provider runs (${ids.length} saved prompts × ${samples} samples)? Each engine variant and sample consumes its own run and DataForSEO charges.`)) return;
+    await submitRunBatch({ prompt_ids: ids, repetitions: samples, batch_key: crypto.randomUUID() });
   }
   async function runPrompt(p: Item) { await queuePromptBatch([p.id],1); }
   async function moreRuns() {
+    if (!nextRunCursor) return;
     await action(async () => {
-      const d = await request("/runs?before=" + nextBefore);
+      const query = new URLSearchParams({
+        before: String(nextRunCursor.before),
+        before_id: nextRunCursor.beforeId,
+      });
+      const d = await request("/runs?" + query);
+      if (activeOrg.current !== org) return;
       setRuns((current) => [...current, ...d.runs]);
-      setNextBefore(d.next_before);
+      setNextRunCursor(d.next_before_id
+        ? { before: d.next_before, beforeId: d.next_before_id }
+        : null);
     });
   }
   if (initializing)
@@ -558,9 +647,11 @@ function App() {
           <span>ORGANIZATION <HelpTip label="organizations" text="Your team account: members, billing, provider credentials and shared limits live here. An organization can contain multiple workspaces." /></span>
           <select
             value={org}
+            disabled={busy}
             onChange={(e) => {
               setOrg(e.target.value);
               setError("");
+              setNotice("");
             }}
             aria-label="Organization"
           >
@@ -680,7 +771,10 @@ function App() {
           <Button
             size="sm"
             variant="outline"
-            onClick={load}
+            onClick={() => {
+              setError("");
+              void load();
+            }}
             disabled={loading || !org}
           >
             {loading ? (
@@ -693,7 +787,7 @@ function App() {
           </div>
         </header>
         <main className="app-content">
-          {(billing.enabled || billing.free_trial_enabled) && <Card><CardContent>
+          {orgReady && (billing.enabled || billing.free_trial_enabled) && <Card><CardContent>
             <h2>{billing.access_status === "trial_expired" ? "Your free trial has ended. Choose a plan to continue." : billing.access_status === "free_trial" ? "Your 14-day free trial is active" : "Plan & billing"}</h2>
             {billing.access_status === "free_trial" && <p>Full Starter access until {new Date(billing.free_trial.ends_at).toLocaleString()}. No card is on file for this trial and no automatic charge will happen at expiry.</p>}
             <p>Starter: $10 USD/month before applicable tax. Full product allowances, billed per organization. Your first paid charge is refundable within 7 days. Provider usage is billed separately.</p>
@@ -762,7 +856,11 @@ function App() {
                 </form>
               </CardContent>
             </Card>
-          ) : ["trial_expired", "choose_plan", "payment_required"].includes(billing.access_status) ? (
+          ) : !orgReady ? (
+            <Card><CardContent>
+              {error ? <p>Use Refresh to try loading this organization again.</p> : <p role="status">Loading organization…</p>}
+            </CardContent></Card>
+          ) : billingBlocksWorkspace(billing.access_status) ? (
             <Card><CardContent><h2>Choose your plan</h2><p>Starter includes 6,000 tracking runs and 200,000 API operations per calendar month, 3 concurrent runs, and team/API access. Complete payment above to continue. Existing data stays in your organization.</p></CardContent></Card>
           ) : (
             <>
@@ -1041,6 +1139,30 @@ function App() {
               )}
               {tab === "prompts" && (
                 <>
+                  {pendingRun && canWrite && (
+                    <Card>
+                      <CardContent>
+                        <h2>Pending run batch</h2>
+                        <p>
+                          {pendingRun.accepted === undefined
+                            ? "The batch has no confirmed result. Retry to check its status and queue only missing runs."
+                            : `${pendingRun.accepted} of ${pendingRun.prompt_ids.length * pendingRun.repetitions} runs queued. Retry with the original key to resume the batch.`}
+                        </p>
+                        <div className="form-actions">
+                          <Button disabled={busy} onClick={() => submitRunBatch(pendingRun)}>
+                            Retry pending batch
+                          </Button>
+                          <Button variant="outline" disabled={busy} onClick={() => {
+                            if (confirm("Discard this retry? Previously queued runs will continue, and queueing a new batch may incur additional provider charges.")) {
+                              void action(async () => savePendingRun(null));
+                            }
+                          }}>
+                            Discard retry
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
                   <Card>
                     <CardContent>
                       <div className="panel-title">
@@ -1230,7 +1352,7 @@ function App() {
                       </div>
                       {visiblePrompts.length>0 && canWrite && <div className="bulk-toolbar">
                         <label className="check-field"><input type="checkbox" aria-label="Select all saved prompts in this workspace" checked={selectedPromptIds.length>0 && visiblePrompts.every(p=>selectedPromptIds.includes(p.id))} onChange={e=>setSelectedPromptIds(e.target.checked?visiblePrompts.map(p=>p.id):[])} /> Select all shown ({visiblePrompts.length})</label><span>{selectedPromptIds.length} selected</span>
-                        <Button disabled={busy||!selectedPromptIds.length} onClick={()=>queuePromptBatch(selectedPromptIds,runSamples)}>Run selected — {selectedPromptIds.length*runSamples} runs</Button>
+                        <Button disabled={busy||!!pendingRun||!selectedPromptIds.length} onClick={()=>queuePromptBatch(selectedPromptIds,runSamples)}>Run selected — {selectedPromptIds.length*runSamples} runs</Button>
                         <Button variant="outline" disabled={!selectedPromptIds.length} onClick={()=>{setEditingScheduleSelection(false);setTab("schedules");}}>Schedule selected</Button>
                         <Button variant="outline" disabled={busy||!selectedPromptIds.length} onClick={()=>action(async()=>{await request("/prompts/bulk-settings","PATCH",{ids:selectedPromptIds,enabled:true});await load();setNotice("Selected prompts enabled.");})}>Enable selected</Button>
                         <Button variant="outline" disabled={busy||!selectedPromptIds.length} onClick={()=>action(async()=>{await request("/prompts/bulk-settings","PATCH",{ids:selectedPromptIds,enabled:false});await load();setNotice("Selected prompts paused; history retained.");})}>Pause selected</Button>
@@ -1271,6 +1393,7 @@ function App() {
                                       size="sm"
                                       disabled={
                                         busy ||
+                                        !!pendingRun ||
                                         !p.enabled ||
                                         !settings.dataforseo_configured
                                       }
@@ -2647,7 +2770,7 @@ function App() {
                     {runs.length} organization runs loaded. Charts and research
                     aggregate only loaded runs in the selected filters.
                   </p>
-                  {nextBefore && (
+                  {nextRunCursor && (
                     <Button
                       variant="outline"
                       size="sm"
