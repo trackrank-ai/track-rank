@@ -1,3 +1,4 @@
+import { billingRoute } from "./billing";
 import { localAuthEnabled } from "./local-auth";
 import { calendarMonth, defaultPlanVersion, organizationPlan } from "./plans";
 import { customerLimit, enforceLimit } from "./rate-limit";
@@ -179,6 +180,7 @@ export async function api(
         : "write";
   const t = await tenant(env, p, u.searchParams.get("org"), scope),
     org = t.orgId;
+  if (path === "/billing" || path.startsWith("/billing/")) return billingRoute(req, env, t, path);
   await customerLimit(env, org, method === "POST" && /\/(run|refresh|analyze)$/.test(path));
   if (path === "/workspaces" && method === "GET")
     return json({

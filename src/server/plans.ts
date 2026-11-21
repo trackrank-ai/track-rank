@@ -14,6 +14,13 @@ export async function organizationPlan(env: Env, org: string) {
     `SELECT p.* FROM organization_plans a JOIN plan_versions p ON p.id=a.plan_version_id WHERE a.org_id=?`, org);
   // Retired versions continue serving assigned customers. Missing/corrupt plans fail closed.
   if (!row) throw new HttpError(503, "Organization plan is not configured");
+  if (Number(row.price_cents) > 0) {
+    // Paid catalog assignments never grant access by themselves, even if billing is disabled.
+    const billing = await one<Row>(env, "SELECT status,price_id FROM billing_customers WHERE org_id=?", org);
+    const mapped = billing && await one<Row>(env, "SELECT plan_version_id FROM billing_prices WHERE price_id=? AND livemode=?", billing.price_id, Number(!env.STRIPE_SECRET_KEY?.includes("_test_")));
+    if (env.BILLING_ENABLED !== "true" || !env.STRIPE_SECRET_KEY || billing?.status !== "active" || mapped?.plan_version_id !== row.id)
+      throw new HttpError(402, "Subscription payment required; the organization owner can use billing management");
+  }
   let limits: PlanLimits;
   try { limits = planLimits.parse(JSON.parse(String(row.limits_json))); }
   catch { throw new HttpError(503, "Organization plan configuration is invalid"); }

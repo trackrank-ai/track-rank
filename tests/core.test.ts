@@ -62,6 +62,7 @@ function fixture() {
   );
   sql.exec(readFileSync(new URL("../migrations/0004_versioned_plans.sql", import.meta.url), "utf8"));
   sql.exec(readFileSync(new URL("../migrations/0005_recipient_invitations.sql", import.meta.url), "utf8"));
+  sql.exec(readFileSync(new URL("../migrations/0006_stripe_billing.sql", import.meta.url), "utf8"));
   const db = {
     prepare: (s: string) => new Statement(sql, s),
     batch: async (stmts: Statement[]) => {
@@ -690,12 +691,17 @@ test("plan versions are immutable; retired customers are grandfathered and defau
   assert.equal(sql.prepare("SELECT plan_version_id FROM organization_plans WHERE org_id=?").get(a.id)!.plan_version_id, "beta-v1");
   assert.throws(() => sql.exec("UPDATE plan_versions SET price_cents=2000 WHERE id='beta-v1'"), /new plan version/);
   assert.throws(() => sql.exec("DELETE FROM plan_versions WHERE id='pro-v1'"), /Retire/);
+  sql.exec("UPDATE plan_versions SET status='draft' WHERE id='starter-v1'");
   assert.throws(() => sql.prepare("UPDATE organization_plans SET plan_version_id='starter-v1' WHERE org_id=?").run(a.id), /active plan/);
   sql.exec("UPDATE plan_versions SET status='active' WHERE id='starter-v1'");
   env.DEFAULT_PLAN_VERSION = 'starter-v1';
   const b = await organization(env, 'bob');
   sql.exec("UPDATE plan_versions SET status='retired' WHERE id='starter-v1'");
-  const settings = await (await call(env, { userId: 'bob' }, '/settings', 'GET', undefined, b.id)).json() as any;
+  env.BILLING_ENABLED = "true";
+  env.STRIPE_SECRET_KEY = "sk_test_fixture";
+  sql.prepare("INSERT INTO billing_customers(org_id,customer_id,status,price_id,updated_at) VALUES(?,'cus_bob','active','price_bob',0)").run(b.id);
+  sql.exec("INSERT INTO billing_prices VALUES('price_bob','starter-v1',0)");
+  const settings = await (await call(env, { userId: 'bob' }, '/settings' , 'GET', undefined, b.id)).json() as any;
   assert.equal(settings.plan.version, 'starter-v1');
   assert.equal(settings.plan.price_cents, 1000);
   assert.equal(settings.plan.limits.runs_per_month, 6000);

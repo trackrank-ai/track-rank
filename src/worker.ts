@@ -1,3 +1,4 @@
+import { stripeWebhook } from "./server/billing";
 import { publicSettings } from "./server/public-settings";
 import handler from "@tanstack/react-start/server-entry";
 import { api } from "./server/api";
@@ -77,6 +78,7 @@ const appWorker = {
         }
         return json({ accepted: true }, 202);
       }
+      if (u.pathname === "/api/billing/webhook") return await stripeWebhook(req, env);
       if (req.method !== "GET" && req.method !== "HEAD") {
         const origin = req.headers.get("origin");
         if (origin && origin !== env.BASE_URL)

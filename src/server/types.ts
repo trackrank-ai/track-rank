@@ -5,6 +5,11 @@ import type {
   Workflow,
 } from "@cloudflare/workers-types";
 export type Env = {
+  BILLING_ENABLED?: string;
+  STRIPE_SECRET_KEY?: string;
+  STRIPE_WEBHOOK_SECRET?: string;
+  STRIPE_STARTER_PRICE_ID?: string;
+  STRIPE_PORTAL_CONFIGURATION?: string;
   DEFAULT_PLAN_VERSION?: string;
   API_REQUESTS_PER_MINUTE?: string;
   PROVIDER_REQUESTS_PER_MINUTE?: string;

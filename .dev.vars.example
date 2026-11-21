@@ -17,3 +17,10 @@ DEFAULT_PLAN_VERSION="beta-v1"
 # Optional emergency ceilings; omit to use the assigned plan allowances.
 # API_REQUESTS_PER_MINUTE="120"
 # PROVIDER_REQUESTS_PER_MINUTE="10"
+
+# Optional hosted subscriptions. Self-hosting does not require Stripe.
+BILLING_ENABLED="false"
+# STRIPE_SECRET_KEY="" # Worker secret in staging/production
+# STRIPE_WEBHOOK_SECRET="" # Worker secret; separate per endpoint
+# STRIPE_STARTER_PRICE_ID=""
+# STRIPE_PORTAL_CONFIGURATION=""
