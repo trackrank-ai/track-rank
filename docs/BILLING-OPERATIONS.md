@@ -39,24 +39,43 @@ confirmed. No invented registrations, head-office address or product tax code.
    portal ID, live secret and unique production webhook signing secret.
 7. Register production `/api/billing/webhook` for the lifecycle, checkout and risk
    events listed in BILLING.md at SDK API version 2026-11-18.endive.
-8. Deploy with hosted billing enabled and `STRIPE_STARTER_PRICE_ID=""` to keep
-   recovery, webhooks and reconciliation online while new Checkout sessions are paused.
+8. Deploy with hosted billing enabled and the live offer catalog empty. Apply
+   migration `0015_billing_offers.sql` before deploying. Existing Stripe mappings,
+   billing management and reconciliation remain available.
 9. Set BILLING_ALERT_EMAIL to a monitored operator recipient and configure the
    existing verified email sender/Resend secret. Test delivery and retries with
    a benign billing alert. Do not send customer content, payment data or secrets.
 10. Publish/verify pricing, terms and privacy. Checkout requires terms consent and
     links to this deployment's terms/privacy. Confirm support inbox receipt.
-11. Put the verified live Price ID from `stripe-live.json` into the candidate
-    production config. Run `npm run billing:preflight -- wrangler.jsonc` with the
-    live key injected by the deployment owner, before deploying that change.
-    Confirm legal tax obligations separately from the Stripe API checks. Record
-    the production journey in `production-journey.json`.
-12. Once the live gates are cleared, deploy the configured Price and perform an explicitly
+11. Map the candidate live Price from `stripe-live.json` to the plan revision in
+    D1. Run `npm run billing:preflight -- wrangler.jsonc --price <price-id>` before
+    publishing, with the live key injected by the deployment owner. Confirm tax
+    obligations separately and record the production journey in `production-journey.json`.
+12. Once the live gates are cleared, publish the offer and perform an explicitly
     authorized real-card purchase. Paid upgrade charges immediately: no second
     Stripe trial. Verify signed-webhook entitlements, invoice and cancellation.
     Record the result in `production-journey.json` and run
     `npm run billing:preflight -- wrangler.jsonc --post-payment` to verify the
     recorded payment acceptance.
+
+### Publish and withdraw offers
+
+The same commands work in staging with `test` and `wrangler.staging.json`. Take
+the environment's Price ID from its Stripe catalog. Commands print SQL until
+you pass `--apply`.
+
+```sh
+npm run plans -- price-map <price-id> starter-v1 live --apply --remote --config wrangler.jsonc
+npm run billing:preflight -- wrangler.jsonc --price <price-id>
+npm run plans -- offer-publish starter-monthly <price-id> live --apply --remote --config wrangler.jsonc
+npm run plans -- offer-list --apply --remote --config wrangler.jsonc
+```
+
+The public pricing page and owner checkout list published offers for the Worker's
+Stripe mode. Use a new Price ID and plan revision when changing terms. Point an
+offer key at the new mapped Price after verification. Existing subscribers keep
+the revision mapped to their original Price. Preflight without `--price` checks
+published offers. Adding or withdrawing an offer requires no Worker redeploy.
 
 ## State recovery, concurrency and missed webhooks
 
@@ -117,7 +136,8 @@ follow Stripe's dispute process rather than independently issuing a duplicate re
 
 ## Rollback
 
-Pause new Checkout sessions by deploying with `STRIPE_STARTER_PRICE_ID=""`. Expire
+Withdraw each live offer with `npm run plans -- offer-withdraw <offer-key> live
+--apply --remote --config wrangler.jsonc` to pause new Checkout sessions. Expire
 already-open Stripe Checkout sessions if they must also stop accepting payments.
 Keep the portal, webhooks, reconciliation, migrations and mappings, and stable encryption
 keys. Do not roll back to code that treats a plan assignment as proof of payment.
@@ -157,7 +177,7 @@ signing secret are configured in the Worker. Charges/payouts are enabled on the
 merchant account; no live subscription or payment was created by setup.
 `BILLING_ENABLED=true` keeps billing management and reconciliation online;
 Paid purchases were paused at the time of this deployment. The current release
-uses an empty `STRIPE_STARTER_PRICE_ID` to pause new sessions; eligible new
+uses an empty live offer catalog to pause new sessions. Eligible new
 organizations still receive a no-card trial.
 
 Backups: the production database export was independently restored into SQLite

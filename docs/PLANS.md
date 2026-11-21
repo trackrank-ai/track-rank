@@ -9,6 +9,11 @@
 
 No service subscription or external licensing check is required for self-hosting. Self-hosters control their catalog and can create a $0 plan with their own allowances. Limits are resource protections, not software licensing restrictions.
 
+Hosted checkout uses `billing_offers` for the offers currently on sale and
+`billing_prices` for immutable Stripe Price-to-revision mappings. Offer keys can
+point to a new Price for future purchases. Withdrawing an offer leaves its Price
+mapping available for renewals and reconciliation. See [billing operations](BILLING-OPERATIONS.md#publish-and-withdraw-offers).
+
 ## Initial revisions
 
 | Revision | State | Price metadata | API/min | API/month | Provider ops/min | Runs/month | Concurrent runs |

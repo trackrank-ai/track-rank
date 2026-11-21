@@ -1,3 +1,4 @@
+import { formatBillingPrice } from "@/lib/billing-price";
 import { inspectPromptInput, MAX_PROMPT_COMBINATIONS } from "@/lib/prompt-input";
 import { appLoginPath, parseAppSearch, type AppTab as Tab } from "@/lib/app-location";
 import { Tooltip as HelpTooltip } from "radix-ui";
@@ -1017,13 +1018,13 @@ function App() {
           {tab === "settings" && orgReady && billing.enabled && <Card><CardContent>
             <p className="section-eyebrow">Billing</p>
             <h2>{billing.access_status === "trial_expired" ? "Your free trial has ended" : billing.access_status === "free_trial" ? "Your 14-day free trial is active" : "Plan & billing"}</h2>
-            {billing.access_status === "free_trial" && <p>Full Starter access until {new Date(billing.free_trial.ends_at).toLocaleString()}. No card is on file for this trial and no automatic charge will happen at expiry.</p>}
-            <p>Starter: $10 USD/month before applicable tax. Full product allowances, billed per organization. Your first paid charge is refundable within 7 days. Provider usage is billed separately.</p>
-            {billing.access_status === "trial_expired" && <p>Your workspace data is retained.{billing.checkout_enabled && billing.owner && " Subscribe to Starter to restore access."}</p>}
+            {billing.access_status === "free_trial" && <p>Trial access until {new Date(billing.free_trial.ends_at).toLocaleString()}. No card is on file for this trial and no automatic charge will happen at expiry.</p>}
+            <p>Subscriptions are billed per organization before applicable tax. Your first paid charge is refundable within 7 days. Provider usage is billed separately.</p>
+            {billing.access_status === "trial_expired" && <p>Your workspace data is retained.{billing.checkout_enabled && billing.owner && " Choose a plan to restore access."}</p>}
             {billing.status && <p>Subscription: {billing.status}{billing.cancel_at_period_end ? ". Cancels at the end of the current period." : "."}</p>}
             {billing.risk_hold ? <p role="alert">Paid access is paused for billing review. Contact support.</p> : null}
             {billing.owner && billing.trial_eligible && <Button disabled={busy} onClick={() => action(async () => { await request("/billing/trial", "POST"); await load(); })}>Start 14-day free trial</Button>}
-            {billing.owner && billing.checkout_enabled && !["active","trialing"].includes(billing.status) && <Button disabled={busy} onClick={() => { setBusy(true); request("/billing/checkout", "POST").then(r => window.location.assign(r.url)).catch(e => setError(e.message)).finally(() => setBusy(false)); }}>Choose Starter — $10/month</Button>}{" "}
+            {billing.owner && billing.checkout_enabled && !["active","trialing"].includes(billing.status) && (billing.offers as { offer_key: string; name: string; price_cents: number; currency: string; interval: string }[]).map(offer => <Button key={offer.offer_key} disabled={busy} onClick={() => { setBusy(true); request("/billing/checkout", "POST", { offer_key: offer.offer_key }).then(r => window.location.assign(r.url)).catch(e => setError(e.message)).finally(() => setBusy(false)); }}>Choose {offer.name} — {formatBillingPrice(offer)}</Button>)}{" "}
             {billing.owner && billing.has_billing_account && <Button variant="outline" disabled={busy} onClick={() => { setBusy(true); request("/billing/portal", "POST").then(r => window.location.assign(r.url)).catch(e => setError(e.message)).finally(() => setBusy(false)); }}>Manage billing & invoices</Button>}
             {billing.owner && !billing.checkout_enabled && !["active","trialing"].includes(billing.status) && <p>Checkout is currently unavailable. <Link to="/support">Contact support</Link> for help with billing.</p>}
             {!billing.owner && <p>Ask your organization owner to choose a plan or manage billing.</p>}

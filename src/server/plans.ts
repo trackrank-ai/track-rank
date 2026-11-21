@@ -15,7 +15,7 @@ export async function organizationPlan(env: Env, org: string) {
   // Retired versions continue serving assigned customers. Missing/corrupt plans fail closed.
   if (!row) throw new HttpError(503, "Organization plan is not configured");
   if (row.family === "pending" && env.BILLING_ENABLED === "true")
-    throw new HttpError(402, "Choose Starter in billing settings to access this organization");
+    throw new HttpError(402, "Choose a plan in billing settings to access this organization");
   if (row.family === "trial") {
     const trial = await one<Row>(env, "SELECT ends_at FROM organization_trials WHERE org_id=?", org);
     if (!trial || Number(trial.ends_at) <= now()) throw new HttpError(402, "Your 14-day free trial has ended. Choose a plan and pay to continue; your data is retained.");

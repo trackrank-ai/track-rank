@@ -16,7 +16,6 @@ export type Env = {
   STRIPE_SECRET_KEY?: string;
   STRIPE_AUTOMATIC_TAX?: string;
   STRIPE_WEBHOOK_SECRET?: string;
-  STRIPE_STARTER_PRICE_ID?: string;
   STRIPE_PORTAL_CONFIGURATION?: string;
   DEFAULT_PLAN_VERSION?: string;
   API_REQUESTS_PER_MINUTE?: string;

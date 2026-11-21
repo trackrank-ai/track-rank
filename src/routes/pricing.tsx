@@ -1,9 +1,41 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { LegalLayout, ContactLink } from "@/components/legal-layout";
-export const Route = createFileRoute("/pricing")({head:()=>({meta:[{title:"Pricing — TrackRank"},{name:"description",content:"TrackRank Starter: 14 days free. No card required. Choose Starter for $10/month before tax when your trial ends."}]}),component:Pricing});
-function Pricing(){return <LegalLayout title="Simple organization pricing" intro="Hosted Starter: $10 USD/month before applicable tax. Self-hosting stays free.">
-<section><h2>Try the full product free for 14 days</h2><p>No payment card is required. Create an account with Google or email/password and start your trial. You get the full Starter product allowances for 14 days. When the trial ends, choose Starter and pay $10/month before applicable tax to continue. You are not charged automatically when the trial expires. One introductory trial per verified account and organization.</p><p>Request a full refund within 7 days of your first paid charge. Later refunds are reviewed case by case, without limiting mandatory rights.</p><a className="button" href="/login?trial=start">Start 14-day free trial</a></section>
-<section><h2>Starter allowances</h2><ul><li>6,000 tracking runs per calendar month</li><li>200,000 API operations per calendar month</li><li>120 API operations per minute; 10 provider operations per minute</li><li>3 concurrent tracking runs</li><li>No per-seat charge or API-key-count limit</li></ul><p>Allowances are shared across your organization. Monthly allowances reset on the first day UTC and do not roll over. Infrastructure safety ceilings may be lower.</p></section>
-<section><h2>Bring your own provider credentials</h2><p>DataForSEO and optional OpenRouter usage are billed separately by those providers and are not included in the subscription. Run allowances are not a dollar-spending cap.</p></section>
-<section><h2>Cancellation, invoices and support</h2><p>Organization owners manage payment details, invoices and cancellation in Manage billing. Paid subscriptions renew monthly until canceled. Cancellation takes effect at the end of the paid period. Account deletion is a separate verified support request.</p><p>Read the <Link to="/terms">Terms</Link> and <Link to="/privacy">Privacy Policy</Link>. Billing or refund questions: <ContactLink subject="Billing / refund" />.</p></section>
-</LegalLayout>}
+import { formatBillingPrice } from "@/lib/billing-price";
+import { getPricingCatalog } from "@/server/site-config";
+
+export const Route = createFileRoute("/pricing")({
+  loader: () => getPricingCatalog(),
+  head: () => ({ meta: [
+    { title: "Pricing — TrackRank" },
+    { name: "description", content: "TrackRank hosted plans and the 14-day no-card trial." },
+  ] }),
+  component: Pricing,
+});
+
+function Pricing() {
+  const { hosted, offers } = Route.useLoaderData();
+  return <LegalLayout title="Pricing" intro={hosted ? "Hosted plans are billed per organization. Self-hosting is free." : "This installation is self-hosted and requires no TrackRank subscription."}>
+    {hosted && <section>
+      <h2>Try TrackRank free for 14 days</h2>
+      <p>Eligible verified accounts receive one trial without a payment card. At the end of your trial, an organization owner can subscribe. The trial ends without a charge.</p>
+      <a className="button" href="/login?trial=start">Start 14-day free trial</a>
+    </section>}
+    {offers.map(offer => <section key={offer.offer_key}>
+      <h2>{offer.name} · {formatBillingPrice(offer)}</h2>
+      <p>Before applicable tax.</p>
+      <ul>
+        <li>{offer.limits.runs_per_month.toLocaleString("en-US")} tracking runs per calendar month</li>
+        <li>{offer.limits.api_per_month.toLocaleString("en-US")} API operations per calendar month</li>
+        <li>{offer.limits.api_per_minute} API operations and {offer.limits.provider_per_minute} provider operations per minute</li>
+        <li>{offer.limits.concurrent_runs} concurrent tracking runs</li>
+      </ul>
+    </section>)}
+    {offers.length > 0 && <p>Allowances are shared across your organization and reset on the first day UTC each month.</p>}
+    <section><h2>Provider usage</h2><p>DataForSEO and optional OpenRouter usage are billed separately by those providers. Run allowances do not cap provider spending.</p></section>
+    {hosted && <section>
+      <h2>Cancellation, invoices and support</h2>
+      <p>Organization owners can update their payment method, view invoices, and cancel at the end of the paid period in Manage billing. Request a full refund within 7 days of your first paid charge.</p>
+      <p>Read the <Link to="/terms">Terms</Link> and <Link to="/privacy">Privacy Policy</Link>. Billing or refund questions can go to <ContactLink subject="Billing / refund" />.</p>
+    </section>}
+  </LegalLayout>;
+}

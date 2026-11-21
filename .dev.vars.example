@@ -22,7 +22,6 @@ DEFAULT_PLAN_VERSION="beta-v1"
 BILLING_ENABLED="false"
 # STRIPE_SECRET_KEY="" # Worker secret in staging/production
 # STRIPE_WEBHOOK_SECRET="" # Worker secret; separate per endpoint
-# STRIPE_STARTER_PRICE_ID=""
 # STRIPE_PORTAL_CONFIGURATION=""
 # Operational alert destination, separate from customer emails. Configure deliberately.
 # BILLING_ALERT_EMAIL=""

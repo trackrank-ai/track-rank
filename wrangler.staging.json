@@ -14,7 +14,6 @@
     "PUBLIC_SUPPORT_EMAIL": "info@trackrank.ai",
     "SIGNUP_ENABLED": "false",
     "BILLING_ENABLED": "true",
-    "STRIPE_STARTER_PRICE_ID": "price_1Ue3uj5cBsaZf4oTW3xI4lis",
     "STRIPE_PORTAL_CONFIGURATION": "bpc_1Ue3uj5cBsaZf4oT6QPc7EQK"
   },
   "d1_databases": [

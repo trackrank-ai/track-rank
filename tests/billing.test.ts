@@ -58,17 +58,19 @@ test('sandbox: real checkout and portal creation through application routes', {s
  const {env,sql}=fixture();
  const vars=Object.fromEntries(readFileSync('.dev.vars.stripe','utf8').trim().split('\n').map(l=>{const i=l.indexOf('=');return [l.slice(0,i),l.slice(i+1)]}));
  Object.assign(env,vars,{BASE_URL:'http://localhost:3000'});
- sql.exec('DELETE FROM billing_customers; DELETE FROM billing_prices;');
- sql.prepare("INSERT INTO billing_prices VALUES(?,'starter-v1',0)").run(vars.STRIPE_STARTER_PRICE_ID);
+ sql.exec('DELETE FROM billing_customers;');
+ const { price_id: priceId } = JSON.parse(readFileSync("docs/stripe-sandbox.json", "utf8"));
+ sql.prepare("INSERT INTO billing_prices VALUES(?,'starter-v1',0)").run(priceId);
+ sql.prepare("INSERT INTO billing_offers VALUES('starter-monthly',0,?)").run(priceId);
  const p={userId:'alice',orgId:'org',role:'owner'};
- const req=new Request('http://localhost:3000/api/v1/billing/checkout',{method:'POST'});
- const checkout=await billingRoute(req,env,p,'/billing/checkout');
+ const checkoutForStarter=()=>billingRoute(new Request('http://localhost:3000/api/v1/billing/checkout',{method:'POST',body:JSON.stringify({offer_key:'starter-monthly'})}),env,p,'/billing/checkout');
+ const checkout=await checkoutForStarter();
  const url=((await checkout.json()) as any).url;
  await import('node:fs').then(fs => fs.writeFileSync('.checkout-qa.local',url,{mode:0o600}));
  assert.ok(url.startsWith('https://checkout.stripe.com/'));
- const repeat=await billingRoute(req,env,p,'/billing/checkout');
+ const repeat=await checkoutForStarter();
  assert.equal(((await repeat.json()) as any).url,url);
- const portal=await billingRoute(req,env,p,'/billing/portal');
+ const portal=await billingRoute(new Request('http://localhost:3000/api/v1/billing/portal',{method:'POST'}),env,p,'/billing/portal');
  assert.ok(((await portal.json()) as any).url.startsWith('https://billing.stripe.com/'));
  assert.equal((await organizationPlan(env,'org')).version,'beta-v1','Checkout creation never activates paid plan');
 });
@@ -113,12 +115,15 @@ test('risk events use Charge → PaymentIntent → Invoice Payment → Subscript
  assert.equal(sql.prepare("SELECT risk_hold FROM billing_customers WHERE org_id='org'").get()!.risk_hold,1);
 });
 
-test('missing Starter price pauses checkout while the customer portal stays available', async (t) => {
- const { env } = fixture();
+test('withdrawing an offer pauses checkout while preserving the portal and price mapping', async (t) => {
+ const { env, sql } = fixture();
  const principal = { userId: 'alice', orgId: 'org', role: 'owner' };
  const getState = async () => (await billingRoute(new Request('https://example.test'), env, principal, '/billing')).json() as Promise<{ checkout_enabled: boolean }>;
  const post = (path: string) => billingRoute(new Request('https://example.test', { method: 'POST' }), env, principal, path);
 
+ sql.exec("INSERT INTO billing_offers VALUES('starter-monthly',0,'price_test')");
+ assert.equal((await getState()).checkout_enabled, true);
+ sql.exec("DELETE FROM billing_offers WHERE offer_key='starter-monthly'");
  assert.equal((await getState()).checkout_enabled, false);
  await assert.rejects(post('/billing/checkout'), /temporarily paused/);
  env.BASE_URL = 'https://example.test';
@@ -128,8 +133,55 @@ test('missing Starter price pauses checkout while the customer portal stays avai
   return Response.json({ url: 'https://billing.stripe.com/example' });
  });
  assert.equal((await post('/billing/portal')).status, 200);
- env.STRIPE_STARTER_PRICE_ID = 'price_test';
- assert.equal((await getState()).checkout_enabled, true);
+ assert.equal(sql.prepare("SELECT plan_version_id FROM billing_prices WHERE price_id='price_test'").get()?.plan_version_id, 'starter-v1');
+ await syncSubscription(env, sub(), event());
+ assert.equal((await organizationPlan(env, 'org')).version, 'starter-v1');
+});
+
+test('checkout uses published offers in its Stripe mode and can switch offers in either direction', async (t) => {
+ const { env, sql } = fixture();
+ env.BASE_URL = 'https://example.test';
+ sql.exec(`UPDATE plan_versions SET status='active' WHERE id='pro-v1';
+  INSERT INTO billing_prices VALUES('price_pro','pro-v1',0),('price_live','starter-v1',1);
+  INSERT INTO billing_offers VALUES('starter-monthly',0,'price_test'),('agency-monthly',0,'price_pro'),('live-only',1,'price_live');`);
+ const principal = { userId: 'alice', orgId: 'org', role: 'owner' };
+ const sessions: { id: string; url: string; status: string; metadata: Record<string, string>; automatic_tax: { enabled: boolean } }[] = [];
+ const attemptedKeys = new Set<string>();
+ t.mock.method(globalThis, 'fetch', async (input: string, init?: RequestInit) => {
+  const url = new URL(input);
+  if (url.pathname.startsWith('/v1/prices/')) return Response.json({ active: true, livemode: false, unit_amount: url.pathname.endsWith('price_pro') ? 3000 : 1000, currency: 'usd', recurring: { interval: 'month', interval_count: 1 } });
+  if (url.pathname === '/v1/subscriptions') return Response.json({ data: [], has_more: false });
+  if (url.pathname.endsWith('/expire')) {
+   const session = sessions.find(s => url.pathname.endsWith(`/${s.id}/expire`))!;
+   session.status = 'expired';
+   return Response.json(session);
+  }
+  assert.equal(url.pathname, '/v1/checkout/sessions');
+  if (init?.method !== 'POST') return Response.json({ data: sessions.filter(s => s.status === url.searchParams.get('status')).reverse(), has_more: false });
+  const key = new Headers(init.headers).get('Idempotency-Key')!;
+  assert.ok(key && !attemptedKeys.has(key), 'switched offers must not reuse an expired checkout idempotency key');
+  attemptedKeys.add(key);
+  const params = new URLSearchParams(String(init.body));
+  const price = params.get('line_items[0][price]')!;
+  const metadata = Object.fromEntries(['trackrank_offer', 'trackrank_price', 'trackrank_checkout_revision'].map(k => [k, params.get(`metadata[${k}]`)!]));
+  assert.equal(metadata.trackrank_price, price);
+  assert.equal(price, metadata.trackrank_offer === 'agency-monthly' ? 'price_pro' : 'price_test');
+  const id = `cs_${sessions.length}`;
+  const session = { id, url: `https://checkout.stripe.com/${id}`, status: 'open', metadata, automatic_tax: { enabled: false } };
+  sessions.push(session);
+  return Response.json(session);
+ });
+ const choose = async (offer_key: string) => (await billingRoute(new Request('https://example.test', { method: 'POST', body: JSON.stringify({ offer_key }) }), env, principal, '/billing/checkout')).json() as Promise<{ url: string }>;
+ const status = await (await billingRoute(new Request('https://example.test'), env, principal, '/billing')).json() as { offers: { offer_key: string; price_id?: string }[] };
+ assert.deepEqual(status.offers.map(o => o.offer_key), ['starter-monthly', 'agency-monthly']);
+ assert.ok(status.offers.every(o => o.price_id === undefined));
+ await assert.rejects(choose('live-only'), /offer is unavailable/);
+ const starter = await choose('starter-monthly');
+ assert.deepEqual(await choose('starter-monthly'), starter);
+ const agency = await choose('agency-monthly');
+ assert.notEqual(agency.url, starter.url);
+ assert.notEqual((await choose('starter-monthly')).url, starter.url);
+ assert.deepEqual(sessions.map(s => s.status), ['expired', 'expired', 'open']);
 });
 
 test('expired sync lease cannot commit status, entitlement or event marker',async()=>{

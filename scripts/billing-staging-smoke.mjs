@@ -9,8 +9,9 @@ await request('/api/auth/sign-in/email','POST',{email:fixture.email,password:fix
 if(!fixture.org){const org=await request('/api/v1/organizations','POST',{name:'Stripe acceptance — staging only'});fixture.org=org.id;fs.writeFileSync(path,JSON.stringify(fixture),{mode:0o600});}
 const suffix='?org='+fixture.org;
 const billing=await request('/api/v1/billing'+suffix);assert.ok(['free_trial','trial_expired','choose_plan'].includes(billing.access_status));
-const checkout=await request('/api/v1/billing/checkout'+suffix,'POST',{});
-const repeated=await request('/api/v1/billing/checkout'+suffix,'POST',{});assert.equal(checkout.url,repeated.url);
+const offer=billing.offers.find(o=>o.offer_key==='starter-monthly');assert.ok(offer,'Publish the staging Starter offer first');
+const checkout=await request('/api/v1/billing/checkout'+suffix,'POST',{offer_key:offer.offer_key});
+const repeated=await request('/api/v1/billing/checkout'+suffix,'POST',{offer_key:offer.offer_key});assert.equal(checkout.url,repeated.url);
 fs.writeFileSync('.staging-checkout.local',checkout.url,{mode:0o600});
 fs.writeFileSync('.staging-cookie.local',cookie,{mode:0o600});
 console.log('PASS: deployed staging login, unpaid organization, exact plan mapping, checkout creation and duplicate reuse. Private checkout saved for browser acceptance.');

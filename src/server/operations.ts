@@ -1,7 +1,8 @@
 // Deployment-owner maintenance only. No plaintext key export or arbitrary mail destination.
 import { eraseData } from "./erasure";
 import { seal, hashToken } from "./crypto";
-import { billingAlert, checkoutConfigured, deliverBillingAlerts, stripeClient } from "./billing";
+import { billingAlert, deliverBillingAlerts, stripeClient } from "./billing";
+import { billingOffers } from "./billing-catalog";
 import { HttpError, json, now, one, all, type Env } from "./types";
 import { calendarMonth } from "./plans";
 const recoveryTenant = "__trackrank_recovery_drill__";
@@ -22,7 +23,7 @@ export async function operations(req: Request, env: Env) {
       `SELECT u.org_id,u.runs,coalesce((SELECT sum(r.provider_cost) FROM runs r
         WHERE r.org_id=u.org_id AND r.created_at>=? AND r.created_at<?),0) AS provider_cost_usd
         FROM run_usage u WHERE u.period=?`, month.start, month.end, month.key);
-    return json({ cron_succeeded_at: cron?.succeeded_at || null, queue, organization_usage:usage, infrastructure_dollars_measured:false, stripe: { account_id: account.id, charges_enabled: account.charges_enabled, payouts_enabled: account.payouts_enabled }, email_configured: !!(env.RESEND_API_KEY && env.EMAIL_FROM), google_configured: !!(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET), alert_recipient_configured: !!env.BILLING_ALERT_EMAIL, checkout_enabled: checkoutConfigured(env), stats });
+    return json({ cron_succeeded_at: cron?.succeeded_at || null, queue, organization_usage:usage, infrastructure_dollars_measured:false, stripe: { account_id: account.id, charges_enabled: account.charges_enabled, payouts_enabled: account.payouts_enabled }, email_configured: !!(env.RESEND_API_KEY && env.EMAIL_FROM), google_configured: !!(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET), alert_recipient_configured: !!env.BILLING_ALERT_EMAIL, checkout_enabled: (await billingOffers(env)).length > 0, stats });
   }
   if (req.method !== "POST") throw new HttpError(405, "POST required");
   if (path === "/api/operations/erase") return json(await eraseData(env, await req.json()));

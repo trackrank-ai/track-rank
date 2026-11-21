@@ -1,4 +1,8 @@
 import Stripe from "stripe";
+import { z } from "zod";
+import { billingOffers, publicBillingOffers } from "./billing-catalog";
+import { hashToken } from "./crypto";
+import { body } from "./request-body";
 import {startTrial} from "./trials";
 import { enforceLimit } from "./rate-limit";
 import { HttpError, all, exec, json, now, one, type Env, type Principal, type Row } from "./types";
@@ -9,9 +13,8 @@ export function stripeClient(env: Env) {
   return new Stripe(env.STRIPE_SECRET_KEY, { httpClient: Stripe.createFetchHttpClient(), maxNetworkRetries: 2, timeout: 15000 });
 }
 export function paidStatus(status: string) { return status === "active" || status === "trialing"; }
-export function checkoutConfigured(env: Env) {
-  return env.BILLING_ENABLED === "true" && !!env.STRIPE_SECRET_KEY && !!env.STRIPE_STARTER_PRICE_ID?.trim();
-}
+const checkoutOffer = z.object({ offer_key: z.string().max(64).regex(/^[a-z0-9][a-z0-9-]*$/) }).strict();
+const checkoutRevision = "paid-offer-v1";
 export async function billingRoute(req: Request, env: Env, p: Principal, path: string) {
   if (p.keyId) throw new HttpError(403, "Sign in to manage billing");
   const org = p.orgId!;
@@ -22,7 +25,8 @@ export async function billingRoute(req: Request, env: Env, p: Principal, path: s
     const assignment = await one<Row>(env, "SELECT p.family FROM organization_plans a JOIN plan_versions p ON p.id=a.plan_version_id WHERE a.org_id=?", org);
     const freeTrial = assignment?.family === "trial";
     const claimed = await one(env, "SELECT user_id FROM account_trial_claims WHERE user_id=?", p.userId);
-    return json({ enabled: env.BILLING_ENABLED === "true", checkout_enabled: checkoutConfigured(env), ...state, has_billing_account: !!state, free_trial: trial, trial_eligible: !claimed && !state?.trial_used && assignment?.family === "pending", access_status: freeTrial ? Number(trial?.ends_at) > now() ? "free_trial" : "trial_expired" : assignment?.family === "pending" ? "choose_plan" : "assigned", owner: p.role === "owner" });
+    const offers = publicBillingOffers(await billingOffers(env));
+    return json({ enabled: env.BILLING_ENABLED === "true", checkout_enabled: offers.length > 0, offers, ...state, has_billing_account: !!state, free_trial: trial, trial_eligible: !claimed && !state?.trial_used && assignment?.family === "pending", access_status: freeTrial ? Number(trial?.ends_at) > now() ? "free_trial" : "trial_expired" : assignment?.family === "pending" ? "choose_plan" : "assigned", owner: p.role === "owner" });
   }
   if (p.role !== "owner") throw new HttpError(403, "Only the organization owner can manage billing");
   if (req.method === "GET" && path === "/billing/alerts") return json({ alerts: await all(env, "SELECT id,kind,summary,created_at FROM billing_alerts WHERE org_id=? AND resolved_at IS NULL ORDER BY created_at DESC LIMIT 50", org) });
@@ -38,11 +42,13 @@ export async function billingRoute(req: Request, env: Env, p: Principal, path: s
     return json({ url: session.url });
   }
   if (path !== "/billing/checkout") throw new HttpError(404, "Not found");
-  if (!checkoutConfigured(env)) throw new HttpError(503, "New subscriptions are temporarily paused; existing billing management remains available");
-  const priceId = env.STRIPE_STARTER_PRICE_ID?.trim();
-  const mapping = priceId && await one<Row>(env, `SELECT p.* FROM billing_prices b JOIN plan_versions p ON p.id=b.plan_version_id WHERE b.price_id=? AND b.livemode=? AND p.status='active'`, priceId, Number(!env.STRIPE_SECRET_KEY?.includes('_test_')));
-  if (!mapping || mapping.id !== "starter-v1") throw new HttpError(503, "Starter billing price is not configured");
-  const price = await stripe.prices.retrieve(priceId!);
+  const offers = await billingOffers(env);
+  if (!offers.length) throw new HttpError(503, "New subscriptions are temporarily paused; existing billing management remains available");
+  const { offer_key } = await body(req, checkoutOffer, 1024);
+  const mapping = offers.find(offer => offer.offer_key === offer_key);
+  if (!mapping) throw new HttpError(404, "This subscription offer is unavailable");
+  const priceId = mapping.price_id;
+  const price = await stripe.prices.retrieve(priceId);
   if (!price.active || price.unit_amount !== mapping.price_cents || price.currency !== mapping.currency || price.recurring?.interval !== mapping.interval || price.recurring?.interval_count !== 1)
     throw new HttpError(503, "Stripe price does not match the plan revision");
   const automaticTax = price.livemode || env.STRIPE_AUTOMATIC_TAX === "true";
@@ -70,23 +76,29 @@ export async function billingRoute(req: Request, env: Env, p: Principal, path: s
     throw new HttpError(409, "An existing subscription requires attention; use Manage billing");
   const open = await stripe.checkout.sessions.list({ customer: customerId, status: "open", limit: 100 });
   if (open.has_more) throw new HttpError(409, "Too many open checkouts; operator review required");
-  const compatible = open.data.find(s => s.metadata?.trackrank_checkout_revision === "paid-after-trial-v3" && s.automatic_tax?.enabled === automaticTax);
+  const matchesOffer = (s: Stripe.Checkout.Session) => s.metadata?.trackrank_checkout_revision === checkoutRevision && s.metadata?.trackrank_offer === offer_key && s.metadata?.trackrank_price === priceId && s.automatic_tax?.enabled === automaticTax;
+  const compatible = open.data.find(matchesOffer);
   if (compatible?.url) return json({ url: compatible.url });
   for (const stale of open.data) await stripe.checkout.sessions.expire(stale.id);
-  // One session per organization/window prevents parallel duplicate subscriptions.
+  const window = Math.floor(Date.now() / 1000 / 1800) * 1800;
+  const expired = await stripe.checkout.sessions.list({ customer: customerId, status: "expired", created: { gte: window }, limit: 100 });
+  if (expired.has_more) throw new HttpError(409, "Too many recent checkouts; retry later");
+  // A customer may return to an offer whose previous session was expired when they switched.
+  const lastExpired = expired.data.find(matchesOffer)?.id ?? "new";
+  const attempt = await hashToken(JSON.stringify([org, offer_key, priceId, automaticTax, window, lastExpired]));
   const session = await stripe.checkout.sessions.create({
-    customer: customerId, mode: "subscription", line_items: [{ price: priceId!, quantity: 1 }],
+    customer: customerId, mode: "subscription", line_items: [{ price: priceId, quantity: 1 }],
     automatic_tax: { enabled: automaticTax },
     tax_id_collection: { enabled: automaticTax },
     payment_method_collection: "always",
     billing_address_collection: "required", customer_update: { address: "auto", name: "auto" },
     success_url: `${env.BASE_URL}/app?billing=processing`, cancel_url: `${env.BASE_URL}/app?billing=canceled`,
-    metadata: { trackrank_checkout_revision: "paid-after-trial-v3" },
+    metadata: { trackrank_checkout_revision: checkoutRevision, trackrank_offer: offer_key, trackrank_price: priceId },
     custom_text: { terms_of_service_acceptance: { message: `I agree to the [Terms](${env.BASE_URL}/terms) and have read the [Privacy Policy](${env.BASE_URL}/privacy).` } },
     integration_identifier: "trackrank_hosted_qxkpmvnr",
     consent_collection: { terms_of_service: "required" },
-    expires_at: Math.floor(Date.now() / 1000 / 1800) * 1800 + 3600,
-  }, { idempotencyKey: `trackrank-checkout:paid-after-trial-v3:${org}:${priceId}:${automaticTax ? 'automatic-tax:' : ''}${Math.floor(Date.now() / 1800000)}` });
+    expires_at: window + 3600,
+  }, { idempotencyKey: `trackrank-checkout:${checkoutRevision}:${attempt}` });
   return json({ url: session.url });
   } finally {
     await exec(env, "DELETE FROM billing_checkout_locks WHERE org_id=? AND token=?", org, lockToken);

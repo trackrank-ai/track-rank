@@ -47,12 +47,11 @@ payment, email or a production deployment.
 
 ## Deploy/configure in staging before production
 
-1. Apply migrations through 0007 in staging. 0006 activates Starter but does not
-   assign it to anyone or change the free beta default.
-2. Insert sandbox price mapping using the price ID in stripe-sandbox.json:
-   `INSERT INTO billing_prices VALUES('<sandbox price>','starter-v1',0);`
-3. Configure `BILLING_ENABLED=true`, `STRIPE_STARTER_PRICE_ID` and
-   `STRIPE_PORTAL_CONFIGURATION` in staging. Store `STRIPE_SECRET_KEY` and
+1. Apply pending migrations in staging, including `0015_billing_offers.sql`.
+2. Map the sandbox Price from `stripe-sandbox.json` with `plans price-map`, then
+   publish it as `starter-monthly` in test mode with `plans offer-publish`.
+3. Configure `BILLING_ENABLED=true` and `STRIPE_PORTAL_CONFIGURATION` in staging.
+   Store `STRIPE_SECRET_KEY` and
    `STRIPE_WEBHOOK_SECRET` as Worker secrets, never committed config.
 4. Register a Stripe webhook at the STAGING `/api/billing/webhook`. Subscribe to
    `customer.subscription.created`, `customer.subscription.updated`,
@@ -83,7 +82,7 @@ failed renewal, payment recovery, a real TEST refund, cancellation and repairing
 local drift. It is not a live payment and is not a production backup drill.
 
 See the [billing operations runbook](BILLING-OPERATIONS.md) for live setup,
-acceptance and rollback. An empty Starter Price binding pauses new Checkout
+acceptance and rollback. An empty offer catalog pauses new Checkout
 sessions while existing customers retain access to billing management.
 
 ## Verification
