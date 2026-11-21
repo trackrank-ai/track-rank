@@ -3140,3 +3140,28 @@ input[type="checkbox"] {
 .auth-theme { position:absolute; top:28px; right:24px; }
 .topbar-actions { display:flex; align-items:center; gap:8px; }
 @media(max-width:600px) { .header nav { gap:10px; } .header nav>a { display:none; } .topbar-actions .invite-shortcut { font-size:0; gap:0; padding:8px; } .app-topbar { flex-wrap:wrap; height:auto; min-height:64px; gap:10px; padding-block:12px; } }
+
+/* Public legal/support pages share the saved light/dark theme. */
+.legal-page { min-height:100vh; }
+.legal-header { display:flex; align-items:center; justify-content:space-between; padding-block:28px; gap:20px; }
+.legal-content { max-width:780px; margin:32px auto 72px; line-height:1.8; overflow-wrap:anywhere; }
+.legal-content h1 { font-size:clamp(2.4rem,6vw,4rem); line-height:1.1; letter-spacing:-.045em; margin:20px 0; }
+.legal-intro { font-size:1.15rem; color:var(--muted-foreground); }
+.legal-meta { font-size:.85rem; color:var(--muted-foreground); margin:20px 0 36px; }
+.legal-content section { border-top:1px solid var(--border); padding-top:24px; margin-top:28px; }
+.legal-content h2 { font-size:1.3rem; font-weight:600; line-height:1.4; margin-bottom:14px; }
+.legal-content p { margin-block:14px; }
+.legal-content ul,.legal-content ol { padding-left:24px; }
+.legal-content ul { list-style:disc; }
+.legal-content ol { list-style:decimal; }
+.legal-content li { margin-block:10px; }
+.legal-content a,.auth-legal a { text-decoration:underline; text-underline-offset:3px; }
+.legal-links { display:flex; flex-wrap:wrap; gap:10px 18px; font-size:.8rem; }
+.legal-links a:hover { text-decoration:underline; text-underline-offset:3px; }
+.legal-links a:focus-visible,.legal-page a:focus-visible { outline:2px solid var(--ring); outline-offset:4px; }
+.legal-footer { display:flex; flex-wrap:wrap; gap:20px; justify-content:space-between; padding-block:28px; border-top:1px solid var(--border); font-size:.8rem; color:var(--muted-foreground); }
+.auth-legal { font-size:.78rem; line-height:1.6; color:var(--muted-foreground); margin-block:18px; }
+.auth-panel .legal-links { margin-block:18px; }
+.app-sidebar-bottom .legal-links { gap:8px 12px; }
+.footer { flex-wrap:wrap; gap:20px; }
+@media(max-width:600px) { .legal-content { margin-top:16px; } .legal-header { padding-block:20px; } }

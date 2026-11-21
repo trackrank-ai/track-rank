@@ -1,3 +1,4 @@
+import { LegalLinks } from "@/components/legal-layout";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState, type FormEvent } from "react";
@@ -13,6 +14,7 @@ function Login() {
     [config, setConfig] = useState<{
       google_auth: boolean;
       email_auth: boolean;
+      local_auth: boolean;
       signup_enabled: boolean;
     } | null>(null);
   const [resetToken, setResetToken] = useState("");
@@ -23,6 +25,7 @@ function Login() {
           r.json() as Promise<{
             google_auth: boolean;
             email_auth: boolean;
+      local_auth: boolean;
             signup_enabled: boolean;
           }>,
       )
@@ -33,8 +36,12 @@ function Login() {
       setMode("reset");
       setResetToken(q.get("token") || "");
     }
-    if (q.get("error"))
-      setError("The login link could not be used. Please try again.");
+    if (q.get("error")) {
+      const code = q.get("error")?.toLowerCase().replaceAll(" ", "_");
+      setError(code === "account_not_linked"
+        ? "Verify the email on your existing account before linking Google. Sign in with your original method, then retry Google."
+        : "The login link could not be used. Please try again.");
+    }
   }, []);
   async function authRequest(path: string, data: unknown) {
     const r = await fetch("/api/auth/" + path, {
@@ -68,11 +75,11 @@ function Login() {
           setStatus("Password updated. You can now sign in.");
           setResetToken("");
           setMode("login");
-          history.replaceState(null, "", "/login");
+          history.replaceState(null, "", "/login" + location.hash);
         } else {
           await authRequest("request-password-reset", {
             email,
-            redirectTo: location.origin + "/login",
+            redirectTo: location.origin + "/login" + location.hash,
           });
           setStatus("If that account exists, a reset link has been sent.");
         }
@@ -83,7 +90,8 @@ function Login() {
           name: String(f.get("name")),
           callbackURL: location.origin + "/app" + location.hash,
         });
-        setStatus("Check your inbox to verify your email before signing in.");
+        if (config?.local_auth) location.assign("/app" + location.hash);
+        else setStatus("If this is a new account, check your inbox to verify your email. Already registered? Continue with Google or use Set / reset password; signing up again does not change your password.");
       } else {
         await authRequest("sign-in/email", {
           email,
@@ -137,14 +145,17 @@ function Login() {
             {mode === "signup"
               ? "Create your account."
               : mode === "reset"
-                ? "Reset your password."
+                ? "Set or reset your password."
                 : "Welcome back."}
           </h1>
           <p className="auth-intro">
             {mode === "signup"
               ? "Create organizations, collaborate with your team, and track your visibility."
-              : "Your brands, your research, your perspective."}
+              : "Use Google or your TrackRank password. Signed up with Google? Set a password using the link below—not your Google password."}
           </p>
+          {config?.local_auth && (
+            <p className="auth-intro">Local development: email verification is skipped. Use a test email and password.</p>
+          )}
           {config && !config.email_auth && !config.google_auth && (
             <div className="setup-notice">
               <KeyRound size={16} />
@@ -187,6 +198,7 @@ function Login() {
               </div>
             </>
           )}
+          {mode !== "reset" && <p className="auth-legal">By creating an account or continuing with Google, you agree to the <Link to="/terms">Terms of Service</Link>. Read our <Link to="/privacy">Privacy Policy</Link> to learn how we handle your data.</p>}
           <form onSubmit={submit} className="form-stack">
             {mode === "signup" && (
               <label>
@@ -262,6 +274,7 @@ function Login() {
               {status}
             </p>
           )}
+          <LegalLinks />
           <div className="auth-links">
             {mode === "login" ? (
               <>
@@ -281,7 +294,7 @@ function Login() {
                     setStatus("");
                   }}
                 >
-                  Forgot password?
+                  Set / reset password
                 </button>
               </>
             ) : (

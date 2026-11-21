@@ -5,13 +5,19 @@ import type {
   Workflow,
 } from "@cloudflare/workers-types";
 export type Env = {
+  DEFAULT_PLAN_VERSION?: string;
+  API_REQUESTS_PER_MINUTE?: string;
+  PROVIDER_REQUESTS_PER_MINUTE?: string;
   DB: D1Database;
   RUN_WORKFLOW: Workflow<{ runId: string }>;
   ANSWERS: R2Bucket;
   AUTH_SECRET: string;
   CREDENTIALS_KEY: string;
   BASE_URL: string;
+  PUBLIC_OPERATOR_NAME?: string;
+  PUBLIC_SUPPORT_EMAIL?: string;
   SIGNUP_ENABLED?: string;
+  DEV_SKIP_EMAIL_VERIFICATION?: string;
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
   RESEND_API_KEY?: string;
@@ -30,6 +36,7 @@ export class HttpError extends Error {
   constructor(
     public status: number,
     message: string,
+    public headers: Record<string, string> = {},
   ) {
     super(message);
   }

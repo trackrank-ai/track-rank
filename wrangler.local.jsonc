@@ -1,0 +1,37 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "trackrank-local",
+  "main": "src/worker.ts",
+  "compatibility_date": "2025-09-02",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "vars": {
+    "BASE_URL": "http://localhost:3000",
+    "SIGNUP_ENABLED": "true",
+    "DEV_SKIP_EMAIL_VERIFICATION": "true",
+    "PUBLIC_OPERATOR_NAME": "Local TrackRank",
+    "PUBLIC_SUPPORT_EMAIL": ""
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "trackrank-local-db",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "ANSWERS",
+      "bucket_name": "trackrank-local-answers"
+    }
+  ],
+  "workflows": [
+    {
+      "name": "trackrank-local-tracking",
+      "binding": "RUN_WORKFLOW",
+      "class_name": "TrackingWorkflow"
+    }
+  ]
+}

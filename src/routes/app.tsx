@@ -1,3 +1,4 @@
+import { LegalLinks } from "@/components/legal-layout";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
@@ -162,6 +163,7 @@ function App() {
     [busy, setBusy] = useState(false),
     [loading, setLoading] = useState(false),
     [invite, setInvite] = useState(""),
+    [pendingInvite, setPendingInvite] = useState<Item | null>(null),
     [newKey, setNewKey] = useState(""),
     [selectedRun, setSelectedRun] = useState<Item | null>(null),
     [editPrompt, setEditPrompt] = useState<Item | null>(null),
@@ -225,10 +227,8 @@ function App() {
         setSession(s);
         const i = new URLSearchParams(location.hash.slice(1)).get("invite");
         if (i) {
-          const accepted = await request("/invites/accept", "POST", { token: i }, "");
-          setOrg(accepted.org_id);
-          history.replaceState(null, "", "/app");
-          setNotice("Invitation accepted. Your team workspace is ready.");
+          const details = await request("/invites/preview", "POST", { token: i }, "");
+          setPendingInvite({ ...details, token: i });
         }
         await reloadOrgs();
       } catch (e) {
@@ -442,6 +442,33 @@ function App() {
         <p>Opening your workspace…</p>
       </main>
     );
+  if (pendingInvite && session) return (
+    <main className="auth-page">
+      <Card className="auth-card"><CardContent>
+        <h1>Join {pendingInvite.organization_name}</h1>
+        <p>Invited email: <strong>{pendingInvite.recipient_email}</strong></p>
+        <p>Signed in as: <strong>{pendingInvite.signed_in_email}</strong></p>
+        <p>Role: {pendingInvite.role}. {pendingInvite.already_member ? "You already belong to this organization; your current role will be kept." : "Your existing organizations and data stay separate."}</p>
+        {!pendingInvite.email_matches && <p role="alert">Switch accounts to the invited email address before accepting.</p>}
+        {pendingInvite.email_matches && !pendingInvite.email_verified && <p role="alert">Verify your email first, then reload this invitation. Sign in again to request a verification email.</p>}
+        {error && <p role="alert" className="form-error">{error}</p>}
+        <Button disabled={busy || !pendingInvite.email_matches || !pendingInvite.email_verified} onClick={() => action(async () => {
+          const accepted = await request("/invites/accept", "POST", { token: pendingInvite.token }, "");
+          setOrg(accepted.org_id);
+          history.replaceState(null, "", "/app");
+          setPendingInvite(null);
+          await reloadOrgs();
+          setNotice("Invitation accepted. Your team workspace is ready.");
+        })}>Accept invitation</Button>
+        <Button variant="outline" disabled={busy} onClick={() => action(async () => {
+          const r = await fetch("/api/auth/sign-out", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+          if (!r.ok) throw new Error("Unable to sign out. Please try again.");
+          location.assign("/login" + location.hash);
+        })}>Switch account</Button>
+        <Button variant="ghost" disabled={busy} onClick={() => { history.replaceState(null, "", "/app"); setPendingInvite(null); }}>Not now</Button>
+      </CardContent></Card>
+    </main>
+  );
   if (!session)
     return (
       <main className="app-loading">
@@ -534,6 +561,7 @@ function App() {
           ))}
         </nav>
         <div className="app-sidebar-bottom">
+          <LegalLinks />
           <Badge variant="outline">Early beta</Badge>
           <span>
             {session.user.name}
@@ -2065,14 +2093,14 @@ function App() {
                         <h2>Invite a teammate</h2>
                         <p className="data-note">
                           Create a single-use invitation valid for seven days.
-                          Share it privately; anyone with the link can claim the
-                          assigned role after signing in.
+                          Only the named recipient can accept after signing in with a verified email. No email is sent automatically; share the link privately.
                         </p>
                         <form
                           className="app-inline-form"
                           onSubmit={(e) =>
                             submit(e, async (f) => {
                               const d = await request("/invites", "POST", {
+                                email: f.get("email"),
                                 role: f.get("role"),
                               });
                               setInvite(d.url);
@@ -2080,6 +2108,7 @@ function App() {
                             })
                           }
                         >
+                          <input name="email" type="email" required maxLength={254} placeholder="teammate@example.com" aria-label="Invited email address" />
                           <select name="role" aria-label="Invitation role">
                             <option value="member">
                               Member · manage research
@@ -2113,7 +2142,7 @@ function App() {
                           .map((i) => (
                             <div className="simple-row" key={i.id}>
                               <span>
-                                {i.role} invitation · expires{" "}
+                                {i.recipient_email} · {i.role} invitation · expires{" "}
                                 {date(i.expires_at)}
                               </span>
                               <Button
@@ -2140,6 +2169,17 @@ function App() {
               )}
               {tab === "settings" && (
                 <>
+                  {settings.plan && (
+                    <Card>
+                      <CardContent>
+                        <h2>{settings.plan.name} · {settings.plan.version}</h2>
+                        <p className="data-note">Assigned plan allowances; shared by all organization members and API keys. Deployment safety ceilings and your daily run guardrail may be lower.</p>
+                        <p>{settings.plan.limits.api_per_minute.toLocaleString()} API operations/minute · {settings.plan.limits.provider_per_minute.toLocaleString()} provider operations/minute · {settings.plan.limits.concurrent_runs} concurrent runs</p>
+                        <p>{Number(settings.monthly_usage?.api_operations || 0).toLocaleString()} / {settings.plan.limits.api_per_month.toLocaleString()} monthly API operations · {Number(settings.monthly_usage?.runs || 0).toLocaleString()} / {settings.plan.limits.runs_per_month.toLocaleString()} monthly runs</p>
+                        <p className="data-note">Monthly allowances reset on the first UTC. Plan pricing is catalog metadata; billing is not enabled yet.</p>
+                      </CardContent>
+                    </Card>
+                  )}
                   <div className="app-metrics">
                     <Card className="app-stat">
                       <CardContent>
@@ -2332,7 +2372,7 @@ function App() {
                                 type="number"
                                 name="limit"
                                 min={1}
-                                max={100}
+                                max={1000000}
                                 defaultValue={settings.daily_run_limit || 20}
                                 required
                               />
@@ -2394,7 +2434,7 @@ function App() {
                       <p className="data-note">
                         Create an organization API key, then configure your
                         client with this MCP endpoint and Authorization header.
-                        Keys are scoped, expiring, and shown only once.
+                        Keys are scoped, expiring, and shown only once. All keys and members share an organization rate limit; agents must honor retry delays.
                       </p>
                       <pre className="code-block">
                         {JSON.stringify(

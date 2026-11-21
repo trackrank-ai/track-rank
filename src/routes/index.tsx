@@ -1,3 +1,4 @@
+import { LegalLinks } from "@/components/legal-layout";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { createFileRoute } from "@tanstack/react-router";
 import {
@@ -586,6 +587,7 @@ function Home() {
       <footer className="footer shell">
         <Brand />
         <p>Independent thinking. Clearer signals.</p>
+        <LegalLinks />
         <span>
           © {new Date().getFullYear()} TrackRank{" "}
           <span className="footer-dot">·</span> In development

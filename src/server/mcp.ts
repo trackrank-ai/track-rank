@@ -1,3 +1,5 @@
+import { organizationPlan } from "./plans";
+import { enforceLimit, safetyCeiling } from "./rate-limit";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { z } from "zod";
@@ -11,6 +13,8 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
       401,
       "MCP requires an organization API key in Authorization: Bearer",
     );
+  // Also bound discovery/initialize requests that never invoke an API tool.
+  await enforceLimit(env, `mcp:${p.orgId}`, safetyCeiling(env.API_REQUESTS_PER_MINUTE, (await organizationPlan(env, p.orgId!)).limits.api_per_minute));
   const server = new McpServer(
     { name: "trackrank", version: "0.1.0" },
     {
@@ -46,7 +50,9 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
         content: [
           {
             type: "text" as const,
-            text: e instanceof HttpError ? e.message : "Request failed",
+            text: e instanceof HttpError
+              ? JSON.stringify({ error: e.message, status: e.status, ...(e.headers["Retry-After"] ? { retry_after_seconds: Number(e.headers["Retry-After"]) } : {}) })
+              : "Request failed",
           },
         ],
         isError: true,

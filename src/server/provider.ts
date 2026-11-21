@@ -1,3 +1,4 @@
+import { calendarMonth, organizationPlan } from "./plans";
 import {
   all,
   exec,
@@ -119,6 +120,8 @@ export async function createRun(
   const org = required(
     await one<Row>(env, "SELECT * FROM organizations WHERE id=?", orgId),
   );
+  const plan = await organizationPlan(env, orgId);
+  const month = calendarMonth();
   const config = {
     engine: p.engine,
     mode: p.mode,
@@ -137,7 +140,7 @@ export async function createRun(
     t = now();
   await exec(
     env,
-    "INSERT OR IGNORE INTO runs(id,org_id,prompt_id,workspace_id,prompt_text,config,status,idempotency_key,created_at,updated_at) SELECT ?,?,?,?,?,?,'queued',?,?,? WHERE (SELECT COUNT(*) FROM runs WHERE org_id=? AND created_at>=?) < ?",
+    "INSERT OR IGNORE INTO runs(id,org_id,prompt_id,workspace_id,prompt_text,config,status,idempotency_key,created_at,updated_at) SELECT ?,?,?,?,?,?,'queued',?,?,? WHERE (SELECT COUNT(*) FROM runs WHERE org_id=? AND created_at>=?) < ? AND (SELECT COUNT(*) FROM runs WHERE org_id=? AND created_at>=? AND created_at<?) < ?",
     id,
     orgId,
     promptId,
@@ -149,7 +152,8 @@ export async function createRun(
     t,
     orgId,
     new Date(new Date(t).toISOString().slice(0, 10)).getTime(),
-    org.daily_run_limit,
+    org.daily_run_ceiling,
+    orgId, month.start, month.end, plan.limits.runs_per_month,
   );
   const result = await one<Row>(
     env,
@@ -157,11 +161,14 @@ export async function createRun(
     orgId,
     idempotencyKey,
   );
-  if (!result)
-    throw new HttpError(
-      429,
-      "Daily run limit reached. Limit resets at midnight UTC.",
-    );
+  if (!result) {
+    const usage = await one<{ count: number }>(env, "SELECT COUNT(*) AS count FROM runs WHERE org_id=? AND created_at>=? AND created_at<?", orgId, month.start, month.end);
+    if ((usage?.count || 0) >= plan.limits.runs_per_month)
+      throw new HttpError(429, "Monthly run allowance reached; resets on the first of the month UTC", {
+        "Retry-After": String(Math.max(1, Math.ceil((month.end - now()) / 1000))),
+      });
+    throw new HttpError(429, "Daily run limit reached. Limit resets at midnight UTC.");
+  }
   return result;
 }
 function safeUrl(value: unknown) {
@@ -339,11 +346,13 @@ export async function executeRun(env: Env, id: string) {
     await one<Row>(env, "SELECT * FROM runs WHERE id=?", id),
   );
   if (run.status !== "queued") return;
+  const plan = await organizationPlan(env, String(run.org_id));
   const lease = await exec(
     env,
-    "UPDATE runs SET status='submitting',updated_at=? WHERE id=? AND status='queued' AND (SELECT COUNT(*) FROM runs active WHERE active.org_id=runs.org_id AND active.status IN ('submitting','submitted'))<3",
+    "UPDATE runs SET status='submitting',updated_at=? WHERE id=? AND status='queued' AND (SELECT COUNT(*) FROM runs active WHERE active.org_id=runs.org_id AND active.status IN ('submitting','submitted'))<?",
     now(),
     id,
+    plan.limits.concurrent_runs,
   );
   if (!lease.meta.changes) return;
   const config = JSON.parse(String(run.config)) as Config;

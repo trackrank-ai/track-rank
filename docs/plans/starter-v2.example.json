@@ -1,0 +1,15 @@
+{
+  "id": "starter-v2",
+  "family": "starter",
+  "name": "Starter",
+  "price_cents": 1500,
+  "currency": "usd",
+  "interval": "month",
+  "limits": {
+    "api_per_minute": 120,
+    "api_per_month": 200000,
+    "provider_per_minute": 10,
+    "runs_per_month": 6000,
+    "concurrent_runs": 3
+  }
+}

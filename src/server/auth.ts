@@ -1,3 +1,4 @@
+import { localAuthEnabled } from "./local-auth";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "@better-auth/drizzle-adapter";
 import { drizzle } from "drizzle-orm/d1";
@@ -31,6 +32,7 @@ async function sendMail(env: Env, to: string, subject: string, url: string) {
   if (!r.ok) throw new HttpError(502, "Email delivery failed");
 }
 export function auth(env: Env) {
+  const localAuth = localAuthEnabled(env);
   return betterAuth({
     appName: "TrackRank",
     baseURL: env.BASE_URL,
@@ -42,24 +44,45 @@ export function auth(env: Env) {
             google: {
               clientId: env.GOOGLE_CLIENT_ID,
               clientSecret: env.GOOGLE_CLIENT_SECRET,
+              requireEmailVerification: true,
+              disableSignUp: env.SIGNUP_ENABLED !== "true",
             },
           }
         : {},
+    user: {
+      validateUserInfo: ({ user, source }) => {
+        if (source.method === "oauth" && source.oauth?.providerId === "google" && user.emailVerified !== true)
+          return { error: "email_not_verified", errorDescription: "Google must verify this email before it can be used for signup or account linking" };
+      },
+    },
+    account: {
+      accountLinking: {
+        enabled: true,
+        disableImplicitLinking: false,
+        requireLocalEmailVerified: true,
+        allowDifferentEmails: false,
+        // No trusted-provider bypass: Google must attest the email is verified.
+        trustedProviders: [],
+      },
+    },
     emailAndPassword: {
       enabled: true,
-      requireEmailVerification: true,
+      requireEmailVerification: !localAuth,
       minPasswordLength: 12,
       maxPasswordLength: 128,
+      revokeSessionsOnPasswordReset: true,
       disableSignUp: env.SIGNUP_ENABLED !== "true",
       sendResetPassword: async ({ user, url }) =>
         sendMail(env, user.email, "Reset your TrackRank password", url),
     },
     emailVerification: {
-      sendOnSignUp: true,
-      sendOnSignIn: true,
+      sendOnSignUp: !localAuth,
+      sendOnSignIn: !localAuth,
       autoSignInAfterVerification: true,
-      sendVerificationEmail: async ({ user, url }) =>
-        sendMail(env, user.email, "Verify your TrackRank email", url),
+      sendVerificationEmail: async ({ user, url }) => {
+        if (!localAuth)
+          await sendMail(env, user.email, "Verify your TrackRank email", url);
+      },
     },
     session: { expiresIn: 60 * 60 * 24 * 7, updateAge: 60 * 60 * 24 },
     trustedOrigins: [env.BASE_URL],

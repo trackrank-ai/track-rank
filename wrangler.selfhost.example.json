@@ -1,0 +1,44 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "my-trackrank",
+  "main": "src/worker.ts",
+  "compatibility_date": "2025-09-02",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "vars": {
+    "BASE_URL": "https://REPLACE_WITH_YOUR_HOST",
+    "SIGNUP_ENABLED": "false",
+    "EMAIL_FROM": "TrackRank <login@REPLACE_WITH_YOUR_VERIFIED_EMAIL_DOMAIN>",
+    "PUBLIC_OPERATOR_NAME": "REPLACE_WITH_YOUR_OPERATOR_NAME",
+    "PUBLIC_SUPPORT_EMAIL": "REPLACE_WITH_YOUR_SUPPORT_EMAIL"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "my-trackrank-db",
+      "database_id": "REPLACE_WITH_YOUR_D1_DATABASE_ID",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "ANSWERS",
+      "bucket_name": "my-trackrank-answers"
+    }
+  ],
+  "workflows": [
+    {
+      "name": "my-trackrank-tracking",
+      "binding": "RUN_WORKFLOW",
+      "class_name": "TrackingWorkflow"
+    }
+  ],
+  "workers_dev": true,
+  "keep_vars": true,
+  "triggers": {
+    "crons": [
+      "*/5 * * * *"
+    ]
+  }
+}

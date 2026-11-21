@@ -11,9 +11,11 @@
 - Scoped expiring/revocable API keys and working Streamable HTTP MCP tools.
 - Three submitting/submitted tasks per organization; round-robin queue dispatch; conservative run-count guardrail and usage visibility.
 
+- Public privacy, terms, support and security pages; footer/signup/app links; security.txt disclosure contact. Operator: Track Rank Ai; contact: info@trackrank.ai. See [operations](OPERATIONS.md) for the manual support/incident process and remaining retention/recovery work. Inbox delivery and legal review are not certified by the app checks.
+
 ## Verified in development
 
-- 16 meaningful core tests: tenant-bound authenticated encryption, matching/normalization, Google organic-vs-AI separation, scheduling/timezones, SQL/API tenant isolation, viewer/scoped-key enforcement, revocation/membership removal, invitation single-use, idempotency/daily cap, async task correlation/raw persistence, uncertain-submit non-retry, credential redaction, workspace brand isolation, and provider concurrency admission.
+- 17 meaningful core/guard tests: tenant-bound authenticated encryption, matching/normalization, Google organic-vs-AI separation, scheduling/timezones, SQL/API tenant isolation, viewer/scoped-key enforcement, revocation/membership removal, invitation single-use, idempotency/daily cap, async task correlation/raw persistence, uncertain-submit non-retry, credential redaction, workspace brand isolation, and provider concurrency admission.
 - Real local Worker HTTP checks: Better Auth password login/session/logout, D1 organization/default workspace, brand/prompt persistence, clean-SERP default, schedule timing edit, API key, MCP initialize/tools/list/get_context, scope enforcement, revocation and CSV response.
 - No paid DataForSEO or OpenRouter calls and no real emails were sent by automated tests.
 
@@ -35,7 +37,7 @@ Rendered desktop/mobile homepage and login inspected; login has no horizontal ov
 ## Public paid launch gates, not completed
 
 - Provider-dollar budget reservations/reconciliation; no claim that a run-count cap guarantees dollars.
-- Billing, subscription lifecycle, privacy/terms and operator support/recovery process.
+- Billing and subscription lifecycle; final policy/business review, monitored inbox delivery, and verified operator recovery process. Public beta privacy/terms pages and support instructions are now implemented.
 - Encryption-key rotation migration and restore drill; stable keys must be retained securely. Never replace CREDENTIALS_KEY casually.
 - Representative multi-tenant/load/failure testing, operational alerting, D1/R2 retention and full deletion controls.
 - Separate staging environment before routine production changes.

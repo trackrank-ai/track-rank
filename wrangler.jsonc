@@ -13,6 +13,8 @@
   "main": "src/worker.ts",
   "vars": {
     "BASE_URL": "https://trackrank.ai",
+    "PUBLIC_OPERATOR_NAME": "Track Rank Ai",
+    "PUBLIC_SUPPORT_EMAIL": "info@trackrank.ai",
     "SIGNUP_ENABLED": "true",
     "EMAIL_FROM": "TrackRank <login@mail.trackrank.ai>",
     "GOOGLE_CLIENT_ID": "193274538094-m765kc4c4c98302fpftkuge4e72tu3lj.apps.googleusercontent.com",

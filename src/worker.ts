@@ -1,5 +1,7 @@
+import { publicSettings } from "./server/public-settings";
 import handler from "@tanstack/react-start/server-entry";
 import { api } from "./server/api";
+import { localAuthEnabled } from "./server/local-auth";
 import { auth } from "./server/auth";
 import { callbackSignature, hashToken } from "./server/crypto";
 import { mcp } from "./server/mcp";
@@ -24,12 +26,26 @@ const appWorker = {
     )
       return Response.redirect(env.BASE_URL + u.pathname + u.search, 308);
     try {
+      if (u.pathname === "/.well-known/security.txt") {
+        const { email } = publicSettings(env);
+        if (!email) return new Response("Security contact not configured", { status: 404 });
+        const origin = new URL(env.BASE_URL).origin;
+        return new Response([
+          `Contact: mailto:${email}`,
+          `Expires: ${new Date(Date.now() + 180 * 86400000).toISOString()}`,
+          "Preferred-Languages: en",
+          `Canonical: ${origin}/.well-known/security.txt`,
+          `Policy: ${origin}/security`,
+          "",
+        ].join("\n"), { headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "public, max-age=3600" } });
+      }
       if (u.pathname === "/api/health")
         return json({
           ok: true,
           version: "0.1.0",
           google_auth: !!(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET),
-          email_auth: !!(env.RESEND_API_KEY && env.EMAIL_FROM),
+          email_auth: localAuthEnabled(env) || !!(env.RESEND_API_KEY && env.EMAIL_FROM),
+          local_auth: localAuthEnabled(env),
           signup_enabled: env.SIGNUP_ENABLED === "true",
         });
       if (u.pathname.startsWith("/api/provider-callback/")) {
@@ -78,7 +94,7 @@ const appWorker = {
       }
       if (u.pathname.startsWith("/api/auth/")) {
         if (
-          (u.pathname.includes("sign-up") ||
+          ((u.pathname.includes("sign-up") && !localAuthEnabled(env)) ||
             u.pathname.includes("request-password-reset")) &&
           (!env.RESEND_API_KEY || !env.EMAIL_FROM)
         )
@@ -92,7 +108,11 @@ const appWorker = {
       if (u.pathname.startsWith("/api/v1/")) return await api(req, env, ctx);
       return await handler.fetch(req);
     } catch (e) {
-      if (e instanceof HttpError) return json({ error: e.message }, e.status);
+      if (e instanceof HttpError) {
+        const response = json({ error: e.message }, e.status);
+        for (const [key, value] of Object.entries(e.headers)) response.headers.set(key, value);
+        return response;
+      }
       console.error(
         "TrackRank request failed",
         u.pathname,

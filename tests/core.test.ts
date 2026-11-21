@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
 import { api } from "../src/server/api";
-import { authenticate } from "../src/server/auth";
+import { auth, authenticate } from "../src/server/auth";
 import { seal, unseal } from "../src/server/crypto";
 import {
   normalize,
@@ -27,9 +27,10 @@ class Statement {
   first() {
     return this.db.prepare(this.sql).get(...(this.args as any[])) || null;
   }
-  all() {
+  async all() {
     return { results: this.db.prepare(this.sql).all(...(this.args as any[])) };
   }
+  async raw() { return this.db.prepare(this.sql).all(...(this.args as any[])).map(row => Object.values(row)); }
   run() {
     const r = this.db.prepare(this.sql).run(...(this.args as any[]));
     return { success: true, meta: { changes: Number(r.changes) } };
@@ -59,6 +60,8 @@ function fixture() {
       "utf8",
     ),
   );
+  sql.exec(readFileSync(new URL("../migrations/0004_versioned_plans.sql", import.meta.url), "utf8"));
+  sql.exec(readFileSync(new URL("../migrations/0005_recipient_invitations.sql", import.meta.url), "utf8"));
   const db = {
     prepare: (s: string) => new Statement(sql, s),
     batch: async (stmts: Statement[]) => {
@@ -419,7 +422,7 @@ test("invitations are hashed, one-use, role-scoped, and cannot overwrite owner",
     { userId: "alice" },
     "/invites",
     "POST",
-    { role: "member" },
+    { role: "member", email: "bob@example.test" },
     a.id,
   );
   const { url } = (await r.json()) as any;
@@ -449,7 +452,7 @@ test("idempotent runs reserve at most once and enforce daily caps atomically", a
   const { env, sql } = fixture();
   const a = await setupPrompt(env);
   sql
-    .prepare("UPDATE organizations SET daily_run_limit=1 WHERE id=?")
+    .prepare("UPDATE organizations SET daily_run_ceiling=1 WHERE id=?")
     .run(a.id);
   const r1 = await createRun(env, a.id, a.promptId, "same-key-123"),
     r2 = await createRun(env, a.id, a.promptId, "same-key-123");
@@ -626,4 +629,286 @@ test("provider admission limits each organization to three active tasks", async 
   } finally {
     globalThis.fetch = original;
   }
+});
+
+test("customer rate budget is shared across keys, members and MCP while other customers remain isolated", async () => {
+  const { env, sql } = fixture();
+  const a = await organization(env);
+  const b = await organization(env, "bob");
+  const makeKey = async () => {
+    const r = await call(env, { userId: "alice" }, "/keys", "POST", { name: "Agent", scopes: ["read"] }, a.id);
+    const { key } = await r.json() as { key: string };
+    return authenticate(new Request(env.BASE_URL, { headers: { Authorization: `Bearer ${key}` } }), env);
+  };
+  const k1 = await makeKey(), k2 = await makeKey();
+  sql.prepare("INSERT INTO memberships VALUES(?,?,'member',?)").run(a.id, "eve", Date.now());
+  sql.exec("DELETE FROM request_limits");
+  env.API_REQUESTS_PER_MINUTE = "3";
+  await call(env, k1, "/workspaces");
+  await call(env, k2, "/workspaces");
+  await call(env, { userId: "eve" }, "/workspaces", "GET", undefined, a.id);
+  // Actual MCP tool invocation must consume the same customer budget.
+  const { mcp } = await import("../src/server/mcp");
+  const keyResponse = await call(env, { userId: "bob" }, "/keys", "POST", { name: "Bob agent", scopes: ["read"] }, b.id);
+  const { key: bobKey } = await keyResponse.json() as { key: string };
+  const aliceKey = "trk_" + "test-alice-key";
+  const { hashToken } = await import("../src/server/crypto");
+  sql.prepare("UPDATE api_keys SET token_hash=? WHERE id=?").run(await hashToken(aliceKey), k1.keyId!);
+  const rpc = (key: string) => mcp(new Request(`${env.BASE_URL}/mcp`, {
+    method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "list_workspaces", arguments: {} } }),
+  }), env, ctx);
+  const result = await (await rpc(aliceKey)).json() as any;
+  assert.equal(result.result.isError, true);
+  const error = JSON.parse(result.result.content[0].text);
+  assert.equal(error.status, 429);
+  assert.ok(error.retry_after_seconds >= 1 && error.retry_after_seconds <= 60);
+  assert.equal((await (await rpc(bobKey)).json() as any).result.isError, false);
+  await assert.rejects(call(env, k2, "/workspaces"), (e: any) => e.status === 429 && Number(e.headers["Retry-After"]) > 0);
+  // Previous minute does not consume the new window's allowance.
+  sql.prepare("UPDATE request_limits SET bucket=bucket-1 WHERE key=?").run(`customer:${a.id}`);
+  assert.equal((await call(env, k1, "/workspaces")).status, 200);
+});
+
+test("provider budget rejects costly operations before dispatch and validates deployment overrides", async () => {
+  const { env, sql } = fixture();
+  const o = await organization(env);
+  env.PROVIDER_REQUESTS_PER_MINUTE = "1";
+  // Even missing-resource requests are bounded before resource work.
+  await assert.rejects(call(env, { userId: "alice" }, "/prompts/missing/run", "POST", {}, o.id), (e: any) => e.status === 404);
+  await assert.rejects(call(env, { userId: "alice" }, "/runs/missing/refresh", "POST", {}, o.id), (e: any) => e.status === 429);
+  assert.equal((await call(env, { userId: "alice" }, "/workspaces", "GET", undefined, o.id)).status, 200);
+  assert.equal(sql.prepare("SELECT COUNT(*) AS n FROM runs").get()!.n, 0);
+  const { requestLimit } = await import("../src/server/rate-limit");
+  for (const bad of [undefined, "", "0", "-1", "abc", "1.5", "10001"]) assert.equal(requestLimit(bad, 120), 120);
+  assert.equal(requestLimit("45", 120), 45);
+});
+
+test("plan versions are immutable; retired customers are grandfathered and defaults affect only new organizations", async () => {
+  const { env, sql } = fixture();
+  const a = await organization(env);
+  assert.equal(sql.prepare("SELECT plan_version_id FROM organization_plans WHERE org_id=?").get(a.id)!.plan_version_id, "beta-v1");
+  assert.throws(() => sql.exec("UPDATE plan_versions SET price_cents=2000 WHERE id='beta-v1'"), /new plan version/);
+  assert.throws(() => sql.exec("DELETE FROM plan_versions WHERE id='pro-v1'"), /Retire/);
+  assert.throws(() => sql.prepare("UPDATE organization_plans SET plan_version_id='starter-v1' WHERE org_id=?").run(a.id), /active plan/);
+  sql.exec("UPDATE plan_versions SET status='active' WHERE id='starter-v1'");
+  env.DEFAULT_PLAN_VERSION = 'starter-v1';
+  const b = await organization(env, 'bob');
+  sql.exec("UPDATE plan_versions SET status='retired' WHERE id='starter-v1'");
+  const settings = await (await call(env, { userId: 'bob' }, '/settings', 'GET', undefined, b.id)).json() as any;
+  assert.equal(settings.plan.version, 'starter-v1');
+  assert.equal(settings.plan.price_cents, 1000);
+  assert.equal(settings.plan.limits.runs_per_month, 6000);
+  assert.equal(sql.prepare("SELECT plan_version_id FROM organization_plans WHERE org_id=?").get(a.id)!.plan_version_id, 'beta-v1');
+  await assert.rejects(organization(env, 'eve'), /Default plan/);
+  assert.equal(sql.prepare("SELECT COUNT(*) AS n FROM organizations").get()!.n, 2);
+  sql.prepare("UPDATE organization_plans SET plan_version_id='beta-v1',assigned_at=?,reason='Test downgrade' WHERE org_id=?").run(Date.now(),b.id);
+  assert.equal(sql.prepare("SELECT COUNT(*) AS n FROM plan_assignment_history WHERE org_id=?").get(b.id)!.n, 2);
+});
+
+test("monthly budgets survive key changes and plan changes without resetting usage", async () => {
+  const { env, sql } = fixture();
+  const a = await organization(env), b = await organization(env, 'bob');
+  const limits = JSON.stringify({ api_per_minute: 120, api_per_month: 2, provider_per_minute: 10, runs_per_month: 1, concurrent_runs: 1 });
+  sql.prepare("INSERT INTO plan_versions VALUES('tiny-v1','test','Tiny',0,'usd','month','active',?,0)").run(limits);
+  sql.prepare("UPDATE organization_plans SET plan_version_id='tiny-v1' WHERE org_id=?").run(a.id);
+  await call(env, {userId:'alice'}, '/workspaces', 'GET', undefined, a.id);
+  await call(env, {userId:'alice',orgId:a.id,keyId:'different-key',scopes:['read']}, '/workspaces');
+  await assert.rejects(call(env,{userId:'alice'},'/workspaces','GET',undefined,a.id),(e:any)=>e.status===429 && /Monthly API/.test(e.message) && Number(e.headers['Retry-After'])>0);
+  assert.equal((await call(env,{userId:'bob'},'/workspaces','GET',undefined,b.id)).status,200);
+  sql.prepare("UPDATE organization_plans SET plan_version_id='beta-v1' WHERE org_id=?").run(a.id);
+  assert.equal((await call(env,{userId:'alice'},'/workspaces','GET',undefined,a.id)).status,200);
+  const { calendarMonth } = await import('../src/server/plans');
+  assert.equal(sql.prepare("SELECT operations FROM monthly_api_usage WHERE org_id=? AND month=?").get(a.id,calendarMonth().key)!.operations,3);
+  sql.prepare("UPDATE organization_plans SET plan_version_id='tiny-v1' WHERE org_id=?").run(a.id);
+  await assert.rejects(call(env,{userId:'alice'},'/workspaces','GET',undefined,a.id),/Monthly API/);
+  sql.prepare("UPDATE monthly_api_usage SET month='2020-01' WHERE org_id=?").run(a.id);
+  assert.equal((await call(env,{userId:'alice'},'/workspaces','GET',undefined,a.id)).status,200);
+  assert.equal(calendarMonth(Date.UTC(2026,11,31)).end,Date.UTC(2027,0,1));
+});
+
+test("monthly provider admission is atomic, includes scheduled runs and does not count idempotent retries twice", async () => {
+  const { env, sql } = fixture();
+  const a = await setupPrompt(env);
+  const limits = JSON.stringify({api_per_minute:120,api_per_month:200000,provider_per_minute:10,runs_per_month:1,concurrent_runs:1});
+  sql.prepare("INSERT INTO plan_versions VALUES('one-v1','test','One run',0,'usd','month','active',?,0)").run(limits);
+  sql.prepare("UPDATE organization_plans SET plan_version_id='one-v1' WHERE org_id=?").run(a.id);
+  const results = await Promise.allSettled([createRun(env,a.id,a.promptId,'first-monthly-run'),createRun(env,a.id,a.promptId,'schedule:monthly-test')]);
+  assert.equal(results.filter(r=>r.status==='fulfilled').length,1);
+  const winner = (results.find(r=>r.status==='fulfilled') as PromiseFulfilledResult<any>).value;
+  assert.equal((await createRun(env,a.id,a.promptId,String(winner.idempotency_key))).id,winner.id);
+  assert.equal(sql.prepare("SELECT COUNT(*) AS n FROM runs WHERE org_id=?").get(a.id)!.n,1);
+  const original = globalThis.fetch;
+  globalThis.fetch = (async()=>Response.json({status_code:20000,tasks:[{id:'external',status_code:20100}]})) as typeof fetch;
+  try {
+    // Changing allowance does not alter the immutable version; use a new revision.
+    sql.prepare("INSERT INTO plan_versions VALUES('two-v1','test','Two runs',0,'usd','month','active',?,0)").run(limits.replace('"runs_per_month":1','"runs_per_month":2'));
+    sql.prepare("UPDATE organization_plans SET plan_version_id='two-v1' WHERE org_id=?").run(a.id);
+    const second=await createRun(env,a.id,a.promptId,'second-monthly-run');
+    await executeRun(env,String(winner.id));
+    await executeRun(env,String(second.id));
+    assert.equal(sql.prepare("SELECT status FROM runs WHERE id=?").get(String(second.id))!.status,'queued');
+  } finally {globalThis.fetch=original;}
+});
+
+test("plan migration backfills existing organizations and preserves their daily guardrail", () => {
+  const db = new DatabaseSync(':memory:');
+  for (const file of ['0001_initial.sql','0002_workflow_dispatch.sql','0003_workspace_brands.sql'])
+    db.exec(readFileSync(new URL(`../migrations/${file}`,import.meta.url),'utf8'));
+  db.prepare('INSERT INTO organizations(id,name,created_at,daily_run_limit) VALUES(?,?,?,?)').run('legacy','Legacy customer',12345,42);
+  db.exec(readFileSync(new URL('../migrations/0004_versioned_plans.sql',import.meta.url),'utf8'));
+  const assignment=db.prepare('SELECT * FROM organization_plans WHERE org_id=?').get('legacy')!;
+  assert.equal(assignment.plan_version_id,'beta-v1');
+  assert.equal(assignment.assigned_at,12345);
+  assert.equal(db.prepare('SELECT daily_run_ceiling FROM organizations WHERE id=?').get('legacy')!.daily_run_ceiling,42);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM plan_assignment_history WHERE org_id=?').get('legacy')!.n,1);
+  db.close();
+});
+
+test("customers cannot self-upgrade through Settings and emergency ceilings cannot raise a plan allowance", async () => {
+  const {env}=fixture();
+  const a=await organization(env);
+  await assert.rejects(call(env,{userId:'alice'},'/settings','PATCH',{resolve_poisoned_results:true,daily_run_limit:20,plan_version_id:'pro-v1'},a.id),(e:any)=>e.status===400);
+  const {safetyCeiling}=await import('../src/server/rate-limit');
+  assert.equal(safetyCeiling('9999',120),120);
+  assert.equal(safetyCeiling('60',120),60);
+  assert.equal(safetyCeiling(undefined,360),360);
+  assert.equal(safetyCeiling('invalid',360),360);
+});
+
+test("named invitations require the recipient's verified email, preview without claiming, and preserve separate organizations", async () => {
+  const { env, sql }=fixture();
+  const a=await organization(env), b=await organization(env,'bob');
+  const r=await call(env,{userId:'alice'},'/invites','POST',{email:' BOB@EXAMPLE.TEST ',role:'viewer'},a.id);
+  const {url}=await r.json() as any;
+  const token=new URLSearchParams(new URL(url).hash.slice(1)).get('invite');
+  const preview=await (await call(env,{userId:'bob'},'/invites/preview','POST',{token})).json() as any;
+  assert.equal(preview.recipient_email,'bob@example.test');
+  assert.equal(preview.signed_in_email,'bob@example.test');
+  assert.equal(preview.email_matches,true);
+  assert.equal(sql.prepare('SELECT claimed_by FROM invites').get()!.claimed_by,null);
+  await assert.rejects(call(env,{userId:'eve'},'/invites/accept','POST',{token}),(e:any)=>e.status===403);
+  assert.equal(sql.prepare("SELECT COUNT(*) AS n FROM memberships WHERE org_id=? AND user_id='eve'").get(a.id)!.n,0);
+  sql.exec("UPDATE user SET emailVerified=0 WHERE id='bob'");
+  await assert.rejects(call(env,{userId:'bob'},'/invites/accept','POST',{token}),/Verify your email/);
+  sql.exec("UPDATE user SET emailVerified=1 WHERE id='bob'");
+  await call(env,{userId:'bob'},'/invites/accept','POST',{token});
+  const orgs=await (await call(env,{userId:'bob'},'/organizations')).json() as any;
+  assert.deepEqual(new Set(orgs.organizations.map((o:any)=>o.id)),new Set([a.id,b.id]));
+  assert.equal(sql.prepare("SELECT role FROM memberships WHERE org_id=? AND user_id='bob'").get(a.id)!.role,'viewer');
+  assert.equal(sql.prepare("SELECT role FROM memberships WHERE org_id=? AND user_id='bob'").get(b.id)!.role,'owner');
+  await assert.rejects(call(env,{userId:'bob'},'/invites/accept','POST',{token}),/expired or already used/);
+  await assert.rejects(call(env,{userId:'alice'},'/invites','POST',{role:'member'},a.id),(e:any)=>e.status===400);
+});
+
+test("invite expiry, revocation, API-key rejection, and existing-role preservation", async () => {
+  const { env,sql }=fixture(); const a=await organization(env);
+  const invite=async(email:string) => {
+    const d=await (await call(env,{userId:'alice'},'/invites','POST',{email,role:'viewer'},a.id)).json() as any;
+    return {id:d.id,token:new URLSearchParams(new URL(d.url).hash.slice(1)).get('invite')};
+  };
+  const own=await invite('alice@example.test');
+  await assert.rejects(call(env,{userId:'alice',keyId:'agent'},'/invites/accept','POST',{token:own.token}),(e:any)=>e.status===403);
+  await call(env,{userId:'alice'},'/invites/accept','POST',{token:own.token});
+  assert.equal(sql.prepare("SELECT role FROM memberships WHERE org_id=? AND user_id='alice'").get(a.id)!.role,'owner');
+  const expired=await invite('bob@example.test'); sql.prepare('UPDATE invites SET expires_at=0 WHERE id=?').run(expired.id);
+  await assert.rejects(call(env,{userId:'bob'},'/invites/preview','POST',{token:expired.token}),/expired/);
+  const revoked=await invite('bob@example.test'); await call(env,{userId:'alice'},`/invites/${revoked.id}`,'DELETE',undefined,a.id);
+  await assert.rejects(call(env,{userId:'bob'},'/invites/accept','POST',{token:revoked.token}),/expired/);
+});
+
+// Real Better Auth handlers and D1 adapter; only Google's external proof is mocked.
+// These tests do not claim to validate Google's signature/JWKS service or live consent UI.
+async function googleHarness(env: Env, signup = true) {
+  env.GOOGLE_CLIENT_ID='test-client'; env.GOOGLE_CLIENT_SECRET='test-secret'; env.SIGNUP_ENABLED=String(signup);
+  const instance=auth(env), context=await instance.$context;
+  const provider=(context.socialProviders as any[]).find(p=>p.id==='google');
+  let profile={id:'google-alice',email:'alice@example.test',name:'Alice',emailVerified:true};
+  provider.options.verifyIdToken=async()=>true;
+  provider.getUserInfoFromIdToken=async()=>({user:profile,data:{sub:profile.id,email:profile.email,email_verified:profile.emailVerified}});
+  provider.accountSubject=async()=>profile.id;
+  return {instance,context, setProfile:(p:typeof profile)=>{profile=p;},
+    signIn:async()=>{
+      const result=await instance.api.signInSocial({body:{provider:'google',idToken:{token:'test-provider-proof'},callbackURL:env.BASE_URL+'/app'}});
+      if (!('user' in result)) throw new Error('Expected token-based login');
+      return result;
+    }};
+}
+
+test("verified password user and Google share one identity; unverified local/provider emails cannot auto-link", async () => {
+  const {env,sql}=fixture();const a=await organization(env);
+  const h=await googleHarness(env);
+  await h.context.internalAdapter.createAccount({userId:'alice',providerId:'credential',accountId:'alice',password:await h.context.password.hash('Existing-password-123')});
+  const login=await h.signIn(); assert.equal(login.user.id,'alice');
+  assert.equal(sql.prepare("SELECT COUNT(*) AS n FROM user WHERE email='alice@example.test'").get()!.n,1);
+  assert.equal(sql.prepare("SELECT COUNT(*) AS n FROM account WHERE userId='alice'").get()!.n,2);
+  await h.instance.api.signUpEmail({body:{email:'alice@example.test',name:'Duplicate password user',password:'Attacker-chosen-password-123'}});
+  await assert.rejects(h.instance.api.signInEmail({body:{email:'alice@example.test',password:'Attacker-chosen-password-123'}}));
+  assert.equal((await h.instance.api.signInEmail({body:{email:'alice@example.test',password:'Existing-password-123'}})).user.id,'alice');
+  assert.equal(sql.prepare("SELECT org_id FROM memberships WHERE user_id='alice'").get()!.org_id,a.id);
+  h.setProfile({id:'google-bob',email:'bob@example.test',name:'Bob',emailVerified:true});
+  sql.exec("UPDATE user SET emailVerified=0 WHERE id='bob'");
+  await assert.rejects(h.signIn(),/account not linked/);
+  assert.equal(sql.prepare("SELECT COUNT(*) AS n FROM account WHERE userId='bob'").get()!.n,0);
+  sql.exec("UPDATE user SET emailVerified=1 WHERE id='bob'");
+  assert.equal((await h.signIn()).user.id,'bob');
+  h.setProfile({id:'google-eve',email:'eve@example.test',name:'Eve',emailVerified:false});
+  await assert.rejects(h.signIn());
+  assert.equal(sql.prepare("SELECT COUNT(*) AS n FROM account WHERE userId='eve'").get()!.n,0);
+  h.setProfile({id:'unverified-new-google',email:'unverified-new@example.test',name:'Unverified',emailVerified:false});
+  await assert.rejects(h.signIn());
+  assert.equal(sql.prepare("SELECT COUNT(*) AS n FROM user WHERE email='unverified-new@example.test'").get()!.n,0);
+});
+
+test("Google-first duplicate signup cannot install a password; mailbox reset adds credentials to the same identity", async () => {
+  const {env,sql}=fixture();const h=await googleHarness(env);
+  h.setProfile({id:'google-new',email:'google-only@example.test',name:'New Google user',emailVerified:true});
+  const first=await h.signIn();const uid=first.user.id;
+  await assert.rejects(h.instance.api.signInEmail({body:{email:'google-only@example.test',password:'Never-created-password-123'}}));
+  const dupe=await h.instance.api.signUpEmail({body:{email:'GOOGLE-ONLY@example.test',name:'Duplicate',password:'Unproven-password-123'}});
+  assert.equal(dupe.token,null);
+  assert.equal(sql.prepare("SELECT COUNT(*) AS n FROM user WHERE email='google-only@example.test'").get()!.n,1);
+  assert.equal(sql.prepare("SELECT COUNT(*) AS n FROM account WHERE userId=? AND providerId='credential'").get(uid)!.n,0);
+  // Deliver the real request-reset flow to a fake mail transport, never an external inbox.
+  const original=globalThis.fetch;let resetUrl='';
+  env.RESEND_API_KEY='test-mail-key'; env.EMAIL_FROM='TrackRank <test@example.test>';
+  globalThis.fetch=(async(input:unknown,init?:RequestInit)=>{
+    assert.equal(String(input),'https://api.resend.com/emails');
+    const mail=JSON.parse(String(init?.body)); resetUrl=mail.text.split('\n').find((line:string)=>line.startsWith('https://'));
+    return Response.json({id:'fake-mail'});
+  }) as typeof fetch;
+  try {
+    await h.instance.api.requestPasswordReset({body:{email:'google-only@example.test',redirectTo:env.BASE_URL+'/login'}});
+    assert.ok(resetUrl.includes('/reset-password/'));
+    const resetToken=new URL(resetUrl).pathname.split('/').pop()!;
+    assert.ok(Number(sql.prepare('SELECT COUNT(*) AS n FROM session WHERE userId=?').get(uid)!.n)>0);
+    await h.instance.api.resetPassword({body:{token:resetToken,newPassword:'Mailbox-owned-password-123'}});
+    assert.equal(sql.prepare('SELECT COUNT(*) AS n FROM session WHERE userId=?').get(uid)!.n,0);
+    assert.equal((await h.instance.api.signInEmail({body:{email:'google-only@example.test',password:'Mailbox-owned-password-123'}})).user.id,uid);
+    assert.equal((await h.signIn()).user.id,uid);
+    await assert.rejects(h.instance.api.resetPassword({body:{token:resetToken,newPassword:'Reuse-token-password-123'}}));
+    assert.equal(sql.prepare("SELECT COUNT(*) AS n FROM account WHERE userId=?").get(uid)!.n,2);
+  } finally {globalThis.fetch=original;}
+});
+
+test("closing signup also blocks new Google users without locking out existing users", async () => {
+  const {env,sql}=fixture(); const h=await googleHarness(env,false);
+  assert.equal((await h.signIn()).user.id,'alice');
+  h.setProfile({id:'new-closed-google',email:'closed-google@example.test',name:'Closed signup',emailVerified:true});
+  await assert.rejects(h.signIn());
+  assert.equal(sql.prepare("SELECT COUNT(*) AS n FROM user WHERE email='closed-google@example.test'").get()!.n,0);
+});
+
+test("recipient migration expires unclaimed legacy links but retains claimed invitation history", () => {
+  const db=new DatabaseSync(':memory:');db.exec(readFileSync(new URL('../migrations/0001_initial.sql',import.meta.url),'utf8'));
+  db.prepare('INSERT INTO user VALUES(?,?,?,1,NULL,?,?)').run('owner','Owner','owner@example.test',1,1);
+  db.prepare('INSERT INTO organizations(id,name,created_at) VALUES(?,?,?)').run('org','Organization',1);
+  const insert=db.prepare('INSERT INTO invites(id,org_id,token_hash,role,expires_at,created_by,claimed_by,created_at) VALUES(?,?,?,?,?,?,?,?)');
+  insert.run('pending','org','pending-hash','member',9999999999999,'owner',null,1);
+  insert.run('claimed','org','claimed-hash','member',9999999999999,'owner','owner',1);
+  db.exec(readFileSync(new URL('../migrations/0005_recipient_invitations.sql',import.meta.url),'utf8'));
+  assert.equal(db.prepare("SELECT expires_at FROM invites WHERE id='pending'").get()!.expires_at,0);
+  const claimed=db.prepare("SELECT * FROM invites WHERE id='claimed'").get()!;
+  assert.equal(claimed.claimed_by,'owner');assert.equal(claimed.expires_at,9999999999999);
+  db.close();
 });

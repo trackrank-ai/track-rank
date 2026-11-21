@@ -12,7 +12,12 @@
     "preview": "vite preview",
     "deploy": "npm run build && wrangler deploy",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test tests/*.test.ts"
+    "test": "node --import tsx --test tests/*.test.ts",
+    "setup:local": "node scripts/setup-local.mjs",
+    "build:selfhost": "node scripts/self-host.mjs build",
+    "deploy:selfhost": "node scripts/self-host.mjs deploy",
+    "migrate:selfhost": "node scripts/self-host.mjs migrate",
+    "plans": "node scripts/plans.mjs"
   },
   "dependencies": {
     "@better-auth/drizzle-adapter": "^1.7.26",

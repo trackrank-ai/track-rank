@@ -1,3 +1,6 @@
+import { localAuthEnabled } from "./local-auth";
+import { calendarMonth, defaultPlanVersion, organizationPlan } from "./plans";
+import { customerLimit, enforceLimit } from "./rate-limit";
 import { z } from "zod";
 import { admin, authenticate, organizations, tenant } from "./auth";
 import { hashToken, seal, token } from "./crypto";
@@ -107,14 +110,11 @@ export async function api(
     path = u.pathname.replace(/^\/api\/v1/, "").replace(/\/$/, ""),
     method = req.method;
   const p = principal || (await authenticate(req, env));
-  const count = await one<{ count: number }>(
-    env,
-    "INSERT INTO request_limits(key,bucket,count) VALUES(?,?,1) ON CONFLICT(key,bucket) DO UPDATE SET count=count+1 RETURNING count",
-    p.keyId || p.userId,
-    Math.floor(now() / 60000),
-  );
-  if ((count?.count || 0) > 120)
-    throw new HttpError(429, "Too many requests; try again in one minute");
+  // Only account-level routes precede tenant resolution. Keys use their customer budget.
+  if (["/organizations", "/invites/accept", "/invites/preview"].includes(path)) {
+    if (p.orgId) await customerLimit(env, p.orgId);
+    else await enforceLimit(env, `account:${p.userId}`, 120);
+  }
   if (path === "/organizations" && method === "GET")
     return json({ organizations: await organizations(env, p) });
   if (path === "/organizations" && method === "POST") {
@@ -123,10 +123,12 @@ export async function api(
       orgId = uuid(),
       workspaceId = uuid(),
       t = now();
+    const planVersion = await defaultPlanVersion(env);
     await env.DB.batch([
       env.DB.prepare(
         "INSERT INTO organizations(id,name,created_at) VALUES(?,?,?)",
       ).bind(orgId, b.name, t),
+      env.DB.prepare("INSERT INTO organization_plans(org_id,plan_version_id,assigned_at,reason) VALUES(?,?,?,?)").bind(orgId, planVersion, t, "New organization default"),
       env.DB.prepare("INSERT INTO memberships VALUES(?,?,'owner',?)").bind(
         orgId,
         p.userId,
@@ -138,35 +140,35 @@ export async function api(
     ]);
     return json({ id: orgId, workspace_id: workspaceId }, 201);
   }
-  if (path === "/invites/accept" && method === "POST") {
-    if (p.keyId) throw new HttpError(403, "Sign in to accept invitations");
-    const b = await body(
-      req,
-      z.object({ token: z.string().min(30).max(128) }).strict(),
-    );
-    const h = await hashToken(b.token),
-      i = required(
-        await one<Row>(
-          env,
-          "SELECT * FROM invites WHERE token_hash=? AND claimed_by IS NULL AND expires_at>?",
-          h,
-          now(),
-        ),
-        "Invitation expired or already used",
-      );
+  if (["/invites/accept", "/invites/preview"].includes(path) && method === "POST") {
+    if (p.keyId) throw new HttpError(403, "Sign in to review or accept invitations");
+    const b = await body(req, z.object({ token: z.string().min(30).max(128) }).strict());
+    const i = required(await one<Row>(env,
+      "SELECT i.*,o.name AS organization_name FROM invites i JOIN organizations o ON o.id=i.org_id WHERE i.token_hash=? AND i.claimed_by IS NULL AND i.expires_at>? AND i.recipient_email IS NOT NULL",
+      await hashToken(b.token), now()), "Invitation expired or already used");
+    const user = required(await one<Row>(env,"SELECT email,emailVerified FROM user WHERE id=?",p.userId));
+    const matches = String(user.email).toLowerCase() === i.recipient_email;
+    const verified = !!user.emailVerified || localAuthEnabled(env);
+    if (path === "/invites/preview") {
+      const member = await one<Row>(env,"SELECT role FROM memberships WHERE org_id=? AND user_id=?",i.org_id,p.userId);
+      return json({ organization_name: i.organization_name, recipient_email: i.recipient_email,
+        signed_in_email: user.email, email_matches: matches, email_verified: verified,
+        role: member?.role || i.role, already_member: !!member, expires_at: i.expires_at });
+    }
+    if (!matches) throw new HttpError(403, "Sign in with the email address this invitation was sent to");
+    if (!verified) throw new HttpError(403, "Verify your email before accepting this invitation");
+    const time = now(), bypass = localAuthEnabled(env) ? 1 : 0;
+    // Both statements recheck recipient, proof, expiry and claim inside one D1 transaction.
+    const guard = "id=? AND claimed_by IS NULL AND expires_at>? AND recipient_email=(SELECT lower(email) FROM user WHERE id=? AND (emailVerified=1 OR ?=1))";
     await env.DB.batch([
-      env.DB.prepare(
-        "INSERT OR IGNORE INTO memberships(org_id,user_id,role,created_at) SELECT org_id,?,role,? FROM invites WHERE id=? AND claimed_by IS NULL AND expires_at>?",
-      ).bind(p.userId, now(), i.id, now()),
-      env.DB.prepare(
-        "UPDATE invites SET claimed_by=? WHERE id=? AND claimed_by IS NULL",
-      ).bind(p.userId, i.id),
+      env.DB.prepare(`INSERT OR IGNORE INTO memberships(org_id,user_id,role,created_at) SELECT org_id,?,role,? FROM invites WHERE ${guard}`)
+        .bind(p.userId,time,i.id,time,p.userId,bypass),
+      env.DB.prepare(`UPDATE invites SET claimed_by=? WHERE ${guard}`)
+        .bind(p.userId,i.id,time,p.userId,bypass),
     ]);
-    const claimed = required(
-      await one<Row>(env, "SELECT claimed_by FROM invites WHERE id=?", i.id),
-    );
-    if (claimed.claimed_by !== p.userId)
-      throw new HttpError(409, "Invitation already claimed");
+    const claimed = await one<Row>(env,"SELECT claimed_by FROM invites WHERE id=?",i.id);
+    if (claimed?.claimed_by !== p.userId) throw new HttpError(409,"Invitation changed or was already claimed");
+    await audit(env, {...p,orgId:String(i.org_id)},"invite.accepted",String(i.id));
     return json({ org_id: i.org_id });
   }
   const scope =
@@ -177,6 +179,7 @@ export async function api(
         : "write";
   const t = await tenant(env, p, u.searchParams.get("org"), scope),
     org = t.orgId;
+  await customerLimit(env, org, method === "POST" && /\/(run|refresh|analyze)$/.test(path));
   if (path === "/workspaces" && method === "GET")
     return json({
       workspaces: await all(
@@ -589,7 +592,12 @@ export async function api(
       org,
       new Date(new Date().toISOString().slice(0, 10)).getTime(),
     );
-    return json({ ...o, ...configured, usage, role: t.role });
+    const plan = await organizationPlan(env, org);
+    const month = calendarMonth();
+    const monthly = await one<Row>(env, "SELECT operations FROM monthly_api_usage WHERE org_id=? AND month=?", org, month.key);
+    const runs = await one<Row>(env, "SELECT COUNT(*) AS count FROM runs WHERE org_id=? AND created_at>=? AND created_at<?", org, month.start, month.end);
+    return json({ ...o, ...configured, usage, role: t.role, daily_run_limit: o.daily_run_ceiling, plan,
+      monthly_usage: { api_operations: monthly?.operations || 0, runs: runs?.count || 0, resets_at: month.end } });
   }
   if (path === "/settings" && method === "PATCH") {
     admin(t);
@@ -598,13 +606,13 @@ export async function api(
       z
         .object({
           resolve_poisoned_results: z.boolean(),
-          daily_run_limit: z.number().int().min(1).max(100),
+          daily_run_limit: z.number().int().min(1).max(1000000),
         })
         .strict(),
     );
     await exec(
       env,
-      "UPDATE organizations SET resolve_poisoned_results=?,daily_run_limit=? WHERE id=?",
+      "UPDATE organizations SET resolve_poisoned_results=?,daily_run_ceiling=? WHERE id=?",
       b.resolve_poisoned_results ? 1 : 0,
       b.daily_run_limit,
       org,
@@ -761,7 +769,7 @@ export async function api(
     return json({
       invites: await all(
         env,
-        "SELECT id,role,expires_at,claimed_by,created_at FROM invites WHERE org_id=? ORDER BY created_at DESC LIMIT 100",
+        "SELECT id,role,recipient_email,expires_at,claimed_by,created_at FROM invites WHERE org_id=? ORDER BY created_at DESC LIMIT 100",
         org,
       ),
     });
@@ -772,6 +780,7 @@ export async function api(
       req,
       z
         .object({
+          email: z.string().trim().toLowerCase().email().max(254),
           role: z.enum(["admin", "member", "viewer"]).default("member"),
         })
         .strict(),
@@ -782,7 +791,7 @@ export async function api(
       iid = uuid();
     await exec(
       env,
-      "INSERT INTO invites(id,org_id,token_hash,role,expires_at,created_by,created_at) VALUES(?,?,?,?,?,?,?)",
+      "INSERT INTO invites(id,org_id,token_hash,role,expires_at,created_by,created_at,recipient_email) VALUES(?,?,?,?,?,?,?,?)",
       iid,
       org,
       await hashToken(raw),
@@ -790,6 +799,7 @@ export async function api(
       now() + 7 * 86400000,
       p.userId,
       now(),
+      b.email,
     );
     await audit(env, t, "invite.created", iid);
     return json({ id: iid, url: `${env.BASE_URL}/app#invite=${raw}` }, 201);

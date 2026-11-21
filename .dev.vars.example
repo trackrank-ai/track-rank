@@ -1,11 +1,19 @@
 BASE_URL="http://localhost:3000"
-SIGNUP_ENABLED="false"
+SIGNUP_ENABLED="true"
+# Only honored by the Vite dev server with a loopback HTTP BASE_URL.
+DEV_SKIP_EMAIL_VERIFICATION="true"
 # Generate a long random value; keep stable across restarts.
 AUTH_SECRET="REPLACE_WITH_RANDOM_SECRET_AT_LEAST_32_CHARACTERS"
 # Generate 32 random bytes encoded as base64. Never change without migrating encrypted credentials.
 CREDENTIALS_KEY="REPLACE_WITH_BASE64_ENCODED_32_RANDOM_BYTES"
-EMAIL_FROM="TrackRank <login@mail.trackrank.ai>"
+# EMAIL_FROM="TrackRank <login@your-verified-domain.example>"
 # Optional local authentication providers. Use separate development OAuth credentials.
 # GOOGLE_CLIENT_ID=""
 # GOOGLE_CLIENT_SECRET=""
 # RESEND_API_KEY=""
+
+# New organizations only. Catalog and grandfathered assignments live in D1.
+DEFAULT_PLAN_VERSION="beta-v1"
+# Optional emergency ceilings; omit to use the assigned plan allowances.
+# API_REQUESTS_PER_MINUTE="120"
+# PROVIDER_REQUESTS_PER_MINUTE="10"
