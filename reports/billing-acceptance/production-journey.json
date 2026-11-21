@@ -1,0 +1,11 @@
+{
+  "environment": "production",
+  "google_consent_and_callback": false,
+  "verification_and_reset_email": false,
+  "named_invitation_and_organization_switch": false,
+  "supported_engine_collections": false,
+  "scheduled_provider_run": false,
+  "authenticated_api_mcp_quotas": false,
+  "real_card_trial_and_webhook": false,
+  "notes": "Google initiation reaches an unauthenticated Google login screen. Actual user consent, mail-link clicks and provider acceptance require the real account; no fake production account or live payment was created. Stripe lifecycle and authenticated app/quotas passed separate sandbox/staging tests."
+}

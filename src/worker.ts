@@ -1,3 +1,5 @@
+import { maintenance } from "./server/erasure";
+import { operations } from "./server/operations";
 import { stripeWebhook, reconcileBilling } from "./server/billing";
 import { publicSettings } from "./server/public-settings";
 import handler from "@tanstack/react-start/server-entry";
@@ -27,6 +29,8 @@ const appWorker = {
     )
       return Response.redirect(env.BASE_URL + u.pathname + u.search, 308);
     try {
+      if (u.pathname.startsWith("/api/operations/")) return await operations(req, env);
+      if (maintenance(env) && u.pathname !== "/api/health" && u.pathname !== "/api/billing/webhook") throw new HttpError(503, "Scheduled maintenance", { "Retry-After": "600" });
       if (u.pathname === "/.well-known/security.txt") {
         const { email } = publicSettings(env);
         if (!email) return new Response("Security contact not configured", { status: 404 });
@@ -130,8 +134,8 @@ const appWorker = {
     }
   },
   async scheduled(_event: unknown, env: Env, ctx: Ctx) {
-    ctx.waitUntil(sweep(env));
-    ctx.waitUntil(reconcileBilling(env));
+    if (maintenance(env)) return;
+    ctx.waitUntil(Promise.all([sweep(env), reconcileBilling(env)]).then(() => env.DB.prepare("INSERT INTO operations_health(name,succeeded_at) VALUES('cron',?) ON CONFLICT(name) DO UPDATE SET succeeded_at=excluded.succeeded_at").bind(Date.now()).run()));
   },
 };
 

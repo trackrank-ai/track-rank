@@ -1,0 +1,12 @@
+{
+  "configured_at": "2026-11-21T02:55:19.279Z",
+  "account_id": "acct_1Ue3pgG7SA9cWOCT",
+  "livemode": true,
+  "product_id": "prod_VfPG7ms3BH9ksN",
+  "price_id": "price_1Ue4SOG7SA9cWOCT7BFnK7wr",
+  "portal_configuration": "bpc_1Ue4SPG7SA9cWOCTJQ7EGGvm",
+  "webhook_endpoint_id": "we_1Ue4SPG7SA9cWOCTvfcXsrsk",
+  "charges_enabled": true,
+  "payouts_enabled": true,
+  "automatic_tax": false
+}

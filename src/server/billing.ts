@@ -237,11 +237,15 @@ export async function reconcileBilling(env: Env) {
   await exec(env, "DELETE FROM billing_events WHERE processed_at<?", now() - 90 * 86400000);
 }
 export async function deliverBillingAlerts(env: Env) {
-  if (!env.BILLING_ALERT_EMAIL || !env.RESEND_API_KEY || !env.EMAIL_FROM) return;
+  if (!env.BILLING_ALERT_EMAIL || !env.RESEND_API_KEY || !env.EMAIL_FROM) return [];
+  const messageIds: string[] = [];
   const alerts = await all<Row>(env, "SELECT * FROM billing_alerts WHERE notified_at IS NULL AND resolved_at IS NULL ORDER BY created_at LIMIT 20");
   for (const alert of alerts) {
     const response = await fetch("https://api.resend.com/emails", { method: "POST", signal: AbortSignal.timeout(10000), headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, "Content-Type": "application/json", "Idempotency-Key": `trackrank-billing-${alert.id}` }, body: JSON.stringify({ from: env.EMAIL_FROM, to: [env.BILLING_ALERT_EMAIL], subject: `TrackRank billing: ${alert.kind}`, text: `${alert.summary}\nResource: ${alert.resource_id}\nAlert: ${alert.id}\nReview Stripe Dashboard and the billing operations runbook. No customer content is included.` }) });
     if (!response.ok) throw new HttpError(503, "Billing alert notification failed");
+    const sent = await response.json() as { id?: string };
+    if (sent.id) messageIds.push(sent.id);
     await exec(env, "UPDATE billing_alerts SET notified_at=? WHERE id=?", now(), alert.id);
   }
+  return messageIds;
 }

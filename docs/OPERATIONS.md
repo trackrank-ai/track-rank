@@ -34,3 +34,53 @@ Public routes: `/privacy`, `/terms`, `/support`, `/security`; `/.well-known/secu
 The policies describe the current hosted beta, not a paid subscription. Before publishing new billing, analytics, subprocessors, residency commitments or retention features, update the policies and user notices to match. Have the final business identity and legal terms reviewed before a broad paid launch; these pages are not a claim of regulatory certification.
 
 Reference: [FTC privacy/security guidance](https://www.ftc.gov/business-guidance/privacy-security) and [FTC information-security guide](https://www.ftc.gov/business-guidance/resources/protecting-personal-information-guide-business). These references informed the emphasis on accurate disclosures and not promising unimplemented retention/security controls.
+
+## Tested operator erasure procedure (supersedes the earlier missing-workflow note)
+
+The owner-only `POST /api/operations/erase` supports `organization` or `account`.
+It is disabled during normal operation. Never put the operator token in a shell
+argument, repository, support case or browser address. Use a private owner script
+that reads `.production-operations.local` and sends a bearer header over HTTPS.
+
+1. Verify requester email, organization ownership, scope and any applicable legal
+   retention requirements. Record authorization privately; preview is not consent.
+2. For organization erasure, cancel the Stripe subscription, expire open Checkout
+   sessions, reconcile its terminal status, resolve outstanding provider tasks and
+   stop future schedules. Provider work already accepted cannot be recalled by
+   deleting TrackRank records. Stripe financial records are retained, not erased
+   by this operation; handle provider/Stripe privacy requests separately.
+3. Obtain an encrypted recovery snapshot and record the pending erasure in a
+   private support ledger OUTSIDE the restored database. Backups contain deleted
+   data until expiry; never restore one without replaying the erasure ledger.
+4. Deploy `MAINTENANCE_MODE=true` and `MAINTENANCE_SINCE=<epoch milliseconds>`.
+   This pauses app access, auth, schedules and new provider calls. Billing webhooks
+   remain available. Wait at least 10 minutes for existing requests to drain.
+   Terminate ALL Workflow instances for the organization, including queued and
+   paused ones, using Cloudflare Workflows. Old workflow versions can retain old
+   bindings; a maintenance flag alone does not stop them. The erase handler checks
+   that every recorded Workflow is complete, errored or terminated and rejects
+   unresolved submitting/submitted/uncertain runs.
+5. POST `{ "kind":"organization", "id":"<verified-id>" }` for a preview.
+   Review its counts and object prefix. Execution requires the exact additional
+   field `"confirm":"erase:organization:<verified-id>"`. This removes only the
+   organization's R2 prefix first, then deletes its D1 runs/dependencies/cascades
+   transactionally. An R2 failure preserves SQL inventory for a safe retry.
+   It does NOT erase member accounts, other organizations, retained billing-alert
+   audit evidence or provider/Stripe financial records.
+6. For account erasure, first transfer/erase any owned organizations and remove
+   memberships elsewhere through authorized organization management. Preview with
+   `kind=account`; execute with `confirm=erase:account:<verified-id>`. Remaining
+   memberships cause a hard refusal. Sessions, OAuth/password accounts, API keys,
+   matching verification records and authored invitations are removed; claimed
+   invitations are anonymized. Shared organization data is untouched.
+7. Verify the target is gone, its R2 prefix is empty, other tenants still work,
+   and `PRAGMA foreign_key_check` is empty. Resume maintenance only after checks.
+   Record completion and retained/excluded records privately. Remove/expire backup
+   copies under the established retention/legal policy; do not promise immediate
+   erasure from all third-party/backup systems.
+
+Automated isolated tests cover maintenance refusal, malformed maintenance time,
+active billing refusal, non-destructive preview, R2 failure/retry, tenant isolation,
+foreign-key integrity, membership refusal and account authentication-data erasure.
+No real production customer/account was deleted. This runbook does not establish
+legal retention periods or substitute for reviewing a specific deletion request.

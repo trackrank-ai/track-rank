@@ -5,6 +5,12 @@ import type {
   Workflow,
 } from "@cloudflare/workers-types";
 export type Env = {
+  MAINTENANCE_MODE?: string;
+  MAINTENANCE_SINCE?: string;
+  OPERATIONS_TOKEN?: string;
+  RECOVERY_PUBLIC_KEY?: string;
+  BACKUPS?: R2Bucket;
+  BILLING_TAX_REVIEWED?: string;
   BILLING_ENABLED?: string;
   BILLING_CHECKOUT_ENABLED?: string;
   BILLING_ALERT_EMAIL?: string;

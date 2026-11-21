@@ -1,0 +1,103 @@
+{
+  "checked_at": "2026-11-21T03:07:02.865Z",
+  "environment": "live",
+  "origin": "https://trackrank.ai",
+  "results": [
+    {
+      "name": "Price is USD10/month",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "Price matches key environment",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "Price active",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "Checkout trial policy configured in source",
+      "passed": true,
+      "detail": "14 days, card required, once per organization; terms consent required"
+    },
+    {
+      "name": "Portal active and cancellation/invoices/payment updates enabled",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "Enabled webhook endpoint exists",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "Webhook covers lifecycle and risk events",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "Deployed /api/health",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "Deployed /pricing",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "Deployed /terms",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "Deployed /privacy",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "Tax settings/registrations reviewed",
+      "passed": false,
+      "detail": "Settings: active; active registrations: 0. Must confirm actual collection obligations; preflight does not infer them."
+    },
+    {
+      "name": "Live charges enabled",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "Live payouts enabled",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "Mode suitable for live launch",
+      "passed": true,
+      "detail": "Live key detected"
+    },
+    {
+      "name": "Operator alerts configured",
+      "passed": true,
+      "detail": "Requires a verified sender/Resend secret, recipient and a delivered notification drill."
+    },
+    {
+      "name": "Production backup recovery verified",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "Support and alert delivery verified",
+      "passed": false,
+      "detail": "Provider acceptance is not proof of inbox receipt."
+    },
+    {
+      "name": "Real-account production acceptance complete",
+      "passed": false,
+      "detail": "Sandbox/staging lifecycle results do not certify the real production account journey."
+    }
+  ],
+  "ready_for_live": false
+}

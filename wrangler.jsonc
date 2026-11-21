@@ -16,9 +16,12 @@
     "PUBLIC_OPERATOR_NAME": "Track Rank Ai",
     "PUBLIC_SUPPORT_EMAIL": "info@trackrank.ai",
     "SIGNUP_ENABLED": "true",
-    "BILLING_ENABLED": "false",
+    "BILLING_ENABLED": "true",
     "BILLING_CHECKOUT_ENABLED": "false",
-    "BILLING_ENFORCE_NEW_ORGS": "false",
+    "STRIPE_STARTER_PRICE_ID": "price_1Ue4SOG7SA9cWOCT7BFnK7wr",
+    "STRIPE_PORTAL_CONFIGURATION": "bpc_1Ue4SPG7SA9cWOCTJQ7EGGvm",
+    "BILLING_ALERT_EMAIL": "edninodel@gmail.com",
+    "BILLING_ENFORCE_NEW_ORGS": "true",
     "STRIPE_AUTOMATIC_TAX": "false",
     "STRIPE_TAX_READY": "false",
     "BILLING_TAX_REVIEWED": "false",
@@ -34,11 +37,13 @@
     },
   ],
   "r2_buckets": [
+    { "binding": "BACKUPS", "bucket_name": "trackrank-production-backups" },
     {
       "binding": "ANSWERS",
       "bucket_name": "trackrank-answers",
     },
   ],
+  "observability": { "enabled": true, "head_sampling_rate": 1 },
   "triggers": {
     "crons": ["*/5 * * * *"],
   },

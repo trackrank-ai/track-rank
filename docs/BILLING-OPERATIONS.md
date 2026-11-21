@@ -146,3 +146,35 @@ Automatic tax remains off; STRIPE_TAX_READY and BILLING_TAX_REVIEWED remain fals
 No registrations were created. This fact alone does not establish that collection
 is unnecessary; actual registration/collection obligations still need review
 before live launch. Do not invent registrations or mark the tax preflight passed.
+
+## Production deployment — November 21, 2026
+
+Live catalog IDs are recorded in `stripe-live.json`. The protected live key and
+signing secret are configured in the Worker. Charges/payouts are enabled on the
+merchant account; no live subscription or payment was created by setup.
+`BILLING_ENABLED=true` keeps billing management and reconciliation online;
+**`BILLING_CHECKOUT_ENABLED=false` keeps new purchases/trials paused**.
+
+Backups: the production database export was independently restored into SQLite
+with integrity checks. Original authentication/encryption secrets were exported
+only as RSA-OAEP ciphertext to the deployment owner's recovery directory; an
+independent private-key decrypt successfully decrypted both application and R2
+AES-GCM canaries. Production had no users, organizations, runs or raw objects at
+the time, so this is not evidence of restoring populated customer workloads.
+The recovery private key must be backed up to separate owner-controlled storage;
+a second directory on this Gateway does not protect against loss of the host.
+
+Benign alert and support messages were accepted by Resend. Message-status lookup
+returned HTTP502 from the wrapper, so actual inbox delivery remains unverified.
+The public Google flow reaches Google login; user login/consent and provider
+acceptance still need the actual account. `production-journey.json` explicitly
+records unfinished gates. The preflight refuses live readiness for these gaps
+and the unreviewed tax obligations (zero registrations).
+
+External monitor: `scripts/monitor-production.mjs` reads its owner token from
+`.production-operations.local` (0600); it logs no credentials or customer content.
+It checks public uptime, authenticated live Stripe availability, cron heartbeat,
+failed/uncertain/stuck jobs and queue thresholds. Organization run counts and
+DataForSEO reported costs are available in owner readiness. These are NOT
+Cloudflare dollar allocations; infrastructure margin measurement still requires
+actual Worker/Workflow/D1/R2 usage/billing attribution.

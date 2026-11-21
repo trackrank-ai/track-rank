@@ -63,6 +63,16 @@ days of first paid charge. Versioned Starter access, Checkout/portal, signed
 webhooks, risk review, operator alert queue, synchronization leases and scheduled
 reconciliation are implemented. See BILLING-OPERATIONS.md and acceptance reports.
 Real Stripe TEST-card trial/payment/failure/recovery/refund/cancellation checks
-passed. Live billing remains disabled in production. Live keys/catalog/account
-activation, actual Tax setup, alert/inbox delivery and production recovery plus
-existing provider/auth acceptance gates are not certified by these tests.
+passed. Production billing management/webhooks/reconciliation are now deployed,
+but new checkout remains paused. Live account/key/catalog/portal/webhook are
+configured and the actual Worker verified live account access. Original keys were
+preserved and encrypted recovery, D1 restore and R2 recovery-canary drills passed.
+Production initially held zero users/organizations/runs/objects. Operator-only
+erasure and external monitor are implemented; see BILLING-OPERATIONS.md and
+production acceptance reports.
+
+Outstanding: actual tax obligations/registrations review, inbox receipt (the sender
+accepted the two benign messages but delivery-status read is unavailable), actual
+Google/email/invitation/provider/scheduled-run/API-MCP acceptance, a real-card trial
+when checkout can be enabled, off-host recovery-key backup, and infrastructure
+cost attribution from actual usage. No live enrollment or charge was made.

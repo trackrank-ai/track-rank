@@ -1,0 +1,63 @@
+{
+  "checked_at": "2026-11-21T03:01:29.569Z",
+  "readiness": {
+    "cron_succeeded_at": null,
+    "queue": {
+      "queued": null,
+      "oldest_queued_at": null,
+      "uncertain": null,
+      "stuck": null,
+      "recent_failures": null
+    },
+    "organization_usage": [],
+    "infrastructure_dollars_measured": false,
+    "stripe": {
+      "account_id": "acct_1Ue3pgG7SA9cWOCT",
+      "charges_enabled": true,
+      "payouts_enabled": true
+    },
+    "email_configured": true,
+    "google_configured": true,
+    "alert_recipient_configured": true,
+    "checkout_enabled": false,
+    "tax_reviewed": false,
+    "stats": {
+      "organizations": 0,
+      "runs": 0,
+      "billing_customers": 0,
+      "unresolved_alerts": 1
+    }
+  },
+  "recovery": {
+    "encrypted_key_backup": true,
+    "original_auth_key_preserved": true,
+    "independently_decrypted_canary": true,
+    "r2_snapshot": "production-readiness-1795230088445",
+    "r2_original_objects_copied": 0,
+    "r2_restore_canary_decrypted": true,
+    "backup_ciphertext_sha256": "056f1a4a052c2dee7de560eb434e8effccff3579b71ecaef046275de6b481cdd"
+  },
+  "alert": {
+    "id": "delivery-drill:5db8c47a-a798-4c2f-97e2-f0f2e32cd046",
+    "provider_accepted": true,
+    "message_ids": [
+      "01a1fc0d-4033-70af-afee-b8a5469173d6"
+    ]
+  },
+  "support": {
+    "id": "01a1fc0d-4123-7d44-a030-99022b55b1ad",
+    "provider_accepted": true
+  },
+  "email_delivery": [
+    {
+      "http_status": 502,
+      "error": "Email status unavailable"
+    },
+    {
+      "http_status": 502,
+      "error": "Email status unavailable"
+    }
+  ],
+  "deployed_version": "d97a6eb4-f3a8-4150-b56f-fd1ce3c674f8",
+  "erasure_tests_passed": true
+}
