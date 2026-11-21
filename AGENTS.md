@@ -47,6 +47,7 @@ Local account creation and UI exploration need no paid provider credentials. Rea
 - Preserve raw provider evidence and normalization semantics. Keep organic Google results separate from AI answer citations/mention metrics. Missing AI Overviews and failed runs are not successful AI answers.
 - Use supported engine location/language values. Refresh the public catalog with `scripts/refresh-provider-options.mjs` when needed; credentials belong in the execution environment, never in the catalog or Git.
 - Use accessible labeled controls, keyboard-operable tooltips, loading/error/empty states, and the existing responsive light/dark design. Authenticated views show actual data, not invented metrics.
+- Give new authenticated sections and shareable records a stable URL that restores the same organization, workspace, and destination after sign-in or reload. Follow the shareable navigation guidance in `docs/DESIGN.md`.
 
 ## Durable execution and data changes
 

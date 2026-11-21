@@ -29,7 +29,7 @@ flowchart TD
 
 ## Execution and reliability
 
-Create a durable run with an organization-scoped idempotency key and atomic daily run-count admission. Persist before external work. The Workflow receives only the run ID and acquires a SQL admission guard allowing at most three submitting/submitted provider tasks per organization.
+Create a durable run with an organization-scoped idempotency key and atomic monthly run-count admission. Persist before external work. The Workflow receives only the run ID and acquires a SQL admission guard allowing at most three submitting/submitted provider tasks per organization.
 
 Submission is never automatically retried after an ambiguous network outcome. It becomes `uncertain`, requiring inspection in DataForSEO. This avoids silently charging twice. Unstarted queued jobs are dispatched round-robin by tenant using SQL window order.
 
@@ -52,7 +52,7 @@ Charts/research aggregate the **loaded** paginated run history with visible rang
 - Session writes require same-origin browser requests; agents use Bearer keys. Google and email authentication use Better Auth; email verification is mandatory.
 - Application API rate limiting uses durable D1 minute buckets; Better Auth's own database rate limits protect authentication.
 - Audit events cover credential/settings/key/team mutations without values. No plaintext secrets are logged.
-- Beta run-count limit defaults to 20/day/org, configurable 1–100. This is NOT a monetary spending ceiling. OpenRouter analysis is explicit and separately billed.
+- Each organization's plan sets its monthly run allowance. DataForSEO execution and optional OpenRouter analysis incur separate provider costs.
 - Scheduler scans at most 1,000 schedule candidates per dispatch, starts up to eight new workflows, and performs bounded reconciliation. API lists are bounded; production capacity must be measured before promising high-volume/unlimited use.
 - Rotation migration/restore, billing lifecycle, production Docker packaging, alerting and representative load testing remain launch gates. Cloudflare D1/R2/Workflow adapters are currently direct; portable infrastructure adapters are future work.
 
@@ -71,12 +71,12 @@ lines or comma-delimited input, including quoted commas. Auto prefers lines, so
 commas within a multi-line prompt list are preserved. Each engine selection saves
 an independent prompt variant; saving does not submit a provider job. Batches are
 validated before transactional writes, with tenant-scoped source IDs and a maximum
-of 100 prompt/engine combinations. Exact existing matches are reused.
+of 500 prompt/engine combinations. Exact existing matches are reused.
 
 Bulk run requests carry a stable batch key and requested-payload hash. Replays
 reuse run identities; changed-payload key reuse is refused. Each sample has its own
 run/config/snapshot; retries do not resubmit uncertain/accepted external jobs.
-A batch queues at most 100 runs under the organization's actual daily/monthly limits.
+A batch queues at most 100 runs under the organization's monthly allowance.
 Admission uses one D1 batch with per-insert quota conditions to handle races. Any
 changed allowance is reported explicitly; returned rows are the only queued work.
 Provider credentials and canonical engine/location/language settings are checked

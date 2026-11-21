@@ -68,7 +68,7 @@ export async function sweep(env: Env) {
         s.id,
       );
     } catch {
-      /* Daily cap or credentials missing. Next cron may resume without duplicated tasks. */
+      /* Monthly allowance or credentials may block admission. The next sweep reuses the run identity. */
     }
   }
   for (const r of await all(

@@ -95,6 +95,21 @@ function fixture() {
   return { env, sql, objects };
 }
 const ctx = { waitUntil: () => {} } as unknown as Ctx;
+test("saved prompt links enforce organization membership and allow viewers to read", async () => {
+  const { env, sql } = fixture();
+  const owned = await organization(env, "alice");
+  const other = await organization(env, "eve");
+  sql.prepare("INSERT INTO memberships VALUES(?,?,?,?)").run(owned.id, "bob", "viewer", Date.now());
+  const created = await call(env, { userId: "alice" }, "/prompts", "POST", {
+    workspace_id: owned.workspace_id, text: "A shared prompt",
+  }, owned.id);
+  const { id } = await created.json() as { id: string };
+  const detail = await call(env, { userId: "bob" }, "/prompts/" + id, "GET", undefined, owned.id);
+  assert.equal((await detail.json() as { prompt: { text: string } }).prompt.text, "A shared prompt");
+  await assert.rejects(call(env, { userId: "eve" }, "/prompts/" + id, "GET", undefined, owned.id), { status: 403 });
+  await assert.rejects(call(env, { userId: "eve" }, "/prompts/" + id, "GET", undefined, other.id), { status: 404 });
+});
+
 async function call(
   env: Env,
   p: Principal,
@@ -452,7 +467,7 @@ test("invitations are hashed, one-use, role-scoped, and cannot overwrite owner",
     /owner/,
   );
 });
-test("idempotent runs reserve at most once and enforce daily caps atomically", async () => {
+test("idempotent runs reserve at most once and ignore legacy daily caps", async () => {
   const { env, sql } = fixture();
   const a = await setupPrompt(env);
   sql
@@ -462,10 +477,9 @@ test("idempotent runs reserve at most once and enforce daily caps atomically", a
     r2 = await createRun(env, a.id, a.promptId, "same-key-123");
   assert.equal(r1.id, r2.id);
   assert.equal(sql.prepare("SELECT COUNT(*) AS n FROM runs").get()?.n, 1);
-  await assert.rejects(
-    createRun(env, a.id, a.promptId, "other-key-123"),
-    /Daily run limit/,
-  );
+  const other = await createRun(env, a.id, a.promptId, "other-key-123");
+  assert.notEqual(other.id, r1.id);
+  assert.equal(sql.prepare("SELECT COUNT(*) AS n FROM runs").get()?.n, 2);
 });
 test("standard async execution stores task correlation and collects raw evidence without resubmission", async () => {
   const { env, objects } = fixture();

@@ -7,9 +7,8 @@ export function runUsagePeriods(timestamp: number) {
 }
 
 export function runUsage(env: Env, org: string, periods: ReturnType<typeof runUsagePeriods>) {
-  return one<{ daily: number; monthly: number; ceiling: number; plan_version_id: string }>(env,
-    `SELECT coalesce(daily.runs,0) AS daily, coalesce(monthly.runs,0) AS monthly,
-      o.daily_run_ceiling AS ceiling, a.plan_version_id
+  return one<{ daily: number; monthly: number; plan_version_id: string }>(env,
+    `SELECT coalesce(daily.runs,0) AS daily, coalesce(monthly.runs,0) AS monthly, a.plan_version_id
       FROM organizations o JOIN organization_plans a ON a.org_id=o.id
       LEFT JOIN run_usage daily ON daily.org_id=o.id AND daily.period=?
       LEFT JOIN run_usage monthly ON monthly.org_id=o.id AND monthly.period=?
@@ -31,13 +30,11 @@ export function prepareRunAdmission(env: Env, run: {
     (id,org_id,prompt_id,workspace_id,prompt_text,config,status,idempotency_key,created_at,updated_at)
     SELECT ?,o.id,?,?,?,?,'queued',?,?,?
     FROM organizations o JOIN organization_plans a ON a.org_id=o.id
-    LEFT JOIN run_usage daily ON daily.org_id=o.id AND daily.period=?
     LEFT JOIN run_usage monthly ON monthly.org_id=o.id AND monthly.period=?
     WHERE o.id=? AND a.plan_version_id=?
-      AND coalesce(daily.runs,0)<o.daily_run_ceiling
       AND coalesce(monthly.runs,0)<?`).bind(
     uuid(), run.prompt, run.workspace, run.text, JSON.stringify(run.config),
-    run.key, periods.timestamp, periods.timestamp, periods.day, periods.month.key,
+    run.key, periods.timestamp, periods.timestamp, periods.month.key,
     run.org, plan.version, plan.limits.runs_per_month,
   );
 }

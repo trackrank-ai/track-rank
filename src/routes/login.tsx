@@ -5,7 +5,23 @@ import { useEffect, useState, type FormEvent } from "react";
 import { ArrowLeft, ArrowRight, KeyRound, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { appReturnPath } from "@/lib/app-location";
 export const Route = createFileRoute("/login")({ component: Login });
+function authDestination() {
+  const query = new URLSearchParams(location.search);
+  const app = new URL(appReturnPath(query.get("next")), location.origin);
+  if (query.get("trial") === "start") app.searchParams.set("trial", "start");
+  app.hash = location.hash;
+  return app.href;
+}
+
+function resetDestination() {
+  const url = new URL(location.href);
+  url.searchParams.delete("token");
+  url.searchParams.delete("error");
+  return url;
+}
+
 function Login() {
   const [mode, setMode] = useState<"login" | "signup" | "reset">("login"),
     [status, setStatus] = useState(""),
@@ -76,11 +92,11 @@ function Login() {
           setStatus("Password updated. You can now sign in.");
           setResetToken("");
           setMode("login");
-          history.replaceState(null, "", "/login" + location.hash);
+          history.replaceState(null, "", resetDestination());
         } else {
           await authRequest("request-password-reset", {
             email,
-            redirectTo: location.origin + "/login" + location.hash,
+            redirectTo: resetDestination().href,
           });
           setStatus("If that account exists, a reset link has been sent.");
         }
@@ -89,17 +105,17 @@ function Login() {
           email,
           password,
           name: String(f.get("name")),
-          callbackURL: location.origin + "/app" + (new URLSearchParams(location.search).get("trial") === "start" ? "?trial=start" : "") + location.hash,
+          callbackURL: authDestination(),
         });
-        if (config?.local_auth) location.assign("/app" + location.hash);
+        if (config?.local_auth) location.assign(authDestination());
         else setStatus("If this is a new account, check your inbox to verify your email. Already registered? Continue with Google or use Set / reset password; signing up again does not change your password.");
       } else {
         await authRequest("sign-in/email", {
           email,
           password,
-          callbackURL: location.origin + "/app" + (new URLSearchParams(location.search).get("trial") === "start" ? "?trial=start" : "") + location.hash,
+          callbackURL: authDestination(),
         });
-        location.assign("/app" + location.hash);
+        location.assign(authDestination());
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unable to sign in");
@@ -113,7 +129,7 @@ function Login() {
     try {
       const d = await authRequest("sign-in/social", {
         provider: "google",
-        callbackURL: location.origin + "/app" + (new URLSearchParams(location.search).get("trial") === "start" ? "?trial=start" : "") + location.hash,
+        callbackURL: authDestination(),
       });
       if (d.url) location.assign(d.url);
     } catch (e) {
