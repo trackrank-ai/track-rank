@@ -1,5 +1,6 @@
 import { all, exec, now, type Env } from "./types";
 
+export const WORKFLOW_BATCH_SIZE = 100;
 export const workflowId = (runId: string, generation: number) => generation ? `${runId}-${generation}` : runId;
 
 export async function launchRuns(env: Env, runIds?: string[]) {
@@ -9,7 +10,7 @@ export async function launchRuns(env: Env, runIds?: string[]) {
       SELECT id,workflow_generation,created_at,ROW_NUMBER() OVER(PARTITION BY org_id ORDER BY created_at,id) AS tenant_position
       FROM runs WHERE status IN ('queued','submitted') AND workflow_started=0
       ${runIds ? "AND id IN (SELECT value FROM json_each(?))" : ""}
-    ) ORDER BY tenant_position,created_at,id LIMIT 100
+    ) ORDER BY tenant_position,created_at,id LIMIT ${WORKFLOW_BATCH_SIZE}
   `, ...(runIds ? [JSON.stringify(runIds)] : []));
   if (!rows.length) return 0;
   const instances = rows.map(row => ({
@@ -27,6 +28,15 @@ export async function launchRuns(env: Env, runIds?: string[]) {
   );
   if (updates.length) await env.DB.batch(updates);
   return updates.length;
+}
+
+export async function launchCollectionRuns(env: Env, runIds: string[]) {
+  for (let offset = 0; offset < runIds.length; offset += WORKFLOW_BATCH_SIZE) {
+    const end = offset + WORKFLOW_BATCH_SIZE;
+    await launchRuns(env, runIds.slice(offset, end));
+    // Leave unstarted runs eligible for Cron and space calls for Cloudflare's creation rate.
+    if (end < runIds.length) await new Promise(resolve => setTimeout(resolve, 1000));
+  }
 }
 
 export async function releaseQueuedWorkflow(env: Env, runId: string, generation: number) {

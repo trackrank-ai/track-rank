@@ -1,5 +1,7 @@
 import { MAX_PROMPT_TAGS, MAX_PROMPT_TAG_LENGTH, splitPromptTags } from "@/lib/prompt-tags";
 import { formatBillingPrice } from "@/lib/billing-price";
+import { RUNS_PER_REQUEST, SCHEDULES_PER_REQUEST } from "@/lib/collection-limits";
+import { readPendingCollection, savePendingCollection } from "@/lib/pending-collection";
 import { inspectPromptInput, MAX_PROMPT_COMBINATIONS } from "@/lib/prompt-input";
 import { appLoginPath, parseAppSearch, type AppTab as Tab } from "@/lib/app-location";
 import { Tooltip as HelpTooltip } from "radix-ui";
@@ -155,7 +157,22 @@ type PendingRunBatch = {
   repetitions: number;
   batch_key: string;
   accepted?: number;
+  nextPrompt?: number;
 };
+
+async function loadPendingRun(scope: string): Promise<PendingRunBatch | null> {
+  const [batch, progress] = await Promise.all([
+    readPendingCollection<PendingRunBatch>(scope),
+    readPendingCollection<Pick<PendingRunBatch, "batch_key" | "accepted" | "nextPrompt">>(`${scope}:progress`),
+  ]);
+  if (batch) return progress?.batch_key === batch.batch_key ? { ...batch, ...progress } : batch;
+  try {
+    const legacy = sessionStorage.getItem(scope);
+    return legacy ? JSON.parse(legacy) as PendingRunBatch : null;
+  } catch {
+    return null;
+  }
+}
 
 function App() {
   const search = Route.useSearch();
@@ -185,7 +202,8 @@ function App() {
   const [promptWorkspace, setPromptWorkspace] = useState("");
   const [promptLibrary, setPromptLibrary] = useState<{ key: string; scope: string; tags: string[]; rows: Item[]; next: PromptLibraryCursor | null; error?: string } | null>(null);
   const [loadingMorePrompts, setLoadingMorePrompts] = useState(false);
-  const [workspaceData, setWorkspaceData] = useState<{ key: string; prompts: Item[]; runs: Item[]; schedules: Item[]; cursor: RunHistoryCursor | null } | null>(null);
+  const [nextScheduleCursor, setNextScheduleCursor] = useState<PromptLibraryCursor | null>(null);
+  const [workspaceData, setWorkspaceData] = useState<{ key: string; prompts: Item[]; runs: Item[]; schedules: Item[]; cursor: RunHistoryCursor | null; scheduleCursor: PromptLibraryCursor | null } | null>(null);
   const [session, setSession] = useState<Item | null>(null),
     [initializing, setInitializing] = useState(true),
     [orgs, setOrgs] = useState<Item[]>([]),
@@ -249,8 +267,11 @@ function App() {
   const savedPrompts = currentLibrary?.rows ?? [];
   const workspaceTags = promptLibrary?.scope === workspaceKey ? promptLibrary.tags : [];
   const tagOptions = search.tag && !workspaceTags.includes(search.tag) ? [search.tag, ...workspaceTags] : workspaceTags;
-  const savedSelection = selectedPromptIds.filter(id => savedPrompts.some(prompt => prompt.id === id));
-  const mixedWorkspaceSelection = new Set(savedPrompts.filter(p => savedSelection.includes(p.id)).map(p => p.workspace_id)).size > 1;
+  const selectedPromptSet = new Set(selectedPromptIds);
+  const selectedSavedPrompts = savedPrompts.filter(prompt => selectedPromptSet.has(prompt.id));
+  const savedSelection = selectedSavedPrompts.map(prompt => prompt.id);
+  const mixedWorkspaceSelection = new Set(selectedSavedPrompts.map(p => p.workspace_id)).size > 1;
+  const selectedRunCount = savedSelection.length * runSamples;
   const filteredPrompts = !!(promptSearch.trim() || promptEngineFilter || promptScheduleFilter || promptBrandFilter || search.tag);
   const promptInput = useMemo(() => editPrompt
     ? { prompts: promptText.trim() ? [promptText.trim()] : [], error: "" }
@@ -290,12 +311,11 @@ function App() {
   activeOrg.current = org;
   useEffect(() => {
     if (!batchScope) return;
-    try {
-      const saved = sessionStorage.getItem(batchScope);
-      setPendingBatch(saved ? { scope: batchScope, batch: JSON.parse(saved) as PendingRunBatch } : null);
-    } catch {
-      setPendingBatch(null);
-    }
+    let canceled = false;
+    loadPendingRun(batchScope).then(batch => {
+      if (!canceled) setPendingBatch(batch ? { scope: batchScope, batch } : null);
+    }).catch(() => { if (!canceled) setPendingBatch(null); });
+    return () => { canceled = true; };
   }, [batchScope]);
   const isAdmin = workspaceReady && ["owner", "admin"].includes(settings.role),
     canWrite = workspaceReady && ["owner", "admin", "member"].includes(settings.role);
@@ -305,6 +325,7 @@ function App() {
       method = "GET",
       data?: unknown,
       organization = org,
+      retryRateLimit = false,
     ) => {
       const url =
         "/api/v1" +
@@ -314,11 +335,19 @@ function App() {
             "org=" +
             encodeURIComponent(organization)
           : "");
-      const r = await fetch(url, {
+      const send = () => fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
         body: data === undefined ? undefined : JSON.stringify(data),
       });
+      let r = await send();
+      const retryAfter = Number(r.headers.get("Retry-After"));
+      if (retryRateLimit && r.status === 429 && retryAfter > 0 && retryAfter <= 60) {
+        await r.body?.cancel();
+        if (activeOrg.current === organization) setNotice("Waiting for the request limit to reset. This action will continue automatically.");
+        await new Promise(resolve => window.setTimeout(resolve, retryAfter * 1000));
+        r = await send();
+      }
       const d = (await r.json()) as Item;
       if (!r.ok) {
         if (r.status === 401) {
@@ -408,6 +437,7 @@ function App() {
         ? { before: results[3].next_before, beforeId: results[3].next_before_id }
         : null);
       setSchedules(results[4].schedules);
+      setNextScheduleCursor(results[4].next_cursor);
       setSettings(results[5]);
       setLoadedOrg(org);
     } catch (e) {
@@ -427,6 +457,7 @@ function App() {
         if (!canceled) setWorkspaceData({
           key: workspaceKey, prompts: promptPage.prompts, runs: runPage.runs, schedules: schedulePage.schedules,
           cursor: runPage.next_before_id ? { before: runPage.next_before, beforeId: runPage.next_before_id } : null,
+          scheduleCursor: schedulePage.next_cursor,
         });
       }).catch(error => { if (!canceled) setError(error.message); });
     return () => { canceled = true; };
@@ -624,9 +655,14 @@ function App() {
       form.reset();
     });
   }
-  const visiblePrompts = [...new Map([...(scoped?.prompts ?? prompts.filter(p => allWorkspaces || p.workspace_id === workspace)), ...savedPrompts].map(p => [p.id, p])).values()],
+  const libraryPrompts = tab === "schedules" && promptLibrary?.scope === workspaceKey ? promptLibrary.rows : savedPrompts;
+  const visiblePrompts = [...new Map([...(scoped?.prompts ?? prompts.filter(p => allWorkspaces || p.workspace_id === workspace)), ...libraryPrompts].map(p => [p.id, p])).values()],
     visibleRuns = scoped?.runs ?? runs.filter(r => allWorkspaces || r.workspace_id === workspace);
   const visibleSchedules = scoped?.schedules ?? schedules.filter(s => allWorkspaces || s.workspace_id === workspace);
+  const scheduleCursor = allWorkspaces ? nextScheduleCursor : scoped?.scheduleCursor;
+  const schedulesSelected = selectedScheduleIds.length > 0;
+  const schedulePromptCount = editingScheduleSelection ? selectedScheduleIds.length : selectedPromptIds.length;
+  const scheduleTimeCount = new Set(scheduleTimes).size;
   const analysisCursor = allWorkspaces ? nextRunCursor : scoped?.cursor;
   const [engine, setEngine] = useState("all"),
     [brand, setBrand] = useState(""),
@@ -694,25 +730,58 @@ function App() {
   ].filter(
     (n) => !brands.some((b) => b.name.toLowerCase() === n.toLowerCase()),
   );
-  function savePendingRun(batch: PendingRunBatch | null) {
-    if (batch) sessionStorage.setItem(batchScope, JSON.stringify(batch));
-    else sessionStorage.removeItem(batchScope);
+  async function savePendingRun(batch: PendingRunBatch | null, progressOnly = false) {
+    if (batch && progressOnly) {
+      const { batch_key, accepted, nextPrompt } = batch;
+      await savePendingCollection(`${batchScope}:progress`, { batch_key, accepted, nextPrompt });
+    } else {
+      await savePendingCollection(batchScope, batch);
+      await savePendingCollection(`${batchScope}:progress`, null);
+      try { sessionStorage.removeItem(batchScope); } catch { /* Legacy storage may be disabled. */ }
+    }
     if (activeOrg.current === org) setPendingBatch(batch ? { scope: batchScope, batch } : null);
   }
   async function submitRunBatch(batch: PendingRunBatch) {
     if (!batchScope || batchInFlight.current) return;
     batchInFlight.current = true;
     try {
-      await action(async () => {
-        savePendingRun(batch);
+      const submitBatch = async () => {
+        const saved = await loadPendingRun(batchScope);
+        if (saved && saved.batch_key !== batch.batch_key) throw new Error("Resolve the pending batch before starting another.");
+        if (saved) batch = saved;
+        await savePendingRun(batch);
         const { prompt_ids, repetitions, batch_key } = batch;
-        const result = await request("/runs/bulk", "POST", { prompt_ids, repetitions, batch_key });
-        savePendingRun(result.complete ? null : { ...batch, accepted: result.runs.length });
-        if (activeOrg.current !== org) return;
-        setNotice(`${result.runs.length} of ${result.requested} runs queued. Provider rate limits and separate provider charges apply.`);
-        if (result.error) setError(result.error);
+        const pageSize = Math.floor(RUNS_PER_REQUEST / repetitions);
+        const requested = prompt_ids.length * repetitions;
+        for (let offset = batch.nextPrompt ?? 0; offset < prompt_ids.length; offset += pageSize) {
+          if (activeOrg.current !== org) return;
+          const result = await request("/runs/bulk", "POST", {
+            prompt_ids: prompt_ids.slice(offset, offset + pageSize),
+            repetitions,
+            batch_key: offset ? `${batch_key}-${offset}` : batch_key,
+            include_runs: false,
+          }, org, true);
+          const accepted = offset * repetitions + result.accepted;
+          await savePendingRun(accepted === requested ? null : {
+            ...batch, accepted, nextPrompt: result.complete ? offset + pageSize : offset,
+          }, true);
+          if (activeOrg.current !== org) return;
+          setNotice(`${accepted} of ${requested} runs queued. Provider rate limits and separate provider charges apply.`);
+          if (!result.complete) {
+            setError(result.error);
+            await load();
+            return;
+          }
+        }
         await load();
-        if (result.complete && activeOrg.current === org) setTab("runs");
+        if (activeOrg.current === org) setTab("runs");
+      };
+      await action(async () => {
+        if (!navigator.locks) return submitBatch();
+        await navigator.locks.request(batchScope, { ifAvailable: true }, async lock => {
+          if (!lock) throw new Error("This collection is being queued in another tab.");
+          await submitBatch();
+        });
       });
     } finally {
       batchInFlight.current = false;
@@ -720,25 +789,74 @@ function App() {
   }
   async function queuePromptBatch(ids: string[], samples: number) {
     if (!ids.length || !batchScope || batchInFlight.current) return;
-    if (ids.length * samples > 100) {
-      setError("Select at most 100 runs per batch. Reduce the selection or samples per prompt.");
+    const allowance = settings.plan?.limits?.runs_per_month;
+    const used = settings.monthly_usage?.runs;
+    if (typeof allowance === "number" && typeof used === "number" && ids.length * samples > allowance - used) {
+      setError(`This collection needs ${ids.length * samples} runs. You have ${Math.max(0, allowance - used)} runs left in this month's allowance.`);
       return;
     }
     try {
-      const saved = sessionStorage.getItem(batchScope);
+      const saved = await loadPendingRun(batchScope);
       if (saved) {
-        setPendingBatch({ scope: batchScope, batch: JSON.parse(saved) as PendingRunBatch });
+        setPendingBatch({ scope: batchScope, batch: saved });
         setError("Resolve the pending batch before starting another.");
         return;
       }
     } catch {
-      setError("Enable browser session storage before queueing runs so an interrupted batch can be retried safely.");
+      setError("Enable browser storage before queueing runs so an interrupted batch can be retried safely.");
       return;
     }
+    if (activeOrg.current !== org || batchInFlight.current) return;
     if (!confirm(`Queue ${ids.length * samples} independent provider runs (${ids.length} saved prompts × ${samples} samples)? Each engine variant and sample consumes its own run and DataForSEO charges.`)) return;
     await submitRunBatch({ prompt_ids: ids, repetitions: samples, batch_key: crypto.randomUUID() });
   }
   async function runPrompt(p: Item) { await queuePromptBatch([p.id],1); }
+  async function updateSelectedSchedules(changes: object) {
+    for (let offset = 0; offset < selectedScheduleIds.length; offset += SCHEDULES_PER_REQUEST) {
+      if (activeOrg.current !== org) return false;
+      await request("/schedules/bulk", "PATCH", {
+        ids: selectedScheduleIds.slice(offset, offset + SCHEDULES_PER_REQUEST), ...changes,
+      }, org, true);
+    }
+    return activeOrg.current === org;
+  }
+  async function moreSchedules() {
+    if (!scheduleCursor) return;
+    await action(async () => {
+      const query = new URLSearchParams({ before: String(scheduleCursor.before), before_id: scheduleCursor.before_id });
+      if (workspaceId) query.set("workspace", workspaceId);
+      const result = await request("/schedules?" + query);
+      if (activeOrg.current !== org) return;
+      if (workspaceId) {
+        setWorkspaceData(current => current && current === scoped
+          ? { ...current, schedules: [...current.schedules, ...result.schedules], scheduleCursor: result.next_cursor }
+          : current);
+      } else {
+        setSchedules(current => [...current, ...result.schedules]);
+        setNextScheduleCursor(result.next_cursor);
+      }
+    });
+  }
+  async function createSelectedSchedules(details: object) {
+    const storageKey = `schedule:${batchScope}`;
+    const payload = JSON.stringify({ org, prompt_ids: selectedPromptIds, ...details });
+    const previous = await readPendingCollection<{ payload: string; batchId: string }>(storageKey);
+    const batch_id = previous?.payload === payload ? previous.batchId : crypto.randomUUID();
+    await savePendingCollection(storageKey, { payload, batchId: batch_id });
+    const scheduleIds: string[] = [];
+    for (let offset = 0; offset < selectedPromptIds.length; offset += SCHEDULES_PER_REQUEST) {
+      if (activeOrg.current !== org) return;
+      const result = await request("/schedules/bulk", "POST", {
+        prompt_ids: selectedPromptIds.slice(offset, offset + SCHEDULES_PER_REQUEST), batch_id, ...details,
+      }, org, true);
+      scheduleIds.push(...result.schedule_ids);
+      if (activeOrg.current !== org) return;
+      setSelectedScheduleIds([...scheduleIds]);
+      setNotice(`${scheduleIds.length} of ${selectedPromptIds.length} prompts scheduled and paused.`);
+    }
+    await savePendingCollection(storageKey, null);
+    setNotice(`Paused batch created for ${scheduleIds.length} prompts. It will use ${scheduleIds.length * scheduleSamples * scheduleTimeCount} runs per scheduled day. Enable selected schedules when ready.`);
+  }
   async function moreSavedPrompts() {
     if (!currentLibrary?.next || loadingMorePrompts) return;
     setLoadingMorePrompts(true);
@@ -1729,8 +1847,8 @@ function App() {
                       )}
                       {savedPrompts.length > 0 && canWrite && <div className="bulk-toolbar">
                         <label className="check-field"><input type="checkbox" aria-label="Select all shown prompts" checked={savedSelection.length===savedPrompts.length} onChange={e=>setSelectedPromptIds(e.target.checked?savedPrompts.map(p=>p.id):[])} /> Select all shown ({savedPrompts.length})</label><span>{savedSelection.length} selected</span>
-                        <Button disabled={busy||!!pendingRun||!savedSelection.length||mixedWorkspaceSelection||savedSelection.length*runSamples>100} onClick={()=>queuePromptBatch(savedSelection,runSamples)}>Run selected — {savedSelection.length*runSamples} runs</Button>
-                        <Button variant="outline" disabled={!savedSelection.length||savedSelection.length>100} onClick={()=>{setSelectedPromptIds(savedSelection);setEditingScheduleSelection(false);setTab("schedules");}}>Schedule selected</Button>
+                        <Button disabled={busy||!!pendingRun||!savedSelection.length||mixedWorkspaceSelection} onClick={()=>queuePromptBatch(savedSelection,runSamples)}>Run selected — {selectedRunCount} runs</Button>
+                        <Button variant="outline" disabled={!savedSelection.length} onClick={()=>{setSelectedPromptIds(savedSelection);setEditingScheduleSelection(false);setTab("schedules");}}>Schedule selected</Button>
                         <Button variant="outline" disabled={busy||!savedSelection.length||savedSelection.length>100} onClick={()=>action(async()=>{await request("/prompts/bulk-settings","PATCH",{ids:savedSelection,enabled:true});await load();setNotice("Selected prompts enabled.");})}>Enable selected</Button>
                         <Button variant="outline" disabled={busy||!savedSelection.length||savedSelection.length>100} onClick={()=>action(async()=>{await request("/prompts/bulk-settings","PATCH",{ids:savedSelection,enabled:false});await load();setNotice("Selected prompts paused; history retained.");})}>Pause selected</Button>
                         <Button variant="outline" disabled={busy || !savedSelection.length || savedSelection.length > 100}
@@ -1777,9 +1895,7 @@ function App() {
                           <Button value="remove" variant="outline" disabled={busy}>Remove tags</Button>
                         </form>
                       )}
-                      {savedSelection.length*runSamples>100 && (
-                        <p className="data-note">Choose up to 100 prompts for a bulk action and up to 100 runs per collection batch.</p>
-                      )}
+                      {savedSelection.length > 100 && <p className="data-note">Select up to 100 prompts to enable, pause, move, delete, or change prompt settings and tags.</p>}
                       {mixedWorkspaceSelection && <p className="data-note">Select prompts from one workspace to run them together.</p>}
                       {!currentLibrary ? <p role="status">Loading saved prompts…</p> :
                         currentLibrary.error ? <p role="alert">{currentLibrary.error}</p> :
@@ -2396,11 +2512,16 @@ function App() {
                       {canWrite ? (
                         <form className="form-stack" onSubmit={e=>submit(e,async f=>{
                           const data={preset:scheduleFrequency,days:scheduleDays,times:scheduleTimes,timezone:scheduleTimezone,repetitions:scheduleSamples};
-                          if(editingScheduleSelection){await request("/schedules/bulk","PATCH",{ids:selectedScheduleIds,...data});setNotice("Selected schedules updated. Timing edits apply to future slots, not past times.");setEditingScheduleSelection(false);}
-                          else {const result=await request("/schedules/bulk","POST",{prompt_ids:selectedPromptIds,name:f.get("batch_name")||"Scheduled prompts",...data,enabled:false});setNotice(`Paused batch created: ${result.prompts} prompts, ${result.runs_per_time} runs per time slot, ${result.runs_per_scheduled_day} runs per scheduled day. Enable selected schedules when ready.`);}
+                          if (editingScheduleSelection) {
+                            if (!await updateSelectedSchedules(data)) return;
+                            setNotice("Selected schedules updated. Timing edits apply to future slots, not past times.");
+                            setEditingScheduleSelection(false);
+                          } else {
+                            await createSelectedSchedules({ name:f.get("batch_name")||"Scheduled prompts", ...data, enabled:false });
+                          }
                           await load();
                         })}>
-                          {!editingScheduleSelection && <><PromptBatchPicker prompts={visiblePrompts} selected={selectedPromptIds} onChange={setSelectedPromptIds} /><FormField label="Batch name (optional)"><input name="batch_name" maxLength={100} placeholder="Daily brand checks" /></FormField></>}
+                          {!editingScheduleSelection && <><PromptBatchPicker prompts={visiblePrompts} selected={selectedPromptIds} onChange={setSelectedPromptIds} /><Link to="/app" search={{ org, workspace, tab: "prompts" }}>Browse all prompts</Link><FormField label="Batch name (optional)"><input name="batch_name" maxLength={100} placeholder="Daily brand checks" /></FormField></>}
                           <div className="form-grid">
                             <FormField label="Frequency"><select value={scheduleFrequency} onChange={e=>setScheduleFrequency(e.target.value)}><option value="daily">Every day</option><option value="weekly">Once a week</option><option value="mwf">Monday, Wednesday, Friday</option><option value="custom">Custom weekdays</option></select></FormField>
                             <FormField label="Local time"><input type="time" required value={scheduleTimes[0]} onChange={e=>setScheduleTimes(current=>[e.target.value,...current.slice(1)])} /></FormField>
@@ -2412,9 +2533,9 @@ function App() {
                             {scheduleTimes.slice(1).map((time,index)=><div className="app-inline-form" key={index}><input type="time" required aria-label={`Additional daily time ${index+1}`} value={time} onChange={e=>setScheduleTimes(current=>current.map((value,i)=>i===index+1?e.target.value:value))} /><Button type="button" variant="ghost" onClick={()=>setScheduleTimes(current=>current.filter((_,i)=>i!==index+1))}>Remove time</Button></div>)}
                             <Button type="button" variant="outline" disabled={scheduleTimes.length>=8} onClick={()=>setScheduleTimes(current=>[...current,"17:00"])}>Add another daily time</Button>
                           </details>
-                          <p aria-live="polite">{editingScheduleSelection?selectedScheduleIds.length:selectedPromptIds.length} prompts × {scheduleSamples} samples × {new Set(scheduleTimes).size} times = <strong>{(editingScheduleSelection?selectedScheduleIds.length:selectedPromptIds.length)*scheduleSamples*new Set(scheduleTimes).size} runs per scheduled day</strong>.</p>
+                          <p aria-live="polite">{schedulePromptCount} prompts × {scheduleSamples} samples × {scheduleTimeCount} times = <strong>{schedulePromptCount * scheduleSamples * scheduleTimeCount} runs per scheduled day</strong>.</p>
                           <p className="data-note">Each sample/engine variant consumes its own run and provider charges. The monthly allowance applies. Runs are submitted according to the provider rate limit. Same-day slots can catch up after a delay. Saving a batch does not run it.</p>
-                          <Button disabled={busy || !(editingScheduleSelection?selectedScheduleIds.length:selectedPromptIds.length) || !scheduleDays.length}>{editingScheduleSelection?"Save settings for selected schedules":"Create paused batch schedule"}</Button>
+                          <Button disabled={busy || !schedulePromptCount || !scheduleDays.length}>{editingScheduleSelection?"Save settings for selected schedules":"Create paused batch schedule"}</Button>
                           {editingScheduleSelection && <Button type="button" variant="ghost" onClick={()=>setEditingScheduleSelection(false)}>Cancel bulk edit</Button>}
                         </form>
                       ) : (
@@ -2426,9 +2547,9 @@ function App() {
                     <CardContent>
                       <h2>{allWorkspaces ? "Schedules across workspaces" : "Workspace schedules"}</h2>
                       {canWrite && <div className="bulk-toolbar"><label className="check-field"><input type="checkbox" aria-label="Select all schedules in this workspace" checked={visibleSchedules.length>0 && visibleSchedules.every(s=>selectedScheduleIds.includes(s.id))} onChange={e=>setSelectedScheduleIds(e.target.checked?visibleSchedules.map(s=>s.id):[])} />Select all shown</label><span>{selectedScheduleIds.length} selected</span>
-                        <Button disabled={busy||!selectedScheduleIds.length} onClick={()=>{if(!confirm("Enable these selected schedules? Each scheduled sample uses provider credits and your run allowance."))return;action(async()=>{await request("/schedules/bulk","PATCH",{ids:selectedScheduleIds,enabled:true});await load();setNotice("Selected schedules enabled.");});}}>Enable selected</Button>
-                        <Button variant="outline" disabled={busy||!selectedScheduleIds.length} onClick={()=>action(async()=>{await request("/schedules/bulk","PATCH",{ids:selectedScheduleIds,enabled:false});await load();setNotice("Selected schedules paused.");})}>Pause selected</Button>
-                        <Button variant="outline" disabled={!selectedScheduleIds.length} onClick={()=>{const first=visibleSchedules.find(s=>selectedScheduleIds.includes(s.id));if(!first)return;setScheduleFrequency(first.preset);setScheduleDays(JSON.parse(first.days));setScheduleTimes(JSON.parse(first.times_json));setScheduleTimezone(first.timezone);setScheduleSamples(first.repetitions);setEditingScheduleSelection(true);window.scrollTo({top:0,behavior:"smooth"});}}>Edit selected settings</Button>
+                        <Button disabled={busy||!schedulesSelected} onClick={()=>{if(!confirm("Enable these selected schedules? Each scheduled sample uses provider credits and your run allowance."))return;action(async()=>{if (!await updateSelectedSchedules({ enabled:true })) return;await load();setNotice("Selected schedules enabled.");});}}>Enable selected</Button>
+                        <Button variant="outline" disabled={busy||!schedulesSelected} onClick={()=>action(async()=>{if (!await updateSelectedSchedules({ enabled:false })) return;await load();setNotice("Selected schedules paused.");})}>Pause selected</Button>
+                        <Button variant="outline" disabled={!schedulesSelected} onClick={()=>{const first=visibleSchedules.find(s=>selectedScheduleIds.includes(s.id));if(!first)return;setScheduleFrequency(first.preset);setScheduleDays(JSON.parse(first.days));setScheduleTimes(JSON.parse(first.times_json));setScheduleTimezone(first.timezone);setScheduleSamples(first.repetitions);setEditingScheduleSelection(true);window.scrollTo({top:0,behavior:"smooth"});}}>Edit selected settings</Button>
                       </div>}
                       {visibleSchedules.map((s) => (
                           <div className="schedule-row" key={s.id}>
@@ -2503,6 +2624,7 @@ function App() {
                           No schedules in this view.
                         </p>
                       )}
+                      {scheduleCursor && <Button variant="outline" disabled={busy} onClick={moreSchedules}>Load more schedules</Button>}
                     </CardContent>
                   </Card>
                 </>

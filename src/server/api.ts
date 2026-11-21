@@ -1,6 +1,6 @@
 import { bulkPromptTagsSchema, decodePrompt, promptTags, updatePromptTags } from "./prompt-tags";
 import { body } from "./request-body";
-import { bulkRunSchema, bulkScheduleSchema, bulkToggleSchema, updateBulkSchedules, bulkScheduleUpdateSchema, selectedRows, createBulkRuns, createBulkSchedules } from "./bulk";
+import { bulkRunSchema, bulkScheduleSchema, bulkToggleSchema, updateBulkSchedules, bulkScheduleUpdateSchema, selectedRows, createBulkRuns, createBulkSchedules, MAX_BULK_SELECTION_REQUEST_BYTES } from "./bulk";
 import { assertProviderOptions, providerOptions } from "./provider-options";
 import { MAX_PROMPT_BATCH_BYTES, promptBatchSchema, savePromptBatch } from "./prompt-batch";
 import { listSavedPrompts } from "./prompt-library";
@@ -32,7 +32,7 @@ import {
   type Principal,
   type Row,
 } from "./types";
-import { launchRuns } from "./dispatch";
+import { launchCollectionRuns, launchRuns } from "./dispatch";
 const name = z.string().trim().min(1).max(100);
 const id = z.string().min(1).max(100);
 const domain = z
@@ -464,13 +464,18 @@ export async function api(
     });
   }
   if (path === "/runs/bulk" && method === "POST") {
-    const result=await createBulkRuns(env,org,await body(req,bulkRunSchema));
+    const input = await body(req, bulkRunSchema, MAX_BULK_SELECTION_REQUEST_BYTES);
+    const { dispatchIds, ...result } = await createBulkRuns(env, org, input);
     // Existing queued runs are recoverable by cron; no uncertain/accepted provider task is resubmitted.
-    ctx.waitUntil(launchRuns(env, result.runs.map(run => String(run.id))));
+    ctx.waitUntil(launchCollectionRuns(env, dispatchIds));
     return json(result, result.complete?202:207);
   }
-  if (path === "/schedules/bulk" && method === "POST") return json(await createBulkSchedules(env,org,await body(req,bulkScheduleSchema)),201);
-  if (path === "/schedules/bulk" && method === "PATCH") return json(await updateBulkSchedules(env, org, await body(req,bulkScheduleUpdateSchema)));
+  if (path === "/schedules/bulk" && method === "POST") {
+    return json(await createBulkSchedules(env, org, await body(req, bulkScheduleSchema, MAX_BULK_SELECTION_REQUEST_BYTES)), 201);
+  }
+  if (path === "/schedules/bulk" && method === "PATCH") {
+    return json(await updateBulkSchedules(env, org, await body(req, bulkScheduleUpdateSchema, MAX_BULK_SELECTION_REQUEST_BYTES)));
+  }
   if (path === "/runs" && method === "GET") {
     const w = u.searchParams.get("workspace");
     const timestamp = u.searchParams.get("before");
@@ -549,16 +554,21 @@ export async function api(
   if (path === "/schedules" && method === "GET") {
     const workspace = u.searchParams.get("workspace");
     if (workspace) await belongs(env, "workspaces", org, workspace);
-    return json({
-      schedules: await all(
-        env,
-        `SELECT s.*,p.workspace_id,p.text AS prompt_text FROM schedules s
-         JOIN prompts p ON p.org_id=s.org_id AND p.id=s.prompt_id
-         WHERE s.org_id=? AND p.archived_at IS NULL${workspace ? " AND p.workspace_id=?" : ""} ORDER BY s.created_at DESC LIMIT 500`,
-        org,
-        ...(workspace ? [workspace] : []),
-      ),
-    });
+    const cursor = z.object({
+      before: z.coerce.number().int().nonnegative(), before_id: id,
+    }).optional().safeParse(u.searchParams.has("before") || u.searchParams.has("before_id")
+      ? Object.fromEntries(u.searchParams) : undefined);
+    if (!cursor.success) throw new HttpError(400, "Invalid schedule cursor");
+    const pageSize = 500;
+    const rows = await all(env,
+      `SELECT s.*,p.workspace_id,p.text AS prompt_text FROM schedules s
+       JOIN prompts p ON p.org_id=s.org_id AND p.id=s.prompt_id
+       WHERE s.org_id=? AND p.archived_at IS NULL${workspace ? " AND p.workspace_id=?" : ""}
+       ${cursor.data ? " AND (s.created_at,s.id)<(?,?)" : ""} ORDER BY s.created_at DESC,s.id DESC LIMIT ?`,
+      org, ...(workspace ? [workspace] : []), ...(cursor.data ? [cursor.data.before, cursor.data.before_id] : []), pageSize + 1,
+    );
+    const last = rows.length > pageSize ? rows[pageSize - 1] : null;
+    return json({ schedules: rows.slice(0, pageSize), next_cursor: last ? { before: last.created_at, before_id: last.id } : null });
   }
   const scheduleMatch = path.match(/^\/schedules\/([^/]+)$/);
   if (scheduleMatch && method === "DELETE") {
