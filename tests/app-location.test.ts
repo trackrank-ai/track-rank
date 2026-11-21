@@ -11,6 +11,8 @@ test("app links preserve the selected organization, workspace and record through
   assert.equal(appReturnPath("/app?tab=research&researchType=page&researchValue=https%3A%2F%2Fexample.test%2Fa"),
     "/app?tab=research&researchType=page&researchValue=https%3A%2F%2Fexample.test%2Fa");
   assert.equal(appReturnPath("/app?org=second-org&tab=prompts&prompt=prompt-abc"), "/app?org=second-org&tab=prompts&prompt=prompt-abc");
+  const tagged = "?org=second-org&workspace=client&tab=prompts&tag=seattle+location";
+  assert.equal(new URL(appLoginPath(tagged, ""), login).searchParams.get("next"), "/app" + tagged);
   assert.equal(new URL(appLoginPath("?trial=start", ""), login).searchParams.get("trial"), "start");
 });
 

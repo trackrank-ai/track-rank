@@ -1,3 +1,4 @@
+import { decodePrompt, promptTag } from "./prompt-tags";
 import { z } from "zod";
 import { all, HttpError, type Env, type Row } from "./types";
 
@@ -7,6 +8,7 @@ const libraryFilters = z.object({
   engine: z.enum(["chatgpt", "gemini", "google"]).optional(),
   schedule: z.enum(["active", "inactive"]).optional(),
   brand: z.string().min(1).max(100).optional(),
+  tag: promptTag.optional(),
   before: z.coerce.number().int().nonnegative().optional(),
   before_id: z.string().min(1).max(100).optional(),
 }).refine(filters => (filters.before === undefined) === (filters.before_id === undefined));
@@ -20,6 +22,12 @@ export async function listSavedPrompts(env: Env, org: string, params: URLSearchP
   if (filters.workspace) {
     conditions.push("p.workspace_id=?");
     values.push(filters.workspace);
+  }
+  const tagScope = conditions.join(" AND ");
+  const tagValues = [...values];
+  if (filters.tag) {
+    conditions.push("EXISTS(SELECT 1 FROM json_each(p.tags) WHERE value=?)");
+    values.push(filters.tag);
   }
   if (filters.q) {
     conditions.push("instr(lower(p.text), lower(?))>0");
@@ -43,14 +51,21 @@ export async function listSavedPrompts(env: Env, org: string, params: URLSearchP
     values.push(filters.before, filters.before_id);
   }
   const pageSize = 100;
-  const rows = await all<Row>(env,
-    `SELECT p.*, (${activeSchedule}) AS actively_scheduled FROM prompts p
-     WHERE ${conditions.join(" AND ")} ORDER BY p.created_at DESC,p.id DESC LIMIT ?`,
-    ...values, pageSize + 1,
-  );
+  const [rows, tags] = await Promise.all([
+    all<Row>(env,
+      `SELECT p.*, (${activeSchedule}) AS actively_scheduled FROM prompts p
+       WHERE ${conditions.join(" AND ")} ORDER BY p.created_at DESC,p.id DESC LIMIT ?`,
+      ...values, pageSize + 1,
+    ),
+    all<{ tag: string }>(env,
+      `SELECT DISTINCT t.value AS tag FROM prompts p, json_each(p.tags) t
+       WHERE ${tagScope} ORDER BY tag`, ...tagValues,
+    ),
+  ]);
   const last = rows.length > pageSize ? rows[pageSize - 1] : null;
   return {
-    prompts: rows.slice(0, pageSize),
+    prompts: rows.slice(0, pageSize).map(decodePrompt),
+    tags: tags.map(row => row.tag),
     next_cursor: last ? { before: last.created_at, before_id: last.id } : null,
   };
 }

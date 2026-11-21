@@ -1,3 +1,5 @@
+import { normalizePromptTag, validPromptTag } from "./prompt-tags";
+
 const appTabs = ["overview", "prompts", "research", "runs", "brands", "schedules", "team", "settings", "agents", "workspaces"] as const;
 export type AppTab = typeof appTabs[number];
 export type ResearchType = "domain" | "page" | "query";
@@ -7,6 +9,7 @@ export type AppSearch = {
   workspace?: string;
   tab?: AppTab;
   prompt?: string;
+  tag?: string;
   run?: string;
   runPrompt?: string;
   researchType?: ResearchType;
@@ -24,11 +27,13 @@ export function parseAppSearch(search: Record<string, unknown>): AppSearch {
     ? search.researchType : undefined;
   const researchValue = typeof search.researchValue === "string" && search.researchValue.length <= 4096
     ? search.researchValue.trim() : "";
+  const tag = typeof search.tag === "string" ? normalizePromptTag(search.tag) : "";
   return {
     org: resourceId(search.org),
     workspace: resourceId(search.workspace),
     tab,
     prompt: tab === "prompts" ? resourceId(search.prompt) : undefined,
+    tag: tab === "prompts" && validPromptTag(tag) ? tag : undefined,
     run: tab === "runs" ? resourceId(search.run) : undefined,
     runPrompt: tab === "runs" ? resourceId(search.runPrompt) : undefined,
     researchType: tab === "research" && researchValue ? researchType : undefined,

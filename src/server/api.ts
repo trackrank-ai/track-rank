@@ -1,3 +1,4 @@
+import { bulkPromptTagsSchema, decodePrompt, promptTags, updatePromptTags } from "./prompt-tags";
 import { body } from "./request-body";
 import { bulkRunSchema, bulkScheduleSchema, bulkToggleSchema, updateBulkSchedules, bulkScheduleUpdateSchema, selectedRows, createBulkRuns, createBulkSchedules } from "./bulk";
 import { assertProviderOptions, providerOptions } from "./provider-options";
@@ -55,6 +56,7 @@ const promptSchema = z
       .min(2).max(20)
       .default("en"),
     enabled: z.boolean().default(true),
+    tags: promptTags.optional(),
   })
   .strict();
 async function belongs(
@@ -326,17 +328,17 @@ export async function api(
   if (path === "/prompts" && method === "GET") {
     const w = u.searchParams.get("workspace");
     if (w) await belongs(env, "workspaces", org, w);
-    if (u.searchParams.get("view") === "library")
+    if (u.searchParams.get("view") === "library" || u.searchParams.has("tag"))
       return json(await listSavedPrompts(env, org, u.searchParams));
     return json({
-      prompts: await all(
+      prompts: (await all(
         env,
         "SELECT * FROM prompts WHERE org_id=? AND archived_at IS NULL" +
           (w ? " AND workspace_id=?" : "") +
           " ORDER BY created_at DESC LIMIT 500",
         org,
         ...(w ? [w] : []),
-      ),
+      )).map(decodePrompt),
     });
   }
   if (path === "/prompts/bulk" && method === "POST")
@@ -372,7 +374,7 @@ export async function api(
       time = now();
     await exec(
       env,
-      "INSERT INTO prompts(id,org_id,workspace_id,brand_id,text,engine,mode,location_name,language_code,enabled,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+      "INSERT INTO prompts(id,org_id,workspace_id,brand_id,text,engine,mode,location_name,language_code,enabled,created_at,updated_at,tags) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
       pid,
       org,
       b.workspace_id,
@@ -385,9 +387,12 @@ export async function api(
       b.enabled ? 1 : 0,
       time,
       time,
+      JSON.stringify(b.tags ?? []),
     );
     return json({ id: pid }, 201);
   }
+  if (path === "/prompts/bulk-tags" && method === "PATCH")
+    return json(await updatePromptTags(env, org, await body(req, bulkPromptTagsSchema)));
   if (path === "/prompts/bulk-settings" && method === "PATCH") {
     const b=await body(req,bulkToggleSchema);
     const rows=await selectedRows(env,org,'prompts',b.ids);
@@ -401,10 +406,10 @@ export async function api(
     return json({ ok: true });
   }
   if (match && !match[2] && method === "GET") {
-    const prompt = required(await one(env, "SELECT * FROM prompts WHERE org_id=? AND id=? AND archived_at IS NULL", org, match[1]), "Prompt not found");
-    return json({ prompt });
+    const prompt = required(await one<Row>(env, "SELECT * FROM prompts WHERE org_id=? AND id=? AND archived_at IS NULL", org, match[1]), "Prompt not found");
+    return json({ prompt: decodePrompt(prompt) });
   }
-  if (match && method === "PATCH") {
+  if (match && !match[2] && method === "PATCH") {
     const b = await body(req, promptSchema);
     await assertProviderOptions([b.engine], b.location_name, b.language_code);
     await belongs(env, "prompts", org, match[1]);
@@ -412,7 +417,7 @@ export async function api(
     await requireWorkspaceBrand(env, org, b.workspace_id, b.brand_id);
     await exec(
       env,
-      "UPDATE prompts SET workspace_id=?,brand_id=?,text=?,engine=?,mode=?,location_name=?,language_code=?,enabled=?,updated_at=? WHERE id=? AND org_id=? AND archived_at IS NULL",
+      "UPDATE prompts SET workspace_id=?,brand_id=?,text=?,engine=?,mode=?,location_name=?,language_code=?,enabled=?,updated_at=?,tags=coalesce(?,tags) WHERE id=? AND org_id=? AND archived_at IS NULL",
       b.workspace_id,
       b.brand_id || null,
       b.text,
@@ -422,6 +427,7 @@ export async function api(
       b.language_code,
       b.enabled ? 1 : 0,
       now(),
+      b.tags ? JSON.stringify(b.tags) : null,
       match[1],
       org,
     );

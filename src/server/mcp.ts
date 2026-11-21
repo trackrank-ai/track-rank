@@ -1,3 +1,5 @@
+import { bulkPromptTagsSchema, promptTag, promptTags } from "./prompt-tags";
+import { promptBatchSchema } from "./prompt-batch";
 import { organizationPlan } from "./plans";
 import { enforceLimit, safetyCeiling } from "./rate-limit";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -131,16 +133,34 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
   server.registerTool(
     "list_prompts",
     {
-      description: "List prompts, optionally filtered to a workspace.",
-      inputSchema: { workspace_id: z.string().optional() },
+      description: "List saved prompts and available tags in a workspace or across the organization. Use next_cursor to load more.",
+      inputSchema: {
+        workspace_id: z.string().min(1).max(100).optional(),
+        tag: promptTag.optional(),
+        q: z.string().max(200).optional(),
+        engine: z.enum(["chatgpt", "gemini", "google"]).optional(),
+        schedule: z.enum(["active", "inactive"]).optional(),
+        brand: z.string().min(1).max(100).optional(),
+        before: z.number().int().nonnegative().optional(),
+        before_id: z.string().min(1).max(100).optional(),
+      },
     },
-    async (args) =>
-      invoke(
-        "/prompts" +
-          (args.workspace_id
-            ? "?workspace=" + encodeURIComponent(args.workspace_id)
-            : ""),
-      ),
+    async ({ workspace_id, ...filters }) => {
+      const query = new URLSearchParams({ view: "library" });
+      if (workspace_id) query.set("workspace", workspace_id);
+      for (const [name, value] of Object.entries(filters)) {
+        if (value !== undefined) query.set(name, String(value));
+      }
+      return invoke("/prompts?" + query);
+    },
+  );
+  server.registerTool(
+    "get_prompt",
+    {
+      description: "Read a saved prompt and its tags by ID.",
+      inputSchema: { id: z.string().min(1).max(100) },
+    },
+    async ({ id }) => invoke("/prompts/" + encodeURIComponent(id)),
   );
   server.registerTool(
     "create_prompt",
@@ -155,9 +175,26 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
         mode: z.enum(["standard", "priority", "live"]).optional(),
         location_name: z.string().optional(),
         language_code: z.string().optional(),
+        tags: promptTags.optional(),
       },
     },
     async (args) => invoke("/prompts", "POST", args),
+  );
+  server.registerTool(
+    "save_prompts",
+    {
+      description: "Save a batch of prompts with shared tags, or edit one via source_id. Supply a full tags array to replace tags on an edited prompt. Saving does not start any runs.",
+      inputSchema: promptBatchSchema,
+    },
+    async (args) => invoke("/prompts/bulk", "POST", args),
+  );
+  server.registerTool(
+    "update_prompt_tags",
+    {
+      description: "Add or remove the given tags on up to 100 saved prompts in the organization.",
+      inputSchema: bulkPromptTagsSchema,
+    },
+    async (args) => invoke("/prompts/bulk-tags", "PATCH", args),
   );
   server.registerTool(
     "suggest_prompts",

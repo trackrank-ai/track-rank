@@ -153,3 +153,70 @@ test("research drill-downs match exact stored source evidence across the selecte
   assert.deepEqual(await list("query", "compare source"), ["matching"]);
   await assert.rejects(call("/runs?research_type=domain"), { status: 400 });
 });
+
+test("prompt tags are workspace-scoped, editable and filterable through REST and MCP", async () => {
+  const { sql, env, call } = setup();
+  const { mcp } = await import("../src/server/mcp");
+  const { hashToken } = await import("../src/server/crypto");
+  const bulk = (ids: string[], action: string, tags: string[], user = "owner") =>
+    call("/prompts/bulk-tags", { ids, action, tags }, user, "PATCH");
+  const get = async (id: string) => (await (await call("/prompts/" + id)).json() as { prompt: { tags: string[] } }).prompt;
+  const library = async (query: string) => (await (await call("/prompts?view=library&" + query)).json()) as {
+    tags: string[]; prompts: { id: string; engine: string; tags: string[] }[];
+  };
+
+  assert.deepEqual((await get("prompt")).tags, []);
+  assert.deepEqual(await (await bulk(["prompt", "alt"], "add", [" Alternatives ", "alternatives", "Seattle  Location"])).json(), { updated: 2 });
+  await assert.rejects(bulk(["prompt", "foreign-prompt"], "remove", ["alternatives"]), { status: 404 });
+  await assert.rejects(bulk(["prompt"], "remove", ["alternatives"], "viewer"), { status: 403 });
+  assert.deepEqual((await get("prompt")).tags, ["alternatives", "seattle location"]);
+
+  const command = { texts: ["Compare providers in Portland"], engines: ["chatgpt", "gemini"], workspace_id: "target" };
+  await call("/prompts/bulk", { ...command, tags: ["Portland", "Brand Name"] });
+  await call("/prompts/bulk", { ...command, tags: ["extra"] });
+  assert.deepEqual((await library("workspace=target")).tags, ["brand name", "portland"]);
+  assert.equal((await library("workspace=target&tag=brand+name")).prompts.length, 2);
+  const edited = (await library("workspace=target&engine=gemini")).prompts[0];
+  await call("/prompts/bulk", { ...command, engines: ["gemini"], source_id: edited.id, tags: [] });
+  assert.deepEqual((await get(edited.id)).tags, []);
+  assert.equal((await library("workspace=target&tag=brand+name")).prompts.length, 1);
+
+  const single = { workspace_id: "target", text: "Sample for a single save", tags: ["Original tag"] };
+  const created = await (await call("/prompts", single)).json() as { id: string };
+  await call("/prompts/" + created.id, { workspace_id: single.workspace_id, text: "Updated sample" }, "owner", "PATCH");
+  assert.deepEqual((await get(created.id)).tags, ["original tag"]);
+  await call("/prompts/" + created.id, { ...single, tags: [] }, "owner", "PATCH");
+  assert.deepEqual((await get(created.id)).tags, []);
+
+  const scoped = await library("workspace=source&tag=SEATTLE+LOCATION&q=First");
+  assert.deepEqual(scoped.tags, ["alternatives", "seattle location"]);
+  assert.deepEqual(scoped.prompts.map(p => p.id), ["prompt"]);
+  assert.equal((await library("workspace=source&tag=seattle")).prompts.length, 0);
+  assert.deepEqual((await library("workspace=target&tag=seattle+location")).prompts, []);
+
+  const key = "trk_prompt_tags_fixture";
+  sql.prepare(`INSERT INTO api_keys(id,org_id,user_id,name,prefix,token_hash,scopes,expires_at,created_at)
+    VALUES('tag-key','org','owner','Agent','trk',?,'["read","write"]',?,0)`).run(await hashToken(key), Date.now() + 60_000);
+  async function invoke(name: string, args: unknown) {
+    const request = new Request("https://example.test/mcp", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }),
+    });
+    const payload = await (await mcp(request, env, { waitUntil() {} } as any)).json() as { result: { isError: boolean; content: { text: string }[] } };
+    assert.equal(payload.result.isError, false, payload.result.content[0].text);
+    return JSON.parse(payload.result.content[0].text);
+  }
+  await invoke("update_prompt_tags", { ids: ["alt"], action: "remove", tags: [" SEATTLE LOCATION "] });
+  const page = await invoke("list_prompts", { workspace_id: "source", tag: "Seattle Location" });
+  assert.deepEqual(page.prompts.map((p: {id: string}) => p.id), ["prompt"]);
+  await invoke("save_prompts", { texts: ["A prompt from MCP"], engines: ["chatgpt"], workspace_id: "source", tags: ["From agent"] });
+  assert.equal((await invoke("list_prompts", { tag: "from agent" })).prompts.length, 1);
+  assert.deepEqual((await invoke("get_prompt", { id: "alt" })).prompt.tags, ["alternatives"]);
+
+  const remaining = Array.from({ length: 19 }, (_, index) => `additional tag ${index}`);
+  await bulk(["alt"], "add", remaining);
+  await assert.rejects(bulk(["prompt", "alt"], "add", ["overflow"]), { status: 400 });
+  assert.deepEqual((await get("prompt")).tags, ["alternatives", "seattle location"]);
+  assert.equal((await get("alt")).tags.length, 20);
+});

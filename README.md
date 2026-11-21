@@ -30,6 +30,8 @@ See [launch status](docs/LAUNCH.md), [operations and support](docs/OPERATIONS.md
 - In **Sources & research**, select a domain, cited page, or grounding query to see matching answers and brand mentions. Copy the detail URL to share it with teammates who have access. Open a matching answer to see its full run.
 - Open **Settings** to manage the organization and providers and to access hosted billing. Your current organization appears below your email in the sidebar. Pricing, Privacy, Terms, Support, and Security links are at the bottom of Settings.
 
+In **Prompts**, add comma-separated tags when saving or editing prompts, or add and remove tags on a selection. **Filter by tag** shows matches within the selected client workspace. Choose **All workspaces** to search across the organization.
+
 ## Local development — clean checkout
 
 Install Git and Node.js 22.13+ (Node 24 recommended), then:
@@ -66,7 +68,7 @@ The core suite uses an isolated in-memory SQLite D1 test adapter and mocked prov
 
 Infrastructure: Cloudflare Worker `trackrank-ai`, D1 `trackrank-db`, private R2 `trackrank-answers`, Workflow `trackrank-tracking`, and Cron `*/5 * * * *`. Deployment configuration is committed in `wrangler.jsonc`.
 
-Back up the target database and review pending migrations before deploying. Apply pending migrations before running the matching deploy command. Migrations `0016` through `0018` switch to canonical schedules and remove obsolete billing and usage fields. Pause scheduled execution during this cutover and deploy the matching Worker before resuming. Migration `0019` is required before deploying durable collection dispatch. See the [billing and release runbook](docs/BILLING-OPERATIONS.md) for backup, recovery, and release checks.
+Back up the target database and review pending migrations before deploying. Apply pending migrations before running the matching deploy command. Migrations `0016` through `0018` switch to canonical schedules and remove obsolete billing and usage fields. Pause scheduled execution during this cutover and deploy the matching Worker before resuming. Migration `0019` is required for durable collection dispatch and `0020` is required for prompt tags. See the [billing and release runbook](docs/BILLING-OPERATIONS.md) for backup, recovery, and release checks.
 
 Staging uses its own Cloudflare resources and Stripe test configuration.
 

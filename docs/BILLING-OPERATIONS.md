@@ -31,7 +31,8 @@ confirmed. No invented registrations, head-office address or product tax code.
    configuration. Hosted billing enrolls eligible new organizations in the no-card trial.
    Keep the Worker in maintenance through migrations `0016` to `0018` and the
    matching deployment. These migrations remove schema used by older Workers.
-   Apply migration `0019` before deploying durable collection dispatch.
+   Apply pending migrations, including `0019` for durable collection dispatch and
+   `0020` for prompt tags, before deploying the Worker.
 4. Obtain live restricted credentials via the deployment's secret store; confirm
    Stripe account charges/payouts eligibility and required business details.
 5. Create live Product/Price (USD 10 monthly, tax-exclusive) and portal (invoices,

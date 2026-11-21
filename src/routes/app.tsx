@@ -1,3 +1,4 @@
+import { MAX_PROMPT_TAGS, MAX_PROMPT_TAG_LENGTH, splitPromptTags } from "@/lib/prompt-tags";
 import { formatBillingPrice } from "@/lib/billing-price";
 import { inspectPromptInput, MAX_PROMPT_COMBINATIONS } from "@/lib/prompt-input";
 import { appLoginPath, parseAppSearch, type AppTab as Tab } from "@/lib/app-location";
@@ -179,7 +180,7 @@ function App() {
   const [promptScheduleFilter, setPromptScheduleFilter] = useState("");
   const [promptBrandFilter, setPromptBrandFilter] = useState("");
   const [promptWorkspace, setPromptWorkspace] = useState("");
-  const [promptLibrary, setPromptLibrary] = useState<{ key: string; rows: Item[]; next: PromptLibraryCursor | null; error?: string } | null>(null);
+  const [promptLibrary, setPromptLibrary] = useState<{ key: string; scope: string; tags: string[]; rows: Item[]; next: PromptLibraryCursor | null; error?: string } | null>(null);
   const [loadingMorePrompts, setLoadingMorePrompts] = useState(false);
   const [workspaceData, setWorkspaceData] = useState<{ key: string; prompts: Item[]; runs: Item[]; schedules: Item[]; cursor: RunHistoryCursor | null } | null>(null);
   const [session, setSession] = useState<Item | null>(null),
@@ -208,6 +209,7 @@ function App() {
     [detailError, setDetailError] = useState(""),
     [editPrompt, setEditPrompt] = useState<Item | null>(null),
     [promptText, setPromptText] = useState(""),
+    [promptTagInput, setPromptTagInput] = useState(""),
     [ideas, setIdeas] = useState<string[]>([]),
     [nextRunCursor, setNextRunCursor] = useState<RunHistoryCursor | null>(null),
     [pendingBatch, setPendingBatch] = useState<{ scope: string; batch: PendingRunBatch } | null>(null);
@@ -237,13 +239,16 @@ function App() {
   if (promptEngineFilter) libraryQuery.set("engine", promptEngineFilter);
   if (promptScheduleFilter) libraryQuery.set("schedule", promptScheduleFilter);
   if (promptBrandFilter) libraryQuery.set("brand", promptBrandFilter);
+  if (search.tag) libraryQuery.set("tag", search.tag);
   const libraryPath = "/prompts?" + libraryQuery;
   const libraryKey = org + ":" + libraryPath;
   const currentLibrary = promptLibrary?.key === libraryKey ? promptLibrary : null;
   const savedPrompts = currentLibrary?.rows ?? [];
+  const workspaceTags = promptLibrary?.scope === workspaceKey ? promptLibrary.tags : [];
+  const tagOptions = search.tag && !workspaceTags.includes(search.tag) ? [search.tag, ...workspaceTags] : workspaceTags;
   const savedSelection = selectedPromptIds.filter(id => savedPrompts.some(prompt => prompt.id === id));
   const mixedWorkspaceSelection = new Set(savedPrompts.filter(p => savedSelection.includes(p.id)).map(p => p.workspace_id)).size > 1;
-  const filteredPrompts = !!(promptSearch.trim() || promptEngineFilter || promptScheduleFilter || promptBrandFilter);
+  const filteredPrompts = !!(promptSearch.trim() || promptEngineFilter || promptScheduleFilter || promptBrandFilter || search.tag);
   const promptInput = useMemo(() => editPrompt
     ? { prompts: promptText.trim() ? [promptText.trim()] : [], error: "" }
     : inspectPromptInput(promptText, promptSeparator), [editPrompt, promptText, promptSeparator]);
@@ -258,7 +263,13 @@ function App() {
   const promptBrandIds = new Set(brandIds(savingWorkspace));
   const scopeBrands = allWorkspaces ? brands : brands.filter(b => trackedBrandIds.has(b.id));
   const promptBrands = brands.filter(b => promptBrandIds.has(b.id));
-  const sectionSearch = (nextTab: Tab) => ({ org: org || undefined, workspace, tab: nextTab });
+  const sectionSearch = (nextTab: Tab) => ({
+    org: org || undefined, workspace, tab: nextTab, tag: nextTab === "prompts" ? search.tag : undefined,
+  });
+  function filterByTag(tag: string) {
+    setSelectedPromptIds([]);
+    void navigate({ search: { ...sectionSearch("prompts"), prompt: search.prompt, tag: tag || undefined } });
+  }
   function setTab(nextTab: Tab) {
     if (nextTab !== tab || search.prompt || search.run) void navigate({ search: sectionSearch(nextTab) });
   }
@@ -416,16 +427,15 @@ function App() {
   useEffect(() => {
     if (!workspaceReady || !workspace || unavailableWorkspace || tab !== "prompts") return;
     let canceled = false;
-    setPromptLibrary(null);
     const timer = window.setTimeout(() => {
       request(libraryPath).then(result => {
-        if (!canceled) setPromptLibrary({ key: libraryKey, rows: result.prompts, next: result.next_cursor });
+        if (!canceled) setPromptLibrary({ key: libraryKey, scope: workspaceKey, tags: result.tags, rows: result.prompts, next: result.next_cursor });
       }).catch(e => {
-        if (!canceled) setPromptLibrary({ key: libraryKey, rows: [], next: null, error: e.message });
+        if (!canceled) setPromptLibrary({ key: libraryKey, scope: workspaceKey, tags: [], rows: [], next: null, error: e.message });
       });
     }, 200);
     return () => { canceled = true; window.clearTimeout(timer); };
-  }, [workspaceReady, workspace, unavailableWorkspace, tab, libraryPath, libraryKey, prompts, request]);
+  }, [workspaceReady, workspace, unavailableWorkspace, tab, libraryPath, libraryKey, workspaceKey, prompts, request]);
   useEffect(() => {
     setPromptSearch("");
     setPromptEngineFilter("");
@@ -447,6 +457,7 @@ function App() {
       });
     }
   }, [initializing, pendingInvite, org, orgReady, search, workspace, linkedPrompt?.workspace_id, selectedRun?.workspace_id, tab, navigate]);
+  const promptDetailVersion = search.prompt ? prompts : null;
   useEffect(() => {
     setDetailError("");
     setPromptDetail(null);
@@ -471,7 +482,7 @@ function App() {
       if (!canceled) setDetailError("This " + kind + " is unavailable. Check the link or ask your team for access.");
     });
     return () => { canceled = true; };
-  }, [org, workspaceReady, unavailableWorkspace, search.prompt, search.run, search.workspace, request, navigate]);
+  }, [org, workspaceReady, unavailableWorkspace, search.prompt, search.run, search.workspace, request, navigate, promptDetailVersion]);
   useEffect(() => { setSelectedPromptIds([]); setSelectedScheduleIds([]); setEditingScheduleSelection(false); }, [org,workspace]);
   useEffect(() => {
     setPromptEngineChoices([editPrompt?.engine || "chatgpt"]);
@@ -547,7 +558,8 @@ function App() {
   useEffect(() => {
     setEditPrompt(null);
     setPromptText("");
-  }, [workspace]);
+    setPromptTagInput("");
+  }, [org, workspace]);
   async function changeCredentials(method: "PUT" | "DELETE", path: string, values?: unknown) {
     setBusy(true);
     try {
@@ -563,6 +575,7 @@ function App() {
   function editSavedPrompt(prompt: Item) {
     setEditPrompt(prompt);
     setPromptText(prompt.text);
+    setPromptTagInput((prompt.tags || []).join(", "));
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
   function removePrompts(ids: string[]) {
@@ -573,6 +586,7 @@ function App() {
       if (editPrompt && ids.includes(editPrompt.id)) {
         setEditPrompt(null);
         setPromptText("");
+        setPromptTagInput("");
       }
       if (search.prompt && ids.includes(search.prompt)) setTab("prompts");
       await load();
@@ -1390,6 +1404,9 @@ function App() {
                               {engines[linkedPrompt.engine]} · {linkedPrompt.location_name} · {linkedPrompt.language_code} ·{" "}
                               {linkedPrompt.enabled ? "Enabled" : "Paused"}
                             </p>
+                            {!!linkedPrompt.tags?.length && <div className="flex flex-wrap gap-1">
+                              {(linkedPrompt.tags as string[]).map(tag => <Badge key={tag} variant="secondary">{tag}</Badge>)}
+                            </div>}
                             <CopyValue value={Route.fullPath + "?" + new URLSearchParams({
                               org, workspace: linkedPrompt.workspace_id, tab: "prompts", prompt: linkedPrompt.id,
                             })} label="Copy prompt link" absolute />
@@ -1454,10 +1471,11 @@ function App() {
                                 throw new Error(`Save at most ${MAX_PROMPT_COMBINATIONS} prompt/engine combinations per batch.`);
                               const result = await request("/prompts/bulk", "POST", {
                                 workspace_id: savingWorkspace, brand_id: f.get("brand_id") || null,
-                                texts, engines: ordered, ...(editPrompt ? { source_id: editPrompt.id } : {}),
+                                texts, engines: ordered, tags: splitPromptTags(f.get("tags")), ...(editPrompt ? { source_id: editPrompt.id } : {}),
                                 mode: f.get("mode"), location_name: f.get("location_name"), language_code: f.get("language_code"), enabled: f.get("enabled") === "on",
                               });
                               setPromptText("");
+                              setPromptTagInput("");
                               setEditPrompt(null);
                               setNotice(
                                 `${result.saved_combinations} prompt/engine combinations saved (existing matches reused). No provider requests were made.`,
@@ -1486,6 +1504,11 @@ function App() {
                               placeholder="Who are the best house cleaning services in Seattle?"
                               rows={3}
                             />
+                          </FormField>
+                          <FormField label="Tags (optional)" hint={editPrompt ? "Separate tags with commas. Clear this field to remove all tags." : "Separate tags with commas. Tags apply to each new prompt and engine variant."}>
+                            <input name="tags" placeholder="brand name, alternatives, seattle location"
+                              maxLength={MAX_PROMPT_TAGS * (MAX_PROMPT_TAG_LENGTH + 2)}
+                              value={promptTagInput} onChange={e => setPromptTagInput(e.target.value)} />
                           </FormField>
                           <p className="data-note" role="status">
                             {promptInput.prompts.length} {promptInput.prompts.length === 1 ? "prompt" : "prompts"} detected
@@ -1571,6 +1594,7 @@ function App() {
                                 onClick={() => {
                                   setEditPrompt(null);
                                   setPromptText("");
+                                  setPromptTagInput("");
                                 }}
                               >
                                 Cancel editing
@@ -1629,6 +1653,7 @@ function App() {
                         onClick={() => {
                           setPromptText(i);
                           setEditPrompt(null);
+                          setPromptTagInput("");
                         }}
                       >
                         {i}
@@ -1663,6 +1688,12 @@ function App() {
                           <select value={promptBrandFilter} onChange={e => { setPromptBrandFilter(e.target.value); setSelectedPromptIds([]); }}>
                             <option value="">All brands</option>
                             {scopeBrands.map(brand => <option key={brand.id} value={brand.id}>{brand.name}</option>)}
+                          </select>
+                        </FormField>
+                        <FormField label="Filter by tag">
+                          <select value={search.tag || ""} onChange={e => filterByTag(e.target.value)}>
+                            <option value="">All tags</option>
+                            {tagOptions.map(tag => <option key={tag} value={tag}>{tag}</option>)}
                           </select>
                         </FormField>
                       </div>
@@ -1702,6 +1733,25 @@ function App() {
                         )}
                         <details><summary>Advanced · sampling & bulk settings</summary><form className="app-inline-form" onSubmit={e=>submit(e,async f=>{await request("/prompts/bulk-settings","PATCH",{ids:savedSelection,mode:f.get("bulk_mode")});await load();setNotice("Execution mode updated for selected prompts. No provider request was made.");})}><FormField label="Execution mode for selected prompts" hint="Priority and live may cost more on future runs. This only changes saved settings."><select name="bulk_mode"><option value="standard">Standard queue</option><option value="priority">Priority queue</option><option value="live">Live</option></select></FormField><Button disabled={busy||!savedSelection.length||savedSelection.length>100}>Apply mode to selected</Button></form><FormField label="Samples per prompt" hint="Independent samples are queued for collection. Each sample is a separate provider charge and run."><input type="number" min={1} max={10} value={runSamples} onChange={e=>setRunSamples(Math.max(1,Math.min(10,Number(e.target.value)||1)))} /></FormField></details>
                       </div>}
+                      {canWrite && savedSelection.length > 0 && savedSelection.length <= 100 && (
+                        <form className="app-inline-form" onSubmit={e => {
+                          const operation = (e.nativeEvent as SubmitEvent).submitter?.getAttribute("value");
+                          submit(e, async f => {
+                            const tags = splitPromptTags(f.get("selected_tags"));
+                            if (!tags.length) throw new Error("Enter at least one tag.");
+                            await request("/prompts/bulk-tags", "PATCH", { ids: savedSelection, action: operation, tags });
+                            await load();
+                            setNotice(operation === "add" ? "Tags added to selected prompts." : "Tags removed from selected prompts.");
+                          });
+                        }}>
+                          <FormField label="Tags for selected prompts">
+                            <input name="selected_tags" required placeholder="Enter comma-separated tags"
+                              maxLength={MAX_PROMPT_TAGS * (MAX_PROMPT_TAG_LENGTH + 2)} />
+                          </FormField>
+                          <Button value="add" variant="outline" disabled={busy}>Add tags</Button>
+                          <Button value="remove" variant="outline" disabled={busy}>Remove tags</Button>
+                        </form>
+                      )}
                       {savedSelection.length*runSamples>100 && (
                         <p className="data-note">Choose up to 100 prompts for a bulk action and up to 100 runs per collection batch.</p>
                       )}
@@ -1723,6 +1773,9 @@ function App() {
                                   {p.language_code} · {p.mode}{" "}
                                   {!p.enabled ? "· Paused" : p.actively_scheduled ? "· Scheduled" : ""}
                                 </small>
+                                {!!p.tags?.length && <div className="flex flex-wrap gap-1">
+                                  {(p.tags as string[]).map(tag => <Badge key={tag} variant="secondary">{tag}</Badge>)}
+                                </div>}
                                 <code>{p.id}</code>
                               </div>
                               <div>

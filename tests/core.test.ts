@@ -74,6 +74,7 @@ function fixture() {
   sql.exec(readFileSync(new URL("../migrations/0017_remove_unused_billing_fields.sql", import.meta.url), "utf8"));
   sql.exec(readFileSync(new URL("../migrations/0018_remove_monthly_api_and_concurrency_caps.sql", import.meta.url), "utf8"));
   sql.exec(readFileSync(new URL("../migrations/0019_durable_dispatch.sql", import.meta.url), "utf8"));
+  sql.exec(readFileSync(new URL("../migrations/0020_prompt_tags.sql", import.meta.url), "utf8"));
   const db = {
     prepare: (s: string) => new Statement(sql, s),
     batch: async (stmts: Statement[]) => {
