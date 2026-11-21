@@ -8,6 +8,7 @@ Applies to this repository. Read this before changing code. More-specific instru
 2. Read the applicable reference: `docs/DESIGN.md`, `docs/API.md`, `docs/AUTHENTICATION.md`, `docs/PLANS.md`, or `docs/BILLING-OPERATIONS.md`.
 3. Preserve existing user changes. Do not reset, discard, overwrite secrets, or rewrite unrelated files. Keep changes focused; avoid whole-file formatting during functional edits.
 4. Follow the task through implementation, appropriate verification, and a clear handoff. Distinguish implemented, locally tested, staging-verified, and deployed results. Never claim an external journey passed from mocks alone.
+5. Review and update `AGENTS.md` and `README.md` in the same change whenever deployment, local setup, self-hosting, or an app-wide convention changes. Record the convention contributors must follow in `AGENTS.md` and the steps or behavior users and operators need in `README.md`. Keep linked reference docs in sync where their instructions change. Include this review before calling the task complete.
 
 ## Stack and code map
 
@@ -18,6 +19,7 @@ Applies to this repository. Read this before changing code. More-specific instru
 - `auth.ts`, `auth-schema.ts`, `local-auth.ts`: identity, roles, invitations and tightly scoped local verification bypass.
 - `provider.ts`, `dispatch.ts`, `workflow.ts`, `scheduler.ts`: provider payloads, run admission, durable execution, callbacks and recovery.
 - `prompt-batch.ts`, `bulk.ts`, `provider-options.ts`: batch prompt settings, independent samples, schedules and supported provider options. `src/lib/prompt-input.ts`: paste parsing.
+- `provider-credentials.ts`: organization-scoped credential updates and per-provider removal. `run-history.ts`: shared history and research filters. `resource-archive.ts`: workspace, prompt and brand deletion behavior.
 - `plans.ts`, `trials.ts`, `billing.ts`, `rate-limit.ts`: versioned entitlements, trials, Stripe lifecycle and quota enforcement.
 - `operations.ts`, `erasure.ts`, `crypto.ts`: operator-only maintenance, deletion and encryption. Treat changes here as security-sensitive.
 - `migrations/`: ordered D1 SQL migrations. `tests/`: Node test suite with isolated SQLite fixtures and mocked external services. `scripts/`: setup, environment-specific deployment and opt-in acceptance tools.
@@ -48,12 +50,15 @@ Local account creation and UI exploration need no paid provider credentials. Rea
 - Use supported engine location/language values. Refresh the public catalog with `scripts/refresh-provider-options.mjs` when needed; credentials belong in the execution environment, never in the catalog or Git.
 - Use accessible labeled controls, keyboard-operable tooltips, loading/error/empty states, and the existing responsive light/dark design. Authenticated views show actual data, not invented metrics.
 - Give new authenticated sections and shareable records a stable URL that restores the same organization, workspace, and destination after sign-in or reload. Follow the shareable navigation guidance in `docs/DESIGN.md`.
+- Apply the global workspace selection to research drill-downs. Match domains, URLs and grounding queries against stored evidence from eligible AI answers. Link each match to its run and show brand mentions from the run snapshot.
+- Keep provider credentials, organization management and hosted billing in Settings. Keep billing accessible when workspace access is paused. Show credential status and add, replace and remove actions per provider. Removing DataForSEO pauses collection schedules. Removing OpenRouter preserves collection schedules.
 
 ## Durable execution and data changes
 
 - Provider submission can spend money. Never blindly retry an accepted or uncertain submission. Correlate callbacks to the run/task; preserve durable polling, bounded recovery, concurrency and explicit uncertain states.
 - Each requested sample has its own stable identity; replaying the same batch must not create more runs. Keep shared-settings updates partial: changing enabled state must not reset repetitions, time slots or other unspecified settings.
 - Add ordered migrations rather than editing already-applied migrations. Prefer additive, backward-compatible changes for hosted rollouts. Update affected test fixtures and consider existing organizations, schedules and saved evidence.
+- Workspace and prompt deletion archives the records and removes their schedules. Keep existing run links, raw evidence and historical brand snapshots available.
 - Never casually rotate `CREDENTIALS_KEY` or `AUTH_SECRET`; existing encrypted credentials/sessions depend on them. No secrets, cookies, bearer URLs, private database exports or `.local` fixtures in logs, reports or commits. Sanitize acceptance evidence.
 
 ## Verification and handoff
@@ -77,6 +82,7 @@ npm run typecheck
 - Local: `wrangler.local.jsonc`. Staging: `wrangler.staging.json`. Hosted production: `wrangler.jsonc`. Self-hosting uses the separate `*:selfhost` commands and owner-supplied configuration; see `docs/SELF_HOSTING.md`.
 - `npm run deploy:staging` and `npm run deploy:production` rebuild for their target and verify generated Worker/D1 bindings. Do not deploy a stale build or bypass these environment guards. `npm run deploy` targets hosted PRODUCTION, not a preview.
 - Deployment and remote migrations require task authorization. Read `docs/BILLING-OPERATIONS.md` for backup, migration, rollback, recovery and release checks. Preserve existing resources/secrets and verify the deployed environment afterward. CI checks do not automatically deploy.
+- Apply pending D1 migrations with the explicit target configuration before deploying Worker code that relies on them. Migration `0014_archive_workspace_resources.sql` is required for workspace and prompt archival.
 - Hosted paid checkout remains paused until the documented live gates are cleared. Do not enable it or automatic tax as an incidental development change, invent registrations, or create live charges. A no-card free trial is controlled independently.
 - Stripe Checkout success redirects are not proof of payment. Preserve verified duplicate-safe webhooks, exact immutable price-to-plan mapping, failure/cancellation enforcement and billing-management access after product access expires. Existing subscriptions retain their agreed terms.
 - Self-hosting stays independent of hosted subscriptions. Keep local-only auth bypass constrained to local development; never weaken production verification to simplify testing.
@@ -86,6 +92,6 @@ npm run typecheck
 - **Bulk by default.** Collection interfaces lead with selection/select-all and shared actions. Creating, editing, running, pausing and scheduling should work on batches; a single item is a batch of one, not the primary interaction model.
 - Use progressive disclosure. Keep common tasks simple. Put location/language overrides, execution details, repeated samples and extra daily time slots under Advanced, with visible defaults and estimated total runs.
 - Repeated samples are independent provider requests with distinct identities. Retries must be idempotent and must never quietly resubmit uncertain/accepted provider work.
-- Explain Organization (team/billing/credentials) → Workspaces (client/brand/campaign folders) → Prompts, with multiple tracked brands per workspace.
+- Explain Organization (team/billing/credentials) → Workspaces (client/brand/campaign folders) → Prompts, with multiple tracked brands per workspace. Use the sidebar workspace selector for scope across the app. `All workspaces` covers the organization. `Default workspace` is a regular workspace.
 - Default poisoned-SERP fixing on for Google. Preserve organic blue links separately from AI Overview evidence.
 - Trial onboarding: 14 days, no card or automatic charge. Payment is requested explicitly afterward. Existing Stripe subscriptions keep their agreed schedule. Hosted checkout remains paused until the documented live gates are cleared.
