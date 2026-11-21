@@ -34,6 +34,7 @@ function Login() {
       signup_enabled: boolean;
     } | null>(null);
   const [resetToken, setResetToken] = useState("");
+  const [trialSignup, setTrialSignup] = useState(false);
   useEffect(() => {
     fetch("/api/health")
       .then(
@@ -48,7 +49,10 @@ function Login() {
       .then(setConfig)
       .catch(() => setError("Unable to load login settings"));
     const q = new URLSearchParams(location.search);
-    if (q.get("trial") === "start") setMode("signup");
+    if (q.get("trial") === "start") {
+      setTrialSignup(true);
+      setMode("signup");
+    }
     if (q.get("token")) {
       setMode("reset");
       setResetToken(q.get("token") || "");
@@ -167,7 +171,9 @@ function Login() {
           </h1>
           <p className="auth-intro">
             {mode === "signup"
-              ? "Start your 14-day free trial. No card required. Verify your email to get full Starter access; choose a paid plan only when you are ready."
+              ? trialSignup
+                ? "Start your 14-day free trial. No payment card required."
+                : "Create an account to set up your workspace."
               : "Use Google or your TrackRank password. Signed up with Google? Set a password using the link below—not your Google password."}
           </p>
           {config?.local_auth && (

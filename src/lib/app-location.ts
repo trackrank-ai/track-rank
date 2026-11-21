@@ -12,7 +12,6 @@ export type AppSearch = {
   researchType?: ResearchType;
   researchValue?: string;
   trial?: "start";
-  billing?: "processing" | "canceled";
 };
 
 function resourceId(value: unknown) {
@@ -20,9 +19,7 @@ function resourceId(value: unknown) {
 }
 
 export function parseAppSearch(search: Record<string, unknown>): AppSearch {
-  const prompt = resourceId(search.prompt);
-  const run = resourceId(search.run);
-  const tab = appTabs.find(value => value === search.tab) ?? (prompt ? "prompts" : run ? "runs" : undefined);
+  const tab = appTabs.find(value => value === search.tab);
   const researchType = search.researchType === "domain" || search.researchType === "page" || search.researchType === "query"
     ? search.researchType : undefined;
   const researchValue = typeof search.researchValue === "string" && search.researchValue.length <= 4096
@@ -31,13 +28,12 @@ export function parseAppSearch(search: Record<string, unknown>): AppSearch {
     org: resourceId(search.org),
     workspace: resourceId(search.workspace),
     tab,
-    prompt: tab === "prompts" ? prompt : undefined,
-    run: tab === "runs" ? run : undefined,
+    prompt: tab === "prompts" ? resourceId(search.prompt) : undefined,
+    run: tab === "runs" ? resourceId(search.run) : undefined,
     runPrompt: tab === "runs" ? resourceId(search.runPrompt) : undefined,
     researchType: tab === "research" && researchValue ? researchType : undefined,
     researchValue: tab === "research" && researchType && researchValue ? researchValue : undefined,
     trial: search.trial === "start" ? "start" : undefined,
-    billing: search.billing === "processing" || search.billing === "canceled" ? search.billing : undefined,
   };
 }
 

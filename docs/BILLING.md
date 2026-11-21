@@ -30,7 +30,7 @@ References:
 - Raw-body signature and timestamp verification, environment matching, current subscription retrieval.
 - Subscription and invoice events, plus Checkout completion/async-success events.
 - Transactional event deduplication, stale event protection, tenant mapping by locally recorded Customer ID.
-- Active and trialing subscriptions grant mapped limits. Past-due/unpaid/canceled/paused/incomplete states block paid assignments.
+- An active Stripe subscription grants its mapped limits. The application separately manages the no-card introductory trial. Other Stripe states block paid access.
 - Cancellation at period end retains access while Stripe reports active.
 - Paid access checked in common plan resolution for UI/API/MCP/provider dispatch.
 - Billing endpoints bypass paid access and monthly quotas so owners can recover.

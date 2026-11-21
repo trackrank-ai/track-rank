@@ -59,7 +59,7 @@ export async function createBulkSchedules(env:Env,org:string,input:unknown){
  if(rows.length*b.repetitions>100)throw new HttpError(400,'Use at most 100 prompt/sample combinations per scheduled batch');
  try{new Intl.DateTimeFormat('en',{timeZone:b.timezone}).format();}catch{throw new HttpError(400,'Choose a valid timezone');}
  const days=b.preset==='daily'?[0,1,2,3,4,5,6]:b.preset==='mwf'?[1,3,5]:b.preset==='weekly'?[b.days[0]]:[...new Set(b.days)];const times=[...new Set(b.times)].sort(),batch=uuid(),t=now();
- await env.DB.batch(rows.map(p=>env.DB.prepare('INSERT INTO schedules(id,org_id,prompt_id,preset,days,local_time,timezone,enabled,created_at,batch_id,batch_name,times_json,repetitions) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)').bind(uuid(),org,p.id,b.preset,JSON.stringify(days),times[0],b.timezone,Number(b.enabled),t,batch,b.name,JSON.stringify(times),b.repetitions)));
+ await env.DB.batch(rows.map(p=>env.DB.prepare('INSERT INTO schedules(id,org_id,prompt_id,preset,days,timezone,enabled,created_at,batch_id,batch_name,times_json,repetitions) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)').bind(uuid(),org,p.id,b.preset,JSON.stringify(days),b.timezone,Number(b.enabled),t,batch,b.name,JSON.stringify(times),b.repetitions)));
  return {batch_id:batch,prompts:rows.length,runs_per_time:rows.length*b.repetitions,runs_per_scheduled_day:rows.length*b.repetitions*times.length,enabled:b.enabled};
 }
 
@@ -77,10 +77,10 @@ export async function updateBulkSchedules(env:Env,org:string,input:unknown){
  await env.DB.batch(rows.map(row=>{
   const timezone=b.timezone||String(row.timezone),preset=b.preset||String(row.preset);
   const chosenDays=b.days||JSON.parse(String(row.days));const days=preset==='daily'?[0,1,2,3,4,5,6]:preset==='mwf'?[1,3,5]:preset==='weekly'?[chosenDays[0]]:[...new Set(chosenDays)];
-  const oldTimes=JSON.parse(String(row.times_json)) as string[];const times:string[]=b.times?[...new Set(b.times)].sort():oldTimes.length?oldTimes:[String(row.local_time)];
+  const times=b.times?[...new Set(b.times)].sort():JSON.parse(String(row.times_json)) as string[];
   const slot=localSlot(new Date(),timezone),due=times.filter(time=>time<=slot.time).at(-1);
   // Timing edits start with FUTURE slots, never retroactively charging for elapsed times.
   const last=(b.times||b.timezone) && due?`${slot.date}@${due}`:row.last_slot;
-  return env.DB.prepare('UPDATE schedules SET preset=?,days=?,local_time=?,timezone=?,times_json=?,repetitions=?,enabled=?,last_slot=? WHERE org_id=? AND id=?').bind(preset,JSON.stringify(days),times[0],timezone,JSON.stringify(times),b.repetitions??row.repetitions,b.enabled===undefined?row.enabled:Number(b.enabled),last??null,org,row.id);
+  return env.DB.prepare('UPDATE schedules SET preset=?,days=?,timezone=?,times_json=?,repetitions=?,enabled=?,last_slot=? WHERE org_id=? AND id=?').bind(preset,JSON.stringify(days),timezone,JSON.stringify(times),b.repetitions??row.repetitions,b.enabled===undefined?row.enabled:Number(b.enabled),last??null,org,row.id);
  }));return {updated:rows.length};
 }

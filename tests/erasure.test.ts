@@ -9,7 +9,7 @@ function setup(){const f=fixture();f.sql.exec(`
  INSERT INTO prompts(id,org_id,workspace_id,brand_id,text,created_at,updated_at) VALUES('prompt','org','space','brand','Question',0,0);
  INSERT INTO runs(id,org_id,prompt_id,workspace_id,prompt_text,config,status,idempotency_key,created_at,updated_at) VALUES('run','org','prompt','space','Question','{}','succeeded','unique',0,0);
  INSERT INTO credentials VALUES('org','ciphertext-fixture',1,0);
- INSERT INTO schedules(id,org_id,prompt_id,preset,days,local_time,timezone,enabled,last_slot,created_at) VALUES('schedule','org','prompt','daily','[1]','10:00','UTC',0,NULL,0);
+ INSERT INTO schedules(id,org_id,prompt_id,preset,days,times_json,timezone,enabled,last_slot,created_at,batch_id) VALUES('schedule','org','prompt','daily','[1]','["10:00"]','UTC',0,NULL,0,'batch');
  INSERT INTO api_keys(id,org_id,user_id,name,prefix,token_hash,scopes,expires_at,created_at) VALUES('key','org','owner','Key','trk','hash','[]',1,0);
  INSERT INTO usage_daily VALUES('org','2026-11-21',1);
  INSERT INTO monthly_api_usage VALUES('org','2026-11',1);

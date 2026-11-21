@@ -65,9 +65,12 @@ function fixture() {
   sql.exec(readFileSync(new URL("../migrations/0006_stripe_billing.sql", import.meta.url), "utf8"));
   sql.exec(readFileSync(new URL("../migrations/0007_billing_operations.sql", import.meta.url), "utf8"));
   sql.exec(readFileSync(new URL("../migrations/0009_no_card_trials.sql", import.meta.url), "utf8"));
+  sql.exec(readFileSync(new URL("../migrations/0010_bulk_sampling.sql", import.meta.url), "utf8"));
   sql.exec(readFileSync(new URL("../migrations/0011_run_admission_accounting.sql", import.meta.url), "utf8"));
   sql.exec(readFileSync(new URL("../migrations/0014_archive_workspace_resources.sql", import.meta.url), "utf8"));
   sql.exec(readFileSync(new URL("../migrations/0015_billing_offers.sql", import.meta.url), "utf8"));
+  sql.exec(readFileSync(new URL("../migrations/0016_canonical_schedules.sql", import.meta.url), "utf8"));
+  sql.exec(readFileSync(new URL("../migrations/0017_remove_unused_billing_fields.sql", import.meta.url), "utf8"));
   const db = {
     prepare: (s: string) => new Statement(sql, s),
     batch: async (stmts: Statement[]) => {
@@ -288,14 +291,14 @@ test("provider payload uses scraper and clean SERPs defaults, preserving special
 test("scheduler observes timezone, selected weekdays and same-day idempotency", () => {
   const s = {
     timezone: "America/Los_Angeles",
-    local_time: "09:00",
+    times_json: '["09:00"]',
     days: "[1,3,5]",
     last_slot: null,
   };
-  assert.equal(scheduleDue(s, new Date("2026-11-20T17:05:00Z")), "2026-11-20");
+  assert.equal(scheduleDue(s, new Date("2026-11-20T17:05:00Z")), "2026-11-20@09:00");
   assert.equal(
     scheduleDue(
-      { ...s, last_slot: "2026-11-20" },
+      { ...s, last_slot: "2026-11-20@09:00" },
       new Date("2026-11-20T18:00:00Z"),
     ),
     null,
@@ -305,6 +308,32 @@ test("scheduler observes timezone, selected weekdays and same-day idempotency", 
     localSlot(new Date("2026-07-20T16:00:00Z"), "America/Los_Angeles").time,
     "09:00",
   );
+});
+
+test("MCP creates and updates paused schedules through the bulk API", async () => {
+  const { env, sql } = fixture();
+  const org = await setupPrompt(env);
+  const response = await call(env, { userId: "alice" }, "/keys", "POST", { name: "Scheduler", scopes: ["write"] }, org.id);
+  const { key } = await response.json() as { key: string };
+  const { mcp } = await import("../src/server/mcp");
+  const invoke = async (name: string, args: object) => {
+    const response = await mcp(new Request(`${env.BASE_URL}/mcp`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }),
+    }), env, ctx);
+    return (await response.json() as { result: { isError?: boolean } }).result;
+  };
+  const created = await invoke("create_schedules", { prompt_ids: [org.promptId], preset: "daily", days: [0], times: ["09:00", "17:00"], timezone: "UTC" });
+  assert.equal(created.isError, false);
+  const read = () => sql.prepare("SELECT id,enabled,times_json,repetitions FROM schedules WHERE org_id=?").get(org.id)!;
+  const schedule = read();
+  assert.equal(schedule.enabled, 0);
+  assert.equal((await invoke("update_schedules", { ids: [schedule.id], repetitions: 2 })).isError, false);
+  const updated = read();
+  assert.equal(updated.times_json, '["09:00","17:00"]');
+  assert.equal(updated.repetitions, 2);
+  assert.equal(updated.enabled, 0);
 });
 test("organizations get a default workspace; cross-tenant IDs fail at API and DB boundaries", async () => {
   const { env, sql } = fixture();
@@ -470,12 +499,9 @@ test("invitations are hashed, one-use, role-scoped, and cannot overwrite owner",
     /owner/,
   );
 });
-test("idempotent runs reserve at most once and ignore legacy daily caps", async () => {
+test("idempotent runs reserve at most once", async () => {
   const { env, sql } = fixture();
   const a = await setupPrompt(env);
-  sql
-    .prepare("UPDATE organizations SET daily_run_ceiling=1 WHERE id=?")
-    .run(a.id);
   const r1 = await createRun(env, a.id, a.promptId, "same-key-123"),
     r2 = await createRun(env, a.id, a.promptId, "same-key-123");
   assert.equal(r1.id, r2.id);
@@ -584,10 +610,10 @@ test("provider removal preserves the other credentials and pauses only DataForSE
   const { env, sql } = fixture();
   const a = await setupPrompt(env);
   const b = await setupPrompt(env, "bob");
-  const addSchedule = sql.prepare(`INSERT INTO schedules(id,org_id,prompt_id,preset,days,local_time,timezone,enabled,created_at)
-    VALUES(?,?,?,'daily','[1]','09:00','UTC',1,0)`);
-  addSchedule.run("a-schedule", a.id, a.promptId);
-  addSchedule.run("b-schedule", b.id, b.promptId);
+  const addSchedule = sql.prepare(`INSERT INTO schedules(id,org_id,prompt_id,preset,days,times_json,timezone,enabled,created_at,batch_id)
+    VALUES(?,?,?,'daily','[1]','["09:00"]','UTC',1,0,?)`);
+  addSchedule.run("a-schedule", a.id, a.promptId, "a-batch");
+  addSchedule.run("b-schedule", b.id, b.promptId, "b-batch");
   const request = (path: string, method: string, data?: unknown) => call(env, { userId: "alice" }, path, method, data, a.id);
   const { credentials } = await import("../src/server/provider-credentials");
   const dataForSeo = { login: "replacement-login", password: "replacement-secret" };
@@ -855,7 +881,9 @@ test("plan migration backfills existing organizations and preserves their daily 
 test("customers cannot self-upgrade through Settings and emergency ceilings cannot raise a plan allowance", async () => {
   const {env}=fixture();
   const a=await organization(env);
-  await assert.rejects(call(env,{userId:'alice'},'/settings','PATCH',{resolve_poisoned_results:true,daily_run_limit:20,plan_version_id:'pro-v1'},a.id),(e:any)=>e.status===400);
+  for (const field of [{ daily_run_limit: 20 }, { plan_version_id: 'pro-v1' }]) {
+    await assert.rejects(call(env,{userId:'alice'},'/settings','PATCH',{resolve_poisoned_results:true,...field},a.id),(e:any)=>e.status===400);
+  }
   const {safetyCeiling}=await import('../src/server/rate-limit');
   assert.equal(safetyCeiling('9999',120),120);
   assert.equal(safetyCeiling('60',120),60);

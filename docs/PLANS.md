@@ -53,9 +53,11 @@ Price and limit changes both require a new revision. The public family can remai
 
 A deliberate upgrade/downgrade changes the assignment; it does NOT reset monthly usage. If the new allowance is below consumed usage, new work is blocked until rollover or a higher allowance is assigned. Already queued/submitted runs are not retroactively charged another allowance, deleted, or canceled; lower concurrency prevents additional submissions until active work falls below it.
 
-The CLI assignment is immediate and is not a billing event. When billing is integrated, store immutable Stripe Price -> plan-version mappings, verify webhook signatures, process event IDs idempotently, and assign only from trusted subscription state. Schedule decreases/price increases for a clearly communicated renewal boundary as appropriate. Do not expose assignment changes as a customer-writable Settings field. Deferred effective dates, proration, payment failure handling and automated renewal migrations are not implemented yet.
+CLI assignment records the plan terms. Hosted paid access requires a verified
+active Stripe subscription mapped to that revision. Billing webhooks and
+reconciliation enforce payment failures and cancellation. Automated plan changes
+and proration are separate work.
 
-Stripe similarly separates products from prices and restricts modifying used prices: https://support.stripe.com/questions/how-to-create-products-and-prices
 
 ## What enforcement means
 

@@ -82,17 +82,21 @@ test('test subscriptions cannot grant live entitlements after switching environm
  await assert.rejects(organizationPlan(env,'org'),/Subscription payment required/);
 });
 
-test('trial access, once-per-org trial consumption, pending onboarding and stale-state suspension',async()=>{
- const {env,sql}=fixture();
- await syncSubscription(env,sub('trialing'),event());
- assert.equal((await organizationPlan(env,'org')).version,'starter-v1');
- assert.equal(sql.prepare("SELECT trial_used FROM billing_customers WHERE org_id='org'").get()!.trial_used,1);
+test('Stripe trials do not grant access and stale paid subscriptions can recover through billing', async () => {
+ const { env, sql } = fixture();
+ sql.exec("UPDATE organization_plans SET plan_version_id='pending-v1'");
+ await syncSubscription(env, sub('trialing'), event());
+ await assert.rejects(organizationPlan(env, 'org'), /Choose a plan/);
+ await syncSubscription(env, sub('active'), event('evt_paid', 200));
+ assert.equal((await organizationPlan(env, 'org')).version, 'starter-v1');
  sql.exec("UPDATE billing_customers SET updated_at=0 WHERE org_id='org'");
- await assert.rejects(organizationPlan(env,'org'),/Subscription payment required/);
- const {defaultPlanVersion}=await import('../src/server/plans');
- assert.equal(await defaultPlanVersion(env),'pending-v1');
+ await assert.rejects(organizationPlan(env, 'org'), /Subscription payment required/);
+ const state = await billingRoute(new Request('https://example.test'), env, { userId: 'alice', orgId: 'org', role: 'owner' }, '/billing');
+ assert.equal((await state.json() as { access_status: string }).access_status, 'payment_required');
+ const { defaultPlanVersion } = await import('../src/server/plans');
+ assert.equal(await defaultPlanVersion(env), 'pending-v1');
  delete env.BILLING_ENABLED;
- assert.equal(await defaultPlanVersion(env),'beta-v1');
+ assert.equal(await defaultPlanVersion(env), 'beta-v1');
 });
 
 test('risk events use Charge → PaymentIntent → Invoice Payment → Subscription, hold only mapped tenant',async()=>{

@@ -3,7 +3,7 @@ import { z } from "zod";
 import { billingOffers, publicBillingOffers } from "./billing-catalog";
 import { hashToken } from "./crypto";
 import { body } from "./request-body";
-import {startTrial} from "./trials";
+import { organizationPlan } from "./plans";
 import { enforceLimit } from "./rate-limit";
 import { HttpError, all, exec, json, now, one, type Env, type Principal, type Row } from "./types";
 
@@ -12,7 +12,6 @@ export function stripeClient(env: Env) {
     throw new HttpError(503, "Hosted billing is not enabled");
   return new Stripe(env.STRIPE_SECRET_KEY, { httpClient: Stripe.createFetchHttpClient(), maxNetworkRetries: 2, timeout: 15000 });
 }
-export function paidStatus(status: string) { return status === "active" || status === "trialing"; }
 const checkoutOffer = z.object({ offer_key: z.string().max(64).regex(/^[a-z0-9][a-z0-9-]*$/) }).strict();
 const checkoutRevision = "paid-offer-v1";
 export async function billingRoute(req: Request, env: Env, p: Principal, path: string) {
@@ -20,28 +19,37 @@ export async function billingRoute(req: Request, env: Env, p: Principal, path: s
   const org = p.orgId!;
   if (req.method === "GET" && path === "/billing") {
     await enforceLimit(env, `billing-read:${org}`, 60);
-    const state = await one<Row>(env, "SELECT status,current_period_end,cancel_at_period_end,risk_hold,trial_used FROM billing_customers WHERE org_id=?", org);
+    const state = await one<Row>(env, "SELECT status,current_period_end,cancel_at_period_end,risk_hold FROM billing_customers WHERE org_id=?", org);
     const trial = await one<Row>(env, "SELECT started_at,ends_at FROM organization_trials WHERE org_id=?", org);
-    const assignment = await one<Row>(env, "SELECT p.family FROM organization_plans a JOIN plan_versions p ON p.id=a.plan_version_id WHERE a.org_id=?", org);
-    const freeTrial = assignment?.family === "trial";
-    const claimed = await one(env, "SELECT user_id FROM account_trial_claims WHERE user_id=?", p.userId);
+    const assignment = await one<Row>(env, "SELECT p.family,p.price_cents FROM organization_plans a JOIN plan_versions p ON p.id=a.plan_version_id WHERE a.org_id=?", org);
+    let accessStatus = assignment?.family === "pending" ? "choose_plan" : "assigned";
+    if (assignment?.family === "trial") accessStatus = Number(trial?.ends_at) > now() ? "free_trial" : "trial_expired";
+    if (Number(assignment?.price_cents) > 0) {
+      try {
+        await organizationPlan(env, org);
+      } catch (error) {
+        if (!(error instanceof HttpError) || error.status !== 402) throw error;
+        accessStatus = "payment_required";
+      }
+    }
     const offers = publicBillingOffers(await billingOffers(env));
-    return json({ enabled: env.BILLING_ENABLED === "true", checkout_enabled: offers.length > 0, offers, ...state, has_billing_account: !!state, free_trial: trial, trial_eligible: !claimed && !state?.trial_used && assignment?.family === "pending", access_status: freeTrial ? Number(trial?.ends_at) > now() ? "free_trial" : "trial_expired" : assignment?.family === "pending" ? "choose_plan" : "assigned", owner: p.role === "owner" });
+    return json({ enabled: env.BILLING_ENABLED === "true", checkout_enabled: offers.length > 0, offers, ...state, has_billing_account: !!state, free_trial: trial, access_status: accessStatus, owner: p.role === "owner" });
   }
   if (p.role !== "owner") throw new HttpError(403, "Only the organization owner can manage billing");
   if (req.method === "GET" && path === "/billing/alerts") return json({ alerts: await all(env, "SELECT id,kind,summary,created_at FROM billing_alerts WHERE org_id=? AND resolved_at IS NULL ORDER BY created_at DESC LIMIT 50", org) });
   if (req.method !== "POST") throw new HttpError(405, "Method not allowed");
   await enforceLimit(env, `billing:${org}`, 10);
-  if (path === "/billing/trial") return json(await startTrial(env, p.userId, org));
+  if (path !== "/billing/checkout" && path !== "/billing/portal") throw new HttpError(404, "Not found");
   const stripe = stripeClient(env);
+  const settingsUrl = new URL("/app", env.BASE_URL);
+  settingsUrl.search = new URLSearchParams({ org, tab: "settings" }).toString();
   let customer = await one<Row>(env, "SELECT * FROM billing_customers WHERE org_id=?", org);
   if (path === "/billing/portal") {
     if (!customer) throw new HttpError(409, "No billing account yet");
     if (!env.STRIPE_PORTAL_CONFIGURATION) throw new HttpError(503, "Customer portal setup is pending");
-    const session = await stripe.billingPortal.sessions.create({ customer: String(customer.customer_id), configuration: env.STRIPE_PORTAL_CONFIGURATION, return_url: `${env.BASE_URL}/app` });
+    const session = await stripe.billingPortal.sessions.create({ customer: String(customer.customer_id), configuration: env.STRIPE_PORTAL_CONFIGURATION, return_url: settingsUrl.href });
     return json({ url: session.url });
   }
-  if (path !== "/billing/checkout") throw new HttpError(404, "Not found");
   const offers = await billingOffers(env);
   if (!offers.length) throw new HttpError(503, "New subscriptions are temporarily paused; existing billing management remains available");
   const { offer_key } = await body(req, checkoutOffer, 1024);
@@ -92,7 +100,7 @@ export async function billingRoute(req: Request, env: Env, p: Principal, path: s
     tax_id_collection: { enabled: automaticTax },
     payment_method_collection: "always",
     billing_address_collection: "required", customer_update: { address: "auto", name: "auto" },
-    success_url: `${env.BASE_URL}/app?billing=processing`, cancel_url: `${env.BASE_URL}/app?billing=canceled`,
+    success_url: settingsUrl.href, cancel_url: settingsUrl.href,
     metadata: { trackrank_checkout_revision: checkoutRevision, trackrank_offer: offer_key, trackrank_price: priceId },
     custom_text: { terms_of_service_acceptance: { message: `I agree to the [Terms](${env.BASE_URL}/terms) and have read the [Privacy Policy](${env.BASE_URL}/privacy).` } },
     integration_identifier: "trackrank_hosted_qxkpmvnr",
@@ -124,8 +132,8 @@ export async function syncSubscription(env: Env, subscription: Stripe.Subscripti
     args.push(lease.customerId, lease.token, now());
   }
   const stmts = [];
-  if (paidStatus(subscription.status)) stmts.push(env.DB.prepare(`UPDATE organization_plans SET plan_version_id=?,assigned_at=?,reason=? WHERE org_id=? AND ${guard}`).bind(mapping.id, now(), "Verified Stripe subscription", customer.org_id, ...args));
-  stmts.push(env.DB.prepare(`UPDATE billing_customers SET trial_used=1,subscription_id=?,status=?,price_id=?,current_period_end=?,cancel_at_period_end=?,event_created=?,updated_at=? WHERE org_id=? AND ${guard}`).bind(subscription.id, subscription.status, item.price.id, item.current_period_end * 1000, Number(subscription.cancel_at_period_end), event.created, now(), customer.org_id, ...args));
+  if (subscription.status === "active") stmts.push(env.DB.prepare(`UPDATE organization_plans SET plan_version_id=?,assigned_at=?,reason=? WHERE org_id=? AND ${guard}`).bind(mapping.id, now(), "Verified Stripe subscription", customer.org_id, ...args));
+  stmts.push(env.DB.prepare(`UPDATE billing_customers SET subscription_id=?,status=?,price_id=?,current_period_end=?,cancel_at_period_end=?,event_created=?,updated_at=? WHERE org_id=? AND ${guard}`).bind(subscription.id, subscription.status, item.price.id, item.current_period_end * 1000, Number(subscription.cancel_at_period_end), event.created, now(), customer.org_id, ...args));
   stmts.push(env.DB.prepare(`INSERT OR IGNORE INTO billing_events SELECT ?,?,? WHERE ${lease ? "EXISTS(SELECT 1 FROM billing_sync_locks WHERE customer_id=? AND token=? AND expires_at>?)" : "1"}`).bind(event.id, event.type, now(), ...(lease ? [lease.customerId, lease.token, now()] : [])));
   await env.DB.batch(stmts);
 }

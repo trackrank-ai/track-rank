@@ -44,10 +44,10 @@ test("saved prompt filters combine keyword, engine, schedule, and client across 
   insert.run("explicit-other","other","Test keyword other","google",1);
   insert.run("disabled",null,"Test keyword disabled","google",0);
   insert.run("wrong-engine",null,"Test keyword another engine","gemini",1);
-  sql.exec(`INSERT INTO schedules(id,org_id,prompt_id,preset,days,local_time,timezone,enabled,created_at)
-    VALUES('on','org','p000','daily','[1]','09:00','UTC',1,0),
-      ('off','org','p001','daily','[1]','09:00','UTC',0,0),
-      ('disabled-prompt','org','disabled','daily','[1]','09:00','UTC',1,0)`);
+  sql.exec(`INSERT INTO schedules(id,org_id,prompt_id,preset,days,times_json,timezone,enabled,created_at,batch_id)
+    VALUES('on','org','p000','daily','[1]','["09:00"]','UTC',1,0,'on-batch'),
+      ('off','org','p001','daily','[1]','["09:00"]','UTC',0,0,'off-batch'),
+      ('disabled-prompt','org','disabled','daily','[1]','["09:00"]','UTC',1,0,'disabled-batch')`);
   const query = "q=KEYWORD&engine=google&brand=client";
   const page = await list(query);
   assert.equal(page.prompts.length,100);

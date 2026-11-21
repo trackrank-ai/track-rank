@@ -10,7 +10,7 @@ test("app links preserve the selected organization, workspace and record through
   assert.equal(appReturnPath("/app?tab=runs&runPrompt=prompt-abc"), "/app?tab=runs&runPrompt=prompt-abc");
   assert.equal(appReturnPath("/app?tab=research&researchType=page&researchValue=https%3A%2F%2Fexample.test%2Fa"),
     "/app?tab=research&researchType=page&researchValue=https%3A%2F%2Fexample.test%2Fa");
-  assert.equal(appReturnPath("/app?org=second-org&prompt=prompt-abc"), "/app?org=second-org&tab=prompts&prompt=prompt-abc");
+  assert.equal(appReturnPath("/app?org=second-org&tab=prompts&prompt=prompt-abc"), "/app?org=second-org&tab=prompts&prompt=prompt-abc");
   assert.equal(new URL(appLoginPath("?trial=start", ""), login).searchParams.get("trial"), "start");
 });
 
@@ -18,6 +18,7 @@ test("return paths stay inside the app and accept only supported navigation fiel
   for (const bad of ["//elsewhere.invalid/app", "https://elsewhere.invalid/app", "/app/../login", "/application?org=demo"]) {
     assert.equal(appReturnPath(bad), "/app");
   }
-  assert.equal(appReturnPath("/app?org=demo&tab=settings&prompt=ignored&token=discarded#invite=discarded"), "/app?org=demo&tab=settings");
+  assert.equal(appReturnPath("/app?org=demo&tab=settings&prompt=ignored&token=discarded&billing=processing#invite=discarded"), "/app?org=demo&tab=settings");
+  assert.equal(appReturnPath("/app?org=demo&prompt=prompt-abc&run=run-abc"), "/app?org=demo");
   assert.equal(parseAppSearch({ org: ["first", "second"], run: "../other", tab: "invalid" }).org, undefined);
 });

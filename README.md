@@ -66,7 +66,7 @@ The core suite uses an isolated in-memory SQLite D1 test adapter and mocked prov
 
 Infrastructure: Cloudflare Worker `trackrank-ai`, D1 `trackrank-db`, private R2 `trackrank-answers`, Workflow `trackrank-tracking`, and Cron `*/5 * * * *`. Deployment configuration is committed in `wrangler.jsonc`.
 
-Back up the target database and review pending migrations before deploying. Apply pending migrations before running the matching deploy command. Workspace and prompt archival requires migration `0014_archive_workspace_resources.sql`. See the [billing and release runbook](docs/BILLING-OPERATIONS.md) for backup, recovery, and release checks.
+Back up the target database and review pending migrations before deploying. Apply pending migrations before running the matching deploy command. Migrations `0016` and `0017` switch to canonical schedules and remove obsolete billing fields. Pause scheduled execution during this cutover and deploy the matching Worker before resuming. See the [billing and release runbook](docs/BILLING-OPERATIONS.md) for backup, recovery, and release checks.
 
 Staging uses its own Cloudflare resources and Stripe test configuration.
 

@@ -30,8 +30,10 @@ brand=check(s.post(base+'/api/v1/brands'+suffix,json={'name':'Local Test Brand',
 prompt=check(s.post(base+'/api/v1/prompts'+suffix,json={'workspace_id':org['workspace_id'],'brand_id':brand['id'],'text':'Best local test brands?','engine':'google'}),201)
 rows=check(s.get(base+'/api/v1/prompts'+suffix))['prompts'];assert rows[0]['mode']=='standard';assert rows[0]['engine']=='google';print('PASS: persisted brands and prompts with standard queue default')
 settings=check(s.get(base+'/api/v1/settings'+suffix));assert settings['resolve_poisoned_results']==1
-schedule=check(s.post(base+'/api/v1/schedules'+suffix,json={'prompt_id':prompt['id'],'preset':'mwf','days':[1,3,5],'local_time':'09:00','timezone':'America/Los_Angeles'}),201)
-check(s.patch(base+'/api/v1/schedules/'+schedule['id']+suffix,json={'local_time':'10:30'}));print('PASS: clean SERPs default and editable paused timezone schedule')
+batch=check(s.post(base+'/api/v1/schedules/bulk'+suffix,json={'prompt_ids':[prompt['id']],'preset':'mwf','days':[1,3,5],'times':['09:00'],'timezone':'America/Los_Angeles'}),201)
+schedules=check(s.get(base+'/api/v1/schedules'+suffix))['schedules']
+schedule=next(row for row in schedules if row['batch_id']==batch['batch_id']);assert schedule['enabled']==0
+check(s.patch(base+'/api/v1/schedules/bulk'+suffix,json={'ids':[schedule['id']],'times':['10:30']}));print('PASS: clean SERPs default and editable paused timezone schedule')
 # A second new account already has its own organization when it joins the invited team.
 teammate=client()
 member=check(teammate.post(base+'/api/auth/sign-up/email',json={'email':f'smoke-member-{suffix_id}@example.test','password':secrets.token_urlsafe(24),'name':'Local smoke teammate'}))

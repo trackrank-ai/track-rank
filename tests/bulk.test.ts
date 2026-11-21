@@ -1,6 +1,9 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';import {fixture} from './helpers/billing-fixture';import {seal} from '../src/server/crypto';import {createBulkRuns,createBulkSchedules,updateBulkSchedules} from '../src/server/bulk';import {scheduleDue} from '../src/server/scheduler';
 import { createRun } from '../src/server/provider';
+import { readFileSync, readdirSync } from 'node:fs';
+import { DatabaseSync } from 'node:sqlite';
 import { runUsage, runUsagePeriods } from '../src/server/run-admission';
+import { sweep } from '../src/server/scheduler';
 async function setup(){const f=fixture();f.env.CREDENTIALS_KEY=Buffer.alloc(32,4).toString('base64');f.sql.exec("INSERT INTO workspaces(id,org_id,name,created_at) VALUES('w','org','Space',0);INSERT INTO prompts(id,org_id,workspace_id,text,created_at,updated_at) VALUES('p1','org','w','First question',0,0),('p2','org','w','Second question',0,0)");f.sql.prepare('INSERT INTO credentials VALUES(?,?,1,0)').run('org',await seal(f.env,'org',{login:'test',password:'fixture'}));return f;}
 function assignRunLimit(sql: ReturnType<typeof fixture>["sql"], limit: number) {
   const id = "limited-" + limit;
@@ -14,10 +17,9 @@ test('bulk sampling creates independent runs, replays safely, and rejects change
 test('bulk monthly quotas and cross-tenant selections are checked before any partial queueing',async()=>{
  const {env,sql}=await setup();assignRunLimit(sql,3);await assert.rejects(createBulkRuns(env,'org',{prompt_ids:['p1','p2'],repetitions:2,batch_key:'batch-too-large'}),/needs 4 new runs.*3 runs left/);assert.equal(sql.prepare('SELECT count(*) AS n FROM runs').get()?.n,0);await assert.rejects(createBulkRuns(env,'other',{prompt_ids:['p1'],batch_key:'foreign-batch'}),/not in this organization/);
 });
-test('an 87-run batch can exceed the old daily ceiling when monthly allowance is available', async () => {
+test('an 87-run batch is admitted when the monthly allowance is available', async () => {
   const { env, sql } = await setup();
   assignRunLimit(sql, 100);
-  sql.exec("UPDATE organizations SET daily_run_ceiling=20");
   const insert = sql.prepare("INSERT INTO prompts(id,org_id,workspace_id,text,created_at,updated_at) VALUES(?,'org','w',?,0,0)");
   const prompt_ids = Array.from({length:87}, (_, i) => "batch-prompt-" + i);
   for (const id of prompt_ids) insert.run(id, "Question " + id);
@@ -90,24 +92,72 @@ test('batch schedules retain sampling and times through bulk pause/enable; inval
  const {env,sql}=await setup();const input={prompt_ids:['p1','p2'],preset:'daily',days:[1],times:['09:00','17:00'],timezone:'UTC',repetitions:5};const made=await createBulkSchedules(env,'org',input);assert.equal(made.runs_per_time,10);assert.equal(made.runs_per_scheduled_day,20);const rows=sql.prepare('SELECT * FROM schedules').all();assert.equal(rows.length,2);assert.ok(rows.every(r=>r.enabled===0));await updateBulkSchedules(env,'org',{ids:rows.map(r=>r.id),enabled:true});const updated=sql.prepare('SELECT * FROM schedules').all();assert.ok(updated.every(r=>r.enabled===1&&r.repetitions===5&&r.times_json==='["09:00","17:00"]'));await assert.rejects(createBulkSchedules(env,'org',{...input,prompt_ids:['p1','foreign']}),/not in this organization/);assert.equal(sql.prepare('SELECT count(*) AS n FROM schedules').get()?.n,2);
 });
 test('multiple daily slots fire once each; missed slots choose latest rather than bursting historical runs',()=>{
- const row={timezone:'UTC',days:'[0,1,2,3,4,5,6]',local_time:'09:00',times_json:'["09:00","17:00"]',last_slot:null};assert.equal(scheduleDue(row,new Date('2026-11-21T08:00Z')),null);assert.equal(scheduleDue(row,new Date('2026-11-21T09:05Z')),'2026-11-21@09:00');assert.equal(scheduleDue({...row,last_slot:'2026-11-21@09:00'},new Date('2026-11-21T09:10Z')),null);assert.equal(scheduleDue({...row,last_slot:'2026-11-21@09:00'},new Date('2026-11-21T17:00Z')),'2026-11-21@17:00');assert.equal(scheduleDue(row,new Date('2026-11-21T18:00Z')),'2026-11-21@17:00');
+ const row={timezone:'UTC',days:'[0,1,2,3,4,5,6]',times_json:'["09:00","17:00"]',last_slot:null};assert.equal(scheduleDue(row,new Date('2026-11-21T08:00Z')),null);assert.equal(scheduleDue(row,new Date('2026-11-21T09:05Z')),'2026-11-21@09:00');assert.equal(scheduleDue({...row,last_slot:'2026-11-21@09:00'},new Date('2026-11-21T09:10Z')),null);assert.equal(scheduleDue({...row,last_slot:'2026-11-21@09:00'},new Date('2026-11-21T17:00Z')),'2026-11-21@17:00');assert.equal(scheduleDue(row,new Date('2026-11-21T18:00Z')),'2026-11-21@17:00');
 });
 
-test('bulk pause and enable preserve a legacy schedule’s already-collected daily slot', async () => {
+test('schedule migration recovers admitted daily slots and leaves canonical batches intact', () => {
+  const sql = new DatabaseSync(':memory:');
+  const migration = '0016_canonical_schedules.sql';
+  for (const file of readdirSync('migrations').filter(file => file.endsWith('.sql') && file < migration).sort()) {
+    sql.exec(readFileSync('migrations/' + file, 'utf8'));
+  }
+  sql.exec(`INSERT INTO organizations(id,name,created_at) VALUES('org','Organization',0);
+    INSERT INTO workspaces(id,org_id,name,created_at) VALUES('workspace','org','Workspace',0);
+    INSERT INTO prompts(id,org_id,workspace_id,text,created_at,updated_at) VALUES('prompt','org','workspace','Question',0,0);
+    INSERT INTO schedules(id,org_id,prompt_id,preset,days,local_time,timezone,enabled,last_slot,created_at,batch_id,times_json)
+      VALUES('unmarked','org','prompt','daily','[0,1,2,3,4,5,6]','09:00','UTC',1,NULL,0,NULL,'[]'),
+      ('marked','org','prompt','daily','[0,1,2,3,4,5,6]','16:00','UTC',0,'2026-11-21',0,NULL,'[]'),
+      ('batched','org','prompt','daily','[0,1,2,3,4,5,6]','06:00','UTC',1,'2026-11-21@17:00',0,'batch','["06:00","17:00"]');
+    INSERT INTO run_admissions VALUES('org','schedule:unmarked:2026-11-21'),('org','schedule:unmarked-extra:2026-11-22');`);
+  sql.exec(readFileSync('migrations/' + migration, 'utf8'));
+  const get = sql.prepare('SELECT * FROM schedules WHERE id=?');
+  const unmarked = get.get('unmarked')!;
+  assert.equal(unmarked.local_time, undefined);
+  assert.equal(unmarked.times_json, '["09:00"]');
+  assert.equal(unmarked.batch_id, 'unmarked');
+  assert.equal(unmarked.last_slot, '2026-11-21@09:00');
+  assert.equal(scheduleDue(unmarked, new Date('2026-11-21T18:00Z')), null);
+  assert.equal(scheduleDue(unmarked, new Date('2026-11-22T09:00Z')), '2026-11-22@09:00');
+  assert.equal(get.get('marked')!.last_slot, '2026-11-21@16:00');
+  assert.equal(get.get('marked')!.enabled, 0);
+  assert.equal(get.get('batched')!.times_json, '["06:00","17:00"]');
+  assert.equal(get.get('batched')!.last_slot, '2026-11-21@17:00');
+  assert.equal(sql.prepare('SELECT count(*) AS count FROM run_admissions').get()!.count, 2);
+  sql.close();
+});
+
+test('bulk pause and enable preserve the last collected slot', async () => {
   const { env, sql } = await setup();
-  sql.exec(`INSERT INTO schedules(id,org_id,prompt_id,preset,days,local_time,timezone,enabled,last_slot,created_at)
-    VALUES('legacy','org','p1','daily','[0,1,2,3,4,5,6]','09:00','UTC',1,'2026-11-21',0)`);
-  const readSchedule = () => ({ ...sql.prepare("SELECT * FROM schedules WHERE id='legacy'").get()! });
+  sql.exec(`INSERT INTO schedules(id,org_id,prompt_id,preset,days,times_json,timezone,enabled,last_slot,created_at,batch_id)
+    VALUES('example','org','p1','daily','[0,1,2,3,4,5,6]','["09:00"]','UTC',1,'2026-11-21@09:00',0,'batch')`);
+  const readSchedule = () => ({ ...sql.prepare("SELECT * FROM schedules WHERE id='example'").get()! });
   const original = readSchedule();
-  await updateBulkSchedules(env, 'org', { ids: ['legacy'], enabled: false });
+  await updateBulkSchedules(env, 'org', { ids: ['example'], enabled: false });
   assert.deepEqual(readSchedule(), { ...original, enabled: 0 });
-  await updateBulkSchedules(env, 'org', { ids: ['legacy'], enabled: true });
+  await updateBulkSchedules(env, 'org', { ids: ['example'], enabled: true });
   assert.deepEqual(readSchedule(), original);
   assert.equal(scheduleDue(readSchedule(), new Date('2026-11-21T18:00Z')), null);
-  assert.equal(scheduleDue(readSchedule(), new Date('2026-11-22T09:00Z')), '2026-11-22');
+  assert.equal(scheduleDue(readSchedule(), new Date('2026-11-22T09:00Z')), '2026-11-22@09:00');
 });
 
-test('run history continuation includes same-timestamp results and retains numeric cutoff semantics', async () => {
+test('a sweep retries a scheduled time slot with the same identity for each sample', async (t) => {
+  const { env, sql } = await setup();
+  t.mock.method(Date, 'now', () => Date.parse('2026-11-21T09:05Z'));
+  env.RUN_WORKFLOW = { create: async () => ({}) } as unknown as typeof env.RUN_WORKFLOW;
+  await createBulkSchedules(env, 'org', {
+    prompt_ids: ['p1'], preset: 'daily', days: [1], times: ['09:00'], timezone: 'UTC', repetitions: 2, enabled: true,
+  });
+  const schedule = sql.prepare('SELECT id FROM schedules').get()!;
+  const ids = () => sql.prepare('SELECT idempotency_key FROM runs ORDER BY idempotency_key').all().map(row => row.idempotency_key);
+  await sweep(env);
+  assert.deepEqual(ids(), [1,2].map(sample => `schedule:${schedule.id}:2026-11-21@09:00:sample:${sample}`));
+  sql.exec('UPDATE schedules SET last_slot=NULL');
+  await sweep(env);
+  assert.equal(ids().length, 2);
+  assert.equal(sql.prepare('SELECT last_slot FROM schedules').get()!.last_slot, '2026-11-21@09:00');
+});
+
+test('run history requires both cursor values and continues through same-timestamp results', async () => {
   const { env, sql } = await setup();
   sql.exec(`INSERT INTO user VALUES('owner','Owner','owner@example.invalid',1,NULL,0,0);
     INSERT INTO memberships VALUES('org','owner','owner',0);
@@ -140,7 +190,7 @@ test('run history continuation includes same-timestamp results and retains numer
   );
   assert.equal(second.next_before, null);
   assert.equal(second.next_before_id, null);
-  assert.deepEqual((await list(`&before=${sameTimestamp}`)).runs.map(({ id }) => id), ['older']);
+  await assert.rejects(list(`&before=${sameTimestamp}`), /Invalid run history cursor/);
   await assert.rejects(list('&before_id=run-003'), /Invalid run history cursor/);
 });
 test('bulk prompt settings route is not intercepted by the single-prompt route and retains unspecified settings',async()=>{

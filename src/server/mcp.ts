@@ -4,6 +4,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { z } from "zod";
 import { api } from "./api";
+import { bulkScheduleSchema, bulkScheduleUpdateSchema } from "./bulk";
 import { runHistoryFilters } from "./run-history";
 import { authenticate } from "./auth";
 import { HttpError, type Ctx, type Env } from "./types";
@@ -196,12 +197,12 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
     {
       description:
         "List run history with status, citations, grounding queries and mentions. Continue with next_before and next_before_id.",
-      inputSchema: {
+      inputSchema: z.object({
         ...runHistoryFilters.shape,
         workspace_id: z.string().optional(),
-        before: z.number().optional(),
+        before: z.number().int().nonnegative().optional(),
         before_id: z.string().min(1).max(100).optional(),
-      },
+      }).refine(args => (args.before === undefined) === (args.before_id === undefined), "Supply both cursor fields"),
     },
     async (args) => {
       const q = new URLSearchParams();
@@ -223,20 +224,21 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
     async (args) => invoke(`/runs/${encodeURIComponent(args.run_id)}`),
   );
   server.registerTool(
-    "create_schedule",
+    "create_schedules",
     {
       description:
-        "Create a timezone-aware schedule, DISABLED unless explicitly enabled. Enabling spends customer DataForSEO balance over time.",
-      inputSchema: {
-        prompt_id: z.string(),
-        preset: z.enum(["daily", "weekly", "mwf", "custom"]),
-        days: z.array(z.number().int().min(0).max(6)),
-        local_time: z.string(),
-        timezone: z.string(),
-        enabled: z.boolean().optional(),
-      },
+        "Create timezone-aware schedules for one or more prompts. Saving defaults to paused. Enabling spends customer DataForSEO balance over time.",
+      inputSchema: bulkScheduleSchema,
     },
-    async (args) => invoke("/schedules", "POST", args),
+    async (args) => invoke("/schedules/bulk", "POST", args),
+  );
+  server.registerTool(
+    "update_schedules",
+    {
+      description: "Edit, pause, or enable selected schedules. Enabling spends customer DataForSEO balance over time.",
+      inputSchema: bulkScheduleUpdateSchema,
+    },
+    async (args) => invoke("/schedules/bulk", "PATCH", args),
   );
   server.registerTool(
     "list_schedules",

@@ -6,10 +6,10 @@ import { listSavedPrompts } from "./prompt-library";
 import { historyWhere } from "./run-history";
 import { requireWorkspaceBrand } from "./workspace-brands";
 import { archivePrompts, archiveWorkspace, deleteBrand } from "./resource-archive";
-import { startTrial } from "./trials";
+import { createOrganization } from "./organization-create";
 import { billingRoute } from "./billing";
 import { localAuthEnabled } from "./local-auth";
-import { defaultPlanVersion, organizationPlan } from "./plans";
+import { organizationPlan } from "./plans";
 import { runUsage, runUsagePeriods } from "./run-admission";
 import { customerLimit, enforceLimit } from "./rate-limit";
 import { z } from "zod";
@@ -108,53 +108,16 @@ export async function api(
   }
   if (path === "/onboarding/trial" && method === "POST") {
     if (p.keyId) throw new HttpError(403, "Sign in to start a trial");
-    if (env.BILLING_ENABLED !== "true") throw new HttpError(503, "Hosted billing is not enabled");
-    const user = await one<Row>(env, "SELECT name,emailVerified FROM user WHERE id=?", p.userId);
-    if (!user?.emailVerified) throw new HttpError(403, "Verify your email before starting the trial");
-    const claim = await one<Row>(env, "SELECT org_id FROM account_trial_claims WHERE user_id=?", p.userId);
-    if (claim) {
-      if (!claim.org_id || !await one(env, "SELECT org_id FROM memberships WHERE org_id=? AND user_id=?", claim.org_id, p.userId)) throw new HttpError(409, "Your introductory trial has already been used");
-      return json({ id: claim.org_id });
-    }
-    const orgId = "trial_" + await hashToken(p.userId), workspaceId = orgId + "_default", t = now();
-    await env.DB.batch([
-      env.DB.prepare("INSERT OR IGNORE INTO organizations(id,name,created_at) VALUES(?,?,?)").bind(orgId, (String(user.name || "My") + "'s organization").slice(0,100),t),
-      env.DB.prepare("INSERT OR IGNORE INTO organization_plans VALUES(?,'pending-v1',?,'Trial onboarding')").bind(orgId,t),
-      env.DB.prepare("INSERT OR IGNORE INTO memberships VALUES(?,?,'owner',?)").bind(orgId,p.userId,t),
-      env.DB.prepare("INSERT OR IGNORE INTO workspaces(id,org_id,name,created_at) VALUES(?,?,'Default workspace',?)").bind(workspaceId,orgId,t),
-    ]);
-    await startTrial(env,p.userId,orgId);
-    return json({ id: orgId },201);
+    const result = await createOrganization(env, p.userId);
+    return json({ id: result.id }, result.created ? 201 : 200);
   }
   if (path === "/organizations" && method === "GET")
     return json({ organizations: await organizations(env, p) });
   if (path === "/organizations" && method === "POST") {
     if (p.keyId) throw new HttpError(403, "Sign in to create organizations");
-    const b = await body(req, z.object({ name }).strict()),
-      orgId = uuid(),
-      workspaceId = uuid(),
-      t = now();
-    const planVersion = await defaultPlanVersion(env);
-    await env.DB.batch([
-      env.DB.prepare(
-        "INSERT INTO organizations(id,name,created_at) VALUES(?,?,?)",
-      ).bind(orgId, b.name, t),
-      env.DB.prepare("INSERT INTO organization_plans(org_id,plan_version_id,assigned_at,reason) VALUES(?,?,?,?)").bind(orgId, planVersion, t, "New organization default"),
-      env.DB.prepare("INSERT INTO memberships VALUES(?,?,'owner',?)").bind(
-        orgId,
-        p.userId,
-        t,
-      ),
-      env.DB.prepare(
-        "INSERT INTO workspaces(id,org_id,name,created_at) VALUES(?,?,'Default workspace',?)",
-      ).bind(workspaceId, orgId, t),
-    ]);
-    // Creating another organization must never restart the account's introductory trial.
-    if (env.BILLING_ENABLED === "true") {
-      const claim = await one(env, "SELECT user_id FROM account_trial_claims WHERE user_id=?", p.userId);
-      if (!claim) await startTrial(env, p.userId, orgId);
-    }
-    return json({ id: orgId, workspace_id: workspaceId }, 201);
+    const b = await body(req, z.object({ name }).strict());
+    const { id, workspace_id } = await createOrganization(env, p.userId, b.name);
+    return json({ id, workspace_id }, 201);
   }
   if (["/invites/accept", "/invites/preview"].includes(path) && method === "POST") {
     if (p.keyId) throw new HttpError(403, "Sign in to review or accept invitations");
@@ -426,9 +389,9 @@ export async function api(
     return json({ id: pid }, 201);
   }
   if (path === "/prompts/bulk-settings" && method === "PATCH") {
-    const b=await body(req,bulkToggleSchema);const table=path.startsWith('/prompts')?'prompts':'schedules';
-    const rows=await selectedRows(env,org,table,b.ids);
-    await env.DB.batch(rows.map(row=>env.DB.prepare(`UPDATE ${table} SET enabled=?,mode=? WHERE org_id=? AND id=? AND archived_at IS NULL`).bind(b.enabled===undefined?row.enabled:Number(b.enabled),b.mode||row.mode,org,row.id)));
+    const b=await body(req,bulkToggleSchema);
+    const rows=await selectedRows(env,org,'prompts',b.ids);
+    await env.DB.batch(rows.map(row=>env.DB.prepare("UPDATE prompts SET enabled=?,mode=? WHERE org_id=? AND id=? AND archived_at IS NULL").bind(b.enabled===undefined?row.enabled:Number(b.enabled),b.mode||row.mode,org,row.id)));
     return json({updated:rows.length});
   }
   const match = path.match(/^\/prompts\/([^/]+)(?:\/(run))?$/);
@@ -505,16 +468,18 @@ export async function api(
   if (path === "/runs" && method === "GET") {
     const w = u.searchParams.get("workspace");
     const timestamp = u.searchParams.get("before");
-    const before = Number(timestamp || now() + 1);
     const beforeId = u.searchParams.get("before_id");
-    if (!Number.isFinite(before) || (beforeId !== null &&
-      (!timestamp || !Number.isSafeInteger(before) || !id.safeParse(beforeId).success))) {
+    const before = Number(timestamp);
+    if ((timestamp === null) !== (beforeId === null) ||
+      (timestamp !== null && (!/^\d+$/.test(timestamp) || !Number.isSafeInteger(before) || !id.safeParse(beforeId).success))) {
       throw new HttpError(400, "Invalid run history cursor");
     }
     if (w) await belongs(env, "workspaces", org, w, true);
     const { conditions, bindings } = historyWhere(org, u.searchParams);
-    conditions.push(beforeId === null ? "created_at<?" : "(created_at,id)<(?,?)");
-    bindings.push(before, ...(beforeId === null ? [] : [beforeId]));
+    if (timestamp !== null) {
+      conditions.push("(created_at,id)<(?,?)");
+      bindings.push(before, beforeId);
+    }
     const pageSize = 100;
     const runs = await all(
       env,
@@ -589,97 +554,13 @@ export async function api(
       ),
     });
   }
-  if (path === "/schedules" && method === "POST") {
-    const b = await body(
-      req,
-      z
-        .object({
-          prompt_id: id,
-          preset: z.enum(["daily", "weekly", "mwf", "custom"]),
-          days: z.array(z.number().int().min(0).max(6)).min(1).max(7),
-          local_time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
-          timezone: z.string().min(1).max(100),
-          enabled: z.boolean().default(false),
-        })
-        .strict(),
-    );
-    await belongs(env, "prompts", org, b.prompt_id);
-    try {
-      new Intl.DateTimeFormat("en", { timeZone: b.timezone }).format();
-    } catch {
-      throw new HttpError(400, "Invalid IANA timezone");
-    }
-    const days =
-      b.preset === "daily"
-        ? [0, 1, 2, 3, 4, 5, 6]
-        : b.preset === "mwf"
-          ? [1, 3, 5]
-          : b.preset === "weekly"
-            ? [b.days[0]]
-            : b.days;
-    const sid = uuid();
-    await exec(
-      env,
-      "INSERT INTO schedules(id,org_id,prompt_id,preset,days,local_time,timezone,enabled,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
-      sid,
-      org,
-      b.prompt_id,
-      b.preset,
-      JSON.stringify(days),
-      b.local_time,
-      b.timezone,
-      b.enabled ? 1 : 0,
-      now(),
-    );
-    return json({ id: sid }, 201);
-  }
-  if (path.startsWith("/schedules/") && method === "PATCH") {
-    const b = await body(
-      req,
-      z
-        .object({
-          enabled: z.boolean().optional(),
-          local_time: z
-            .string()
-            .regex(/^([01]\d|2[0-3]):[0-5]\d$/)
-            .optional(),
-          timezone: z.string().min(1).max(100).optional(),
-        })
-        .strict(),
-    );
-    const sid = path.split("/")[2];
-    const s = required(
-      await one<Row>(
-        env,
-        "SELECT * FROM schedules WHERE org_id=? AND id=?",
-        org,
-        sid,
-      ),
-    );
-    if (b.timezone) {
-      try {
-        new Intl.DateTimeFormat("en", { timeZone: b.timezone }).format();
-      } catch {
-        throw new HttpError(400, "Invalid IANA timezone");
-      }
-    }
-    await exec(
-      env,
-      "UPDATE schedules SET enabled=?,local_time=?,timezone=? WHERE org_id=? AND id=?",
-      b.enabled === undefined ? s.enabled : b.enabled ? 1 : 0,
-      b.local_time || s.local_time,
-      b.timezone || s.timezone,
-      org,
-      sid,
-    );
-    return json({ ok: true });
-  }
-  if (path.startsWith("/schedules/") && method === "DELETE") {
+  const scheduleMatch = path.match(/^\/schedules\/([^/]+)$/);
+  if (scheduleMatch && method === "DELETE") {
     await exec(
       env,
       "DELETE FROM schedules WHERE org_id=? AND id=?",
       org,
-      path.split("/")[2],
+      scheduleMatch[1],
     );
     return json({ ok: true });
   }
@@ -708,7 +589,6 @@ export async function api(
       z
         .object({
           resolve_poisoned_results: z.boolean(),
-          daily_run_limit: z.number().int().min(1).max(1000000).optional(),
         })
         .strict(),
     );

@@ -29,6 +29,8 @@ confirmed. No invented registrations, head-office address or product tax code.
    through the deployment-owner vault. Never replace CREDENTIALS_KEY to set up billing.
 3. Apply pending D1 migrations for the release using the explicit production
    configuration. Hosted billing enrolls eligible new organizations in the no-card trial.
+   Keep the Worker in maintenance through migrations `0016` and `0017` and the
+   matching deployment. These migrations remove columns used by older Workers.
 4. Obtain live restricted credentials via the deployment's secret store; confirm
    Stripe account charges/payouts eligibility and required business details.
 5. Create live Product/Price (USD 10 monthly, tax-exclusive) and portal (invoices,
@@ -147,15 +149,15 @@ snapshot without reconciling Stripe state and preserving events since the snapsh
 ## Verified vs not verified
 
 Read reports/billing-acceptance. Real test-card lifecycle, real Stripe-signed CLI
-webhooks, trial expiry, failed renewal, recovery, refund and period-end cancellation
-are exercised by `node --import tsx scripts/billing-lifecycle.ts` (TEST keys only).
+webhooks, immediate paid activation, failed renewal, recovery, refund and period-end
+cancellation are exercised by `node --import tsx scripts/billing-lifecycle.ts` (TEST keys only).
 The script cleans up its test clock/customer and never sends customer email.
 Deployed staging Checkout and webhook browser verification is recorded separately.
 Production funds, account activation, tax registration, operator email/inbox delivery,
 real Google/email/provider acceptance and production backup restore remain separate
 external/operational checks; this billing work does not certify those systems.
 
-## Current staging acceptance
+## Historical staging acceptance
 
 Browser-completed hosted Checkout required a test card and terms consent and
 showed 14 days free then $10/month. Direct Stripe → staging webhook delivery
@@ -215,21 +217,21 @@ The agent automation-history tool reported a visibility limit for this CLI-creat
 command job; inspect it in the authenticated Automations page for run history.
 See TAX-READINESS.md for the actual outstanding Washington/entity review.
 
-## Superseding onboarding policy — no-card trial
+## Hosted onboarding
 
-The November 21 flow revision replaces new card-required trial enrollment:
+The hosted flow is:
 Pricing → Start 14-day free trial → verified Google or email/password signup →
 application-managed full Starter trial → expiry paywall → choose Starter and pay.
 Starting or ending this trial creates no Stripe customer, card requirement,
 subscription or automatic charge. Checkout creates an immediate paid subscription,
-with NO second Stripe trial. Existing Stripe subscriptions/trials are not altered.
+using an active Stripe subscription to grant paid access.
 The $10-before-tax price and 7-day first-paid-charge refund remain unchanged.
 Paid checkout remains paused for the previously documented external launch gates;
 trial enrollment follows `BILLING_ENABLED` and remains available while checkout is paused.
 
-Migrations 0009 and 0010 are additive. Trial dates are organization-bound and an
-account claim prevents new organizations from restarting a trial. Existing beta
-plans remain unchanged. Expiry is enforced in APIs, MCP and queued submissions;
+Trial enrollment is part of the organization-creation transaction. The account
+claim permits one introductory trial per verified account. Expiry is enforced
+in APIs, MCP and queued submissions;
 billing recovery stays accessible and workspace history is retained. The browser
 refreshes the entitlement view at expiry, but server checks are authoritative.
 

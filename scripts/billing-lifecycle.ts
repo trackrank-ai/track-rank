@@ -47,16 +47,8 @@ try {
  sql.exec('DELETE FROM billing_customers;');
  sql.prepare("INSERT INTO billing_customers(org_id,customer_id,updated_at) VALUES('org',?,?)").run(customer.id,Date.now());
  sql.prepare("INSERT INTO billing_prices VALUES(?,'starter-v1',0)").run(priceId);
- subscription=await stripe.subscriptions.create({customer:customer.id,items:[{price:priceId}],payment_behavior:'error_if_incomplete',trial_period_days:14});
- assert.equal(subscription.status,'trialing');
- await until(()=>sql.prepare("SELECT status FROM billing_customers WHERE org_id='org'").get()?.status==='trialing','signed trial-start webhook');
- assert.equal((await organizationPlan(env,'org')).version,'starter-v1');
- assert.equal(subscription.trial_end! - subscription.trial_start!,14*86400);
- report.checks.push('Card-backed 14-day trial starts and receives paid-plan allowances before charging');console.log('PASS:',report.checks.at(-1));
- await stripe.testHelpers.testClocks.advance(clock.id,{frozen_time:subscription.trial_end!+3600});
- await until(async()=>(await stripe.testHelpers.testClocks.retrieve(clock!.id)).status==='ready','trial expiry clock ready',60000);
- await until(async()=>(await stripe.subscriptions.retrieve(subscription!.id)).status==='active','trial converts to paid',60000);
- subscription=await stripe.subscriptions.retrieve(subscription.id);
+ subscription=await stripe.subscriptions.create({customer:customer.id,items:[{price:priceId}],payment_behavior:'error_if_incomplete'});
+ assert.equal(subscription.status,'active');
  await until(()=>sql.prepare("SELECT status FROM billing_customers WHERE org_id='org'").get()?.status==='active','signed initial webhook');
  assert.equal((await organizationPlan(env,'org')).version,'starter-v1');
  report.checks.push('Initial real Stripe test-card invoice paid; CLI-signed webhook grants exact Starter revision');console.log('PASS:',report.checks.at(-1));

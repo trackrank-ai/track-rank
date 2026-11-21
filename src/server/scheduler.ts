@@ -25,8 +25,7 @@ export function scheduleDue(schedule: Row, date: Date) {
   const slot = localSlot(date, String(schedule.timezone));
   const days = JSON.parse(String(schedule.days)) as number[];
   if (!days.includes(slot.day)) return null;
-  const times = schedule.times_json ? JSON.parse(String(schedule.times_json)) as string[] : [];
-  if (!times.length) return slot.time >= String(schedule.local_time) && schedule.last_slot !== slot.date ? slot.date : null;
+  const times = JSON.parse(String(schedule.times_json)) as string[];
   // Catch up the most recent due time only; never burst all missed historical slots.
   const due = [...times].sort().filter(time=>time<=slot.time).at(-1);
   const key = due ? `${slot.date}@${due}` : null;
@@ -56,10 +55,10 @@ export async function sweep(env: Env) {
     const slot = scheduleDue(s, new Date(t));
     if (!slot) continue;
     try {
-      const repetitions = Math.max(1,Math.min(10,Number(s.repetitions)||1));
+      const repetitions = Number(s.repetitions);
       for (let sample=1;sample<=repetitions;sample++) {
         if (admissions++ >= 100) throw new Error("Continue admissions next cron");
-        await createRun(env, String(s.org_id), String(s.prompt_id), `schedule:${s.id}:${slot}${JSON.parse(String(s.times_json||'[]')).length || repetitions>1?`:sample:${sample}`:''}`);
+        await createRun(env, String(s.org_id), String(s.prompt_id), `schedule:${s.id}:${slot}:sample:${sample}`);
       }
       await exec(
         env,

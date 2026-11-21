@@ -218,6 +218,7 @@ function App() {
   const [editingWorkspace, setEditingWorkspace] = useState("");
   const [editingBrand, setEditingBrand] = useState<Item | null>(null);
   const orgReady = !!org && loadedOrg === org;
+  const canSubscribe = billing.owner && (!billing.status || ["none", "canceled", "incomplete_expired"].includes(billing.status));
   const workspaceReady = orgReady && !billingBlocksWorkspace(billing.access_status);
   const linkedPrompt = promptDetail?.id === search.prompt && promptDetail?.org_id === org ? promptDetail : null;
   const selectedRun = runDetail?.id === search.run && runDetail?.org_id === org ? runDetail : null;
@@ -1020,13 +1021,13 @@ function App() {
             <h2>{billing.access_status === "trial_expired" ? "Your free trial has ended" : billing.access_status === "free_trial" ? "Your 14-day free trial is active" : "Plan & billing"}</h2>
             {billing.access_status === "free_trial" && <p>Trial access until {new Date(billing.free_trial.ends_at).toLocaleString()}. No card is on file for this trial and no automatic charge will happen at expiry.</p>}
             <p>Subscriptions are billed per organization before applicable tax. Your first paid charge is refundable within 7 days. Provider usage is billed separately.</p>
+            {billing.access_status === "payment_required" && !billing.risk_hold && <p>Workspace access is paused until your subscription is active.</p>}
             {billing.access_status === "trial_expired" && <p>Your workspace data is retained.{billing.checkout_enabled && billing.owner && " Choose a plan to restore access."}</p>}
             {billing.status && <p>Subscription: {billing.status}{billing.cancel_at_period_end ? ". Cancels at the end of the current period." : "."}</p>}
             {billing.risk_hold ? <p role="alert">Paid access is paused for billing review. Contact support.</p> : null}
-            {billing.owner && billing.trial_eligible && <Button disabled={busy} onClick={() => action(async () => { await request("/billing/trial", "POST"); await load(); })}>Start 14-day free trial</Button>}
-            {billing.owner && billing.checkout_enabled && !["active","trialing"].includes(billing.status) && (billing.offers as { offer_key: string; name: string; price_cents: number; currency: string; interval: string }[]).map(offer => <Button key={offer.offer_key} disabled={busy} onClick={() => { setBusy(true); request("/billing/checkout", "POST", { offer_key: offer.offer_key }).then(r => window.location.assign(r.url)).catch(e => setError(e.message)).finally(() => setBusy(false)); }}>Choose {offer.name} — {formatBillingPrice(offer)}</Button>)}{" "}
+            {canSubscribe && billing.checkout_enabled && (billing.offers as { offer_key: string; name: string; price_cents: number; currency: string; interval: string }[]).map(offer => <Button key={offer.offer_key} disabled={busy} onClick={() => { setBusy(true); request("/billing/checkout", "POST", { offer_key: offer.offer_key }).then(r => window.location.assign(r.url)).catch(e => setError(e.message)).finally(() => setBusy(false)); }}>Choose {offer.name} — {formatBillingPrice(offer)}</Button>)}{" "}
             {billing.owner && billing.has_billing_account && <Button variant="outline" disabled={busy} onClick={() => { setBusy(true); request("/billing/portal", "POST").then(r => window.location.assign(r.url)).catch(e => setError(e.message)).finally(() => setBusy(false)); }}>Manage billing & invoices</Button>}
-            {billing.owner && !billing.checkout_enabled && !["active","trialing"].includes(billing.status) && <p>Checkout is currently unavailable. <Link to="/support">Contact support</Link> for help with billing.</p>}
+            {canSubscribe && !billing.checkout_enabled && <p>Checkout is currently unavailable. <Link to="/support">Contact support</Link> for help with billing.</p>}
             {!billing.owner && <p>Ask your organization owner to choose a plan or manage billing.</p>}
           </CardContent></Card>}
 
@@ -2347,7 +2348,7 @@ function App() {
                       {canWrite && <div className="bulk-toolbar"><label className="check-field"><input type="checkbox" aria-label="Select all schedules in this workspace" checked={visibleSchedules.length>0 && visibleSchedules.every(s=>selectedScheduleIds.includes(s.id))} onChange={e=>setSelectedScheduleIds(e.target.checked?visibleSchedules.map(s=>s.id):[])} />Select all shown</label><span>{selectedScheduleIds.length} selected</span>
                         <Button disabled={busy||!selectedScheduleIds.length} onClick={()=>{if(!confirm("Enable these selected schedules? Each scheduled sample uses provider credits and your run allowance."))return;action(async()=>{await request("/schedules/bulk","PATCH",{ids:selectedScheduleIds,enabled:true});await load();setNotice("Selected schedules enabled.");});}}>Enable selected</Button>
                         <Button variant="outline" disabled={busy||!selectedScheduleIds.length} onClick={()=>action(async()=>{await request("/schedules/bulk","PATCH",{ids:selectedScheduleIds,enabled:false});await load();setNotice("Selected schedules paused.");})}>Pause selected</Button>
-                        <Button variant="outline" disabled={!selectedScheduleIds.length} onClick={()=>{const first=visibleSchedules.find(s=>selectedScheduleIds.includes(s.id));if(!first)return;setScheduleFrequency(first.preset);setScheduleDays(JSON.parse(first.days));const times=JSON.parse(first.times_json||"[]");setScheduleTimes(times.length?times:[first.local_time]);setScheduleTimezone(first.timezone);setScheduleSamples(first.repetitions||1);setEditingScheduleSelection(true);window.scrollTo({top:0,behavior:"smooth"});}}>Edit selected settings</Button>
+                        <Button variant="outline" disabled={!selectedScheduleIds.length} onClick={()=>{const first=visibleSchedules.find(s=>selectedScheduleIds.includes(s.id));if(!first)return;setScheduleFrequency(first.preset);setScheduleDays(JSON.parse(first.days));setScheduleTimes(JSON.parse(first.times_json));setScheduleTimezone(first.timezone);setScheduleSamples(first.repetitions);setEditingScheduleSelection(true);window.scrollTo({top:0,behavior:"smooth"});}}>Edit selected settings</Button>
                       </div>}
                       {visibleSchedules.map((s) => (
                           <div className="schedule-row" key={s.id}>
@@ -2357,51 +2358,9 @@ function App() {
                                 {s.prompt_text || s.prompt_id}
                               </strong>
                               <small>
-                                {allWorkspaces && workspaceNames[s.workspace_id] && `${workspaceNames[s.workspace_id]} · `}{s.batch_name ? s.batch_name + " · " : ""}{s.preset} · {JSON.parse(s.times_json||"[]").length ? JSON.parse(s.times_json).join(", ") : s.local_time} · {s.repetitions||1} sample(s) · {s.timezone} ·
+                                {allWorkspaces && workspaceNames[s.workspace_id] && `${workspaceNames[s.workspace_id]} · `}{s.batch_name ? s.batch_name + " · " : ""}{s.preset} · {JSON.parse(s.times_json).join(", ")} · {s.repetitions} sample(s) · {s.timezone} ·
                                 days {JSON.parse(s.days).join(", ")}
                               </small>
-                              {canWrite && !s.batch_id && (
-                                <details className="schedule-edit">
-                                  <summary>Edit timing</summary>
-                                  <form
-                                    className="app-inline-form"
-                                    onSubmit={(e) =>
-                                      submit(e, async (f) => {
-                                        await request(
-                                          "/schedules/" + s.id,
-                                          "PATCH",
-                                          {
-                                            local_time: f.get("local_time"),
-                                            timezone: f.get("timezone"),
-                                          },
-                                        );
-                                        setNotice(
-                                          "Schedule timing updated. A day already dispatched will not run again.",
-                                        );
-                                        await load();
-                                      })
-                                    }
-                                  >
-                                    <input
-                                      type="time"
-                                      name="local_time"
-                                      required
-                                      defaultValue={s.local_time}
-                                      aria-label="Schedule local time"
-                                    />
-                                    <input
-                                      name="timezone"
-                                      required
-                                      defaultValue={s.timezone}
-                                      maxLength={100}
-                                      aria-label="Schedule timezone"
-                                    />
-                                    <Button size="sm" disabled={busy}>
-                                      Save timing
-                                    </Button>
-                                  </form>
-                                </details>
-                              )}
                             </div>
                             <Badge
                               variant={s.enabled ? "secondary" : "outline"}
@@ -2428,9 +2387,9 @@ function App() {
                                       return;
                                     action(async () => {
                                       await request(
-                                        "/schedules/" + s.id,
+                                        "/schedules/bulk",
                                         "PATCH",
-                                        { enabled: !s.enabled },
+                                        { ids: [s.id], enabled: !s.enabled },
                                       );
                                       await load();
                                     });

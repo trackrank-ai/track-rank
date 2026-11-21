@@ -99,7 +99,6 @@ export async function createRun(
     await one<Row>(env, "SELECT * FROM organizations WHERE id=?", orgId),
   );
   const plan = await organizationPlan(env, orgId);
-  if (plan.family === "pending") throw new HttpError(402, "Subscribe to start tracking");
   const config = {
     engine: p.engine,
     mode: p.mode,

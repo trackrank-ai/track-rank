@@ -57,8 +57,8 @@ test("a prompt move is tenant-scoped and keeps schedules and past runs in their 
   const { sql, env, call } = setup();
   env.CREDENTIALS_KEY = Buffer.alloc(32, 7).toString("base64");
   sql.prepare("INSERT INTO credentials VALUES('org',?,1,0)").run(await seal(env, "org", { login: "test", password: "fixture" }));
-  sql.exec(`INSERT INTO schedules(id,org_id,prompt_id,preset,days,local_time,timezone,enabled,last_slot,created_at)
-    VALUES('sched','org','prompt','daily','[1]','09:00','UTC',1,'2026-11-21',0)`);
+  sql.exec(`INSERT INTO schedules(id,org_id,prompt_id,preset,days,times_json,timezone,enabled,last_slot,created_at,batch_id)
+    VALUES('sched','org','prompt','daily','[1]','["09:00"]','UTC',1,'2026-11-21@09:00',0,'batch')`);
   const original = await createRun(env, "org", "prompt", "old-workspace-run");
   const move = (ids: string[], workspace_id: string, user?: string) => call("/prompts/move", { ids, workspace_id }, user);
   await assert.rejects(move(["prompt"], "foreign"), { status: 404 });
@@ -73,7 +73,7 @@ test("a prompt move is tenant-scoped and keeps schedules and past runs in their 
   const schedule = sql.prepare("SELECT prompt_id,enabled,last_slot FROM schedules WHERE id='sched'").get();
   assert.equal(schedule?.prompt_id, "prompt");
   assert.equal(schedule?.enabled, 1);
-  assert.equal(schedule?.last_slot, "2026-11-21");
+  assert.equal(schedule?.last_slot, "2026-11-21@09:00");
 });
 
 test("All workspaces spans the organization and collection snapshots use only explicit workspace brands", async () => {
@@ -109,9 +109,9 @@ test("resource edits and deletes preserve collected evidence and confine changes
   await call("/brands/" + brand, { name: "Client renamed", kind: "client" }, "owner", "PATCH");
   await call("/prompts/prompt", { text: "Edited prompt", workspace_id: "source", brand_id: brand }, "owner", "PATCH");
   const run = await createRun(env, "org", "prompt", "keep-collected-history");
-  sql.exec(`INSERT INTO schedules(id,org_id,prompt_id,preset,days,local_time,timezone,enabled,created_at)
-    VALUES('p-schedule','org','prompt','daily','[1]','09:00','UTC',1,0),
-    ('a-schedule','org','alt','daily','[1]','09:00','UTC',1,0)`);
+  sql.exec(`INSERT INTO schedules(id,org_id,prompt_id,preset,days,times_json,timezone,enabled,created_at,batch_id)
+    VALUES('p-schedule','org','prompt','daily','[1]','["09:00"]','UTC',1,0,'batch'),
+    ('a-schedule','org','alt','daily','[1]','["09:00"]','UTC',1,0,'batch')`);
 
   await assert.rejects(call("/prompts/bulk", { ids: ["prompt", "foreign-prompt"] }, "owner", "DELETE"), { status: 404 });
   await assert.rejects(call("/workspaces/source", undefined, "viewer", "DELETE"), { status: 403 });

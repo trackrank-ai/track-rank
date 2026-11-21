@@ -24,7 +24,7 @@ flowchart TD
 - Workspaces belong to an organization and optionally reference a primary brand. One workspace per agency client groups prompts and history while sharing the agency's team, billing, credentials, and limits. Use a separate organization for a client with separate access, credentials, or billing. Default workspace supports sandbox research.
 - Prompts belong to one workspace and can reference a brand tracked there. Every new run snapshots only that workspace's assigned brands, execution settings, and prompt text. An empty brand set still supports collection and source research. Past snapshots retain the brands assigned at collection time. All workspaces is an organization-wide view, and Default workspace is a regular workspace.
 - Composite organization/resource foreign keys prevent cross-tenant workspace/brand references. API membership checks are enforced independently.
-- Schedules attach to individual prompts. One date-local slot per schedule makes duplicate dispatcher invocations and DST fall-back safe. Daily, weekly, M/W/F, custom weekdays; editable IANA timezone/time; same-day catch-up only.
+- Schedules attach to individual prompts. Each scheduled local time has its own date-and-time slot for duplicate dispatcher invocations and DST fall-back. Daily, weekly, M/W/F, custom weekdays; editable IANA timezone/time; same-day catch-up only.
 - D1 migrations are explicit versioned SQL. Drizzle is presently used for authentication, not a claimed automatic PostgreSQL migration layer.
 
 ## Execution and reliability
@@ -84,8 +84,8 @@ before admission. Provider concurrency remains unchanged (Starter: 3).
 
 Scheduled batches store one schedule per selected engine-prompt, a shared batch ID,
 up to 8 local times per scheduled day, and 1–10 independent samples per time slot.
-Stable local-date/time/sample keys make cron reruns idempotent. Legacy single-time
-schedules preserve their existing keys. Missed times catch up ONLY the latest due
+Stable local-date/time/sample keys make cron reruns idempotent. A single-prompt
+schedule uses the same API as a batch. Missed times catch up only the latest due
 slot rather than bursting all historical times; no previous-day backfill. DST's
 repeated local hour runs once. Timing edits take effect for future slots and do not
 retroactively charge for past times. Dispatch admission is bounded and round-robin
