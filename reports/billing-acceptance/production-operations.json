@@ -59,5 +59,51 @@
     }
   ],
   "deployed_version": "d97a6eb4-f3a8-4150-b56f-fd1ce3c674f8",
-  "erasure_tests_passed": true
+  "erasure_tests_passed": true,
+  "offhost_recovery": {
+    "folder": "1JWzrIoR-7bFSyJm30b_XXk7J5fgO5eMR",
+    "permissions": "owner-only",
+    "owner": "edninodel@gmail.com",
+    "files": [
+      {
+        "name": "pre-billing-database.sql",
+        "file_id": "1_pSmSgzXx7txFKUSMUbHLFNQQi3snetn",
+        "download_sha256_verified": true
+      },
+      {
+        "name": "encrypted-production-keys.json",
+        "file_id": "155XEa9qjc2PITz-CWJMMGFKHRLz7Ryif",
+        "download_sha256_verified": true
+      },
+      {
+        "name": "recovery-private.pem",
+        "file_id": "1Jzk5e5NQRWDI0NkqBlK38evfPc30v6nb",
+        "download_sha256_verified": true
+      },
+      {
+        "name": "recovery-public.pem",
+        "file_id": "1RiW71gj11xh3LjkfFZUjBKdtT160unDX",
+        "download_sha256_verified": true
+      }
+    ]
+  },
+  "inbox_delivery": {
+    "support": {
+      "gmail_thread_id": "1a1fc0d4c14d19f6",
+      "inbox_received": true
+    },
+    "alert": {
+      "gmail_thread_id": "1a1fc0d45c0cd838",
+      "inbox_received": true
+    }
+  },
+  "monitor": {
+    "automation_id": "55447375-b632-4997-a3fa-b53f37d4ea34",
+    "interval_minutes": 5,
+    "failure_alert_after": 2,
+    "cooldown_minutes": 60,
+    "destination": "owner Telegram",
+    "scheduled_execution_verified": false,
+    "history_tool_visibility": "not-found; do not infer absence or recreate"
+  }
 }

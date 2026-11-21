@@ -34,7 +34,7 @@ if(!test){
  const readEvidence=name=>{try{return JSON.parse(fs.readFileSync(new URL('../reports/billing-acceptance/'+name,import.meta.url),'utf8'));}catch{return null;}};
  const ops=readEvidence('production-operations.json');
  check('Production backup recovery verified',ops?.recovery?.independently_decrypted_canary===true && ops?.recovery?.r2_restore_canary_decrypted===true);
- check('Support and alert delivery verified',ops?.email_delivery?.length>=2 && ops.email_delivery.every(x=>x.last_event==='delivered'),'Provider acceptance is not proof of inbox receipt.');
+ check('Support and alert delivery verified',ops?.inbox_delivery?.support?.inbox_received===true && ops?.inbox_delivery?.alert?.inbox_received===true,'Provider acceptance is not proof of inbox receipt.');
  const journey=readEvidence('production-journey.json');
  const gates=['google_consent_and_callback','verification_and_reset_email','named_invitation_and_organization_switch','supported_engine_collections','scheduled_provider_run','authenticated_api_mcp_quotas','real_card_trial_and_webhook'];
  check('Real-account production acceptance complete',!!journey && gates.every(k=>journey[k]===true),'Sandbox/staging lifecycle results do not certify the real production account journey.');

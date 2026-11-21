@@ -28,3 +28,7 @@ test('account erasure refuses unresolved memberships then removes auth and verif
  const {env,sql}=setup();sql.exec("INSERT INTO user VALUES('person','Person','test@example.invalid',1,NULL,0,0);INSERT INTO memberships VALUES('org','person','owner',0);INSERT INTO session VALUES('sess',1,'token',0,0,NULL,NULL,'person');INSERT INTO account(id,accountId,providerId,userId,createdAt,updatedAt) VALUES('acct','person','credential','person',0,0);INSERT INTO verification VALUES('verify','test@example.invalid','token',0,0,0)");
  await assert.rejects(eraseData(env,{kind:'account',id:'person',confirm:'erase:account:person'}),/memberships/);sql.exec("DELETE FROM memberships WHERE user_id='person'");await eraseData(env,{kind:'account',id:'person',confirm:'erase:account:person'});assert.equal(sql.prepare("SELECT count(*) AS n FROM user WHERE id='person'").get()?.n,0);for(const table of ['session','account','verification'])assert.equal(sql.prepare(`SELECT count(*) AS n FROM ${table}`).get()?.n,0);
 });
+test('erasure refuses a paused old-version workflow even when the database run is terminal',async()=>{
+ const {env,sql}=setup();sql.exec("UPDATE runs SET workflow_started=1");let status='paused';env.RUN_WORKFLOW={get:async()=>({status:async()=>({status})})} as any;
+ await assert.rejects(eraseData(env,{kind:'organization',id:'org'}),/Workflow instances/);status='terminated';assert.equal((await eraseData(env,{kind:'organization',id:'org'})).dry_run,true);
+});

@@ -1,5 +1,5 @@
 {
-  "checked_at": "2026-11-21T03:07:02.865Z",
+  "checked_at": "2026-11-21T03:09:14.458Z",
   "environment": "live",
   "origin": "https://trackrank.ai",
   "results": [
@@ -90,7 +90,7 @@
     },
     {
       "name": "Support and alert delivery verified",
-      "passed": false,
+      "passed": true,
       "detail": "Provider acceptance is not proof of inbox receipt."
     },
     {

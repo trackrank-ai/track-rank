@@ -161,11 +161,14 @@ only as RSA-OAEP ciphertext to the deployment owner's recovery directory; an
 independent private-key decrypt successfully decrypted both application and R2
 AES-GCM canaries. Production had no users, organizations, runs or raw objects at
 the time, so this is not evidence of restoring populated customer workloads.
-The recovery private key must be backed up to separate owner-controlled storage;
-a second directory on this Gateway does not protect against loss of the host.
+Recovery artifacts and the recovery private key were also uploaded to an
+owner-only Google Drive folder and independently downloaded/hash-verified. The
+folder was not shared; its only permission is Edwin as owner.
 
-Benign alert and support messages were accepted by Resend. Message-status lookup
-returned HTTP502 from the wrapper, so actual inbox delivery remains unverified.
+Benign alert and support messages were accepted by Resend and independently
+found in the actual Gmail INBOX, including the support-address forwarding path.
+The Resend status-read wrapper returned HTTP502; inbox evidence supersedes that
+unavailable provider-status lookup.
 The public Google flow reaches Google login; user login/consent and provider
 acceptance still need the actual account. `production-journey.json` explicitly
 records unfinished gates. The preflight refuses live readiness for these gaps
@@ -178,3 +181,11 @@ failed/uncertain/stuck jobs and queue thresholds. Organization run counts and
 DataForSEO reported costs are available in owner readiness. These are NOT
 Cloudflare dollar allocations; infrastructure margin measurement still requires
 actual Worker/Workflow/D1/R2 usage/billing attribution.
+
+The monitor schedule is every five minutes (automation
+`55447375-b632-4997-a3fa-b53f37d4ea34`). Failures notify Edwin's Telegram after two
+consecutive failures, with a one-hour cooldown. Automated message transport is
+configured but not certified by the email drill; these are different routes.
+The agent automation-history tool reported a visibility limit for this CLI-created
+command job; inspect it in the authenticated Automations page for run history.
+See TAX-READINESS.md for the actual outstanding Washington/entity review.

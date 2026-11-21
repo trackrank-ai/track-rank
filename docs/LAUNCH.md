@@ -71,8 +71,10 @@ Production initially held zero users/organizations/runs/objects. Operator-only
 erasure and external monitor are implemented; see BILLING-OPERATIONS.md and
 production acceptance reports.
 
-Outstanding: actual tax obligations/registrations review, inbox receipt (the sender
-accepted the two benign messages but delivery-status read is unavailable), actual
+Outstanding: actual tax obligations/registrations review, actual
 Google/email/invitation/provider/scheduled-run/API-MCP acceptance, a real-card trial
-when checkout can be enabled, off-host recovery-key backup, and infrastructure
+when checkout can be enabled, and infrastructure
 cost attribution from actual usage. No live enrollment or charge was made.
+
+Support forwarding and operator-alert inbox receipt were subsequently verified in Gmail.
+Recovery files were backed up to owner-only Drive and downloaded/hash-verified.
