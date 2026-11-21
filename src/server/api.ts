@@ -393,6 +393,10 @@ export async function api(
     return json({updated:rows.length});
   }
   const match = path.match(/^\/prompts\/([^/]+)(?:\/(run))?$/);
+  if (match && !match[2] && method === "GET") {
+    const prompt = required(await one(env, "SELECT * FROM prompts WHERE org_id=? AND id=?", org, match[1]), "Prompt not found");
+    return json({ prompt });
+  }
   if (match && method === "PATCH") {
     const b = await body(req, promptSchema);
     await assertProviderOptions([b.engine], b.location_name, b.language_code);

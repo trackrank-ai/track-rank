@@ -1,4 +1,5 @@
 import { parsePromptInput } from "@/lib/prompt-input";
+import { appLoginPath, parseAppSearch, type AppTab as Tab } from "@/lib/app-location";
 import { Tooltip as HelpTooltip } from "radix-ui";
 import { LegalLinks } from "@/components/legal-layout";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -40,19 +41,9 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-export const Route = createFileRoute("/app")({ component: App });
+export const Route = createFileRoute("/app")({ validateSearch: parseAppSearch, component: App });
 // API JSON has heterogeneous result shapes; keep server secrets out of the client contract.
 type Item = Record<string, any>;
-type Tab =
-  | "overview"
-  | "prompts"
-  | "research"
-  | "runs"
-  | "brands"
-  | "schedules"
-  | "team"
-  | "settings"
-  | "agents";
 const nav: { id: Tab; label: string; Icon: typeof BarChart3 }[] = [
   { id: "overview", label: "Overview", Icon: BarChart3 },
   { id: "prompts", label: "Prompts", Icon: MessageSquare },
@@ -129,9 +120,11 @@ function Status({ value }: { value: string }) {
 function CopyValue({
   value,
   label = "Copy",
+  absolute = false,
 }: {
   value: string;
   label?: string;
+  absolute?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
   return (
@@ -140,7 +133,7 @@ function CopyValue({
       size="sm"
       onClick={async () => {
         try {
-          await navigator.clipboard.writeText(value);
+          await navigator.clipboard.writeText(absolute ? new URL(value, location.origin).href : value);
           setCopied(true);
           setTimeout(() => setCopied(false), 2000);
         } catch {
@@ -165,6 +158,8 @@ type PendingRunBatch = {
 };
 
 function App() {
+  const search = Route.useSearch();
+  const navigate = Route.useNavigate();
   const [selectedPromptIds,setSelectedPromptIds]=useState<string[]>([]);
   const [selectedScheduleIds,setSelectedScheduleIds]=useState<string[]>([]);
   const [runSamples,setRunSamples]=useState(1);
@@ -184,8 +179,6 @@ function App() {
   const [session, setSession] = useState<Item | null>(null),
     [initializing, setInitializing] = useState(true),
     [orgs, setOrgs] = useState<Item[]>([]),
-    [org, setOrg] = useState(""),
-    [workspace, setWorkspace] = useState(""),
     [workspaces, setWorkspaces] = useState<Item[]>([]),
     [brands, setBrands] = useState<Item[]>([]),
     [prompts, setPrompts] = useState<Item[]>([]),
@@ -196,7 +189,6 @@ function App() {
     [members, setMembers] = useState<Item[]>([]),
     [keys, setKeys] = useState<Item[]>([]),
     [invites, setInvites] = useState<Item[]>([]),
-    [tab, setTab] = useState<Tab>("overview"),
     [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
     [busy, setBusy] = useState(false),
@@ -205,12 +197,33 @@ function App() {
     [invite, setInvite] = useState(""),
     [pendingInvite, setPendingInvite] = useState<Item | null>(null),
     [newKey, setNewKey] = useState(""),
-    [selectedRun, setSelectedRun] = useState<Item | null>(null),
+    [runDetail, setSelectedRun] = useState<Item | null>(null),
+    [promptDetail, setPromptDetail] = useState<Item | null>(null),
+    [detailError, setDetailError] = useState(""),
     [editPrompt, setEditPrompt] = useState<Item | null>(null),
     [promptText, setPromptText] = useState(""),
     [ideas, setIdeas] = useState<string[]>([]),
     [nextRunCursor, setNextRunCursor] = useState<RunHistoryCursor | null>(null),
     [pendingBatch, setPendingBatch] = useState<{ scope: string; batch: PendingRunBatch } | null>(null);
+  const org = search.org ?? orgs[0]?.id ?? "";
+  const tab = search.tab ?? "overview";
+  const orgReady = !!org && loadedOrg === org;
+  const workspaceReady = orgReady && !billingBlocksWorkspace(billing.access_status);
+  const linkedPrompt = promptDetail?.id === search.prompt && promptDetail?.org_id === org ? promptDetail : null;
+  const selectedRun = runDetail?.id === search.run && runDetail?.org_id === org ? runDetail : null;
+  const workspace = search.workspace ?? linkedPrompt?.workspace_id ?? selectedRun?.workspace_id ??
+    (workspaceReady ? workspaces[0]?.id : undefined) ?? "";
+  const unavailableWorkspace = workspaceReady && !!search.workspace && !workspaces.some(w => w.id === search.workspace);
+  const sectionSearch = (nextTab: Tab) => ({ org: org || undefined, workspace: workspace || undefined, tab: nextTab });
+  function setTab(nextTab: Tab) {
+    if (nextTab !== tab || search.prompt || search.run) void navigate({ search: sectionSearch(nextTab) });
+  }
+  function setOrg(next: string, replace = false) {
+    void navigate({ search: { org: next, tab }, replace, hash: "" });
+  }
+  function setWorkspace(next: string) {
+    void navigate({ search: { org, workspace: next, tab } });
+  }
   const batchInFlight = useRef(false);
   const batchScope = org && session ? `trackrank:pending-run:${session.user.id}:${org}` : "";
   const pendingRun = pendingBatch?.scope === batchScope ? pendingBatch.batch : null;
@@ -226,8 +239,6 @@ function App() {
       setPendingBatch(null);
     }
   }, [batchScope]);
-  const orgReady = !!org && loadedOrg === org;
-  const workspaceReady = orgReady && !billingBlocksWorkspace(billing.access_status);
   const isAdmin = workspaceReady && ["owner", "admin"].includes(settings.role),
     canWrite = workspaceReady && ["owner", "admin", "member"].includes(settings.role);
   const request = useCallback(
@@ -253,7 +264,7 @@ function App() {
       const d = (await r.json()) as Item;
       if (!r.ok) {
         if (r.status === 401) {
-          location.assign("/login" + (new URLSearchParams(location.search).get("trial") === "start" ? "?trial=start" : "") + location.hash);
+          location.assign(appLoginPath(location.search, location.hash));
           throw new Error("Please sign in");
         }
         throw new Error(d.error || "Request failed");
@@ -267,7 +278,6 @@ function App() {
     const d = (await r.json()) as Item;
     if (!r.ok) throw new Error(d.error || "Unable to load organizations");
     setOrgs(d.organizations);
-    setOrg((current) => current || d.organizations[0]?.id || "");
   }, []);
   useEffect(() => {
     let mounted = true;
@@ -276,7 +286,7 @@ function App() {
         const r = await fetch("/api/auth/get-session"),
           s = (await r.json()) as Item;
         if (!s?.user) {
-          location.assign("/login" + (new URLSearchParams(location.search).get("trial") === "start" ? "?trial=start" : "") + location.hash);
+          location.assign(appLoginPath(location.search, location.hash));
           return;
         }
         if (!mounted) return;
@@ -289,7 +299,7 @@ function App() {
         if (new URLSearchParams(location.search).get("trial") === "start" && !i) {
           const organizations = await request("/organizations", "GET", undefined, "");
           if (!organizations.organizations.length) await request("/onboarding/trial", "POST", {}, "");
-          history.replaceState(null, "", "/app");
+          void navigate({ search: previous => ({ ...previous, trial: undefined }), replace: true });
         }
         await reloadOrgs();
       } catch (e) {
@@ -337,11 +347,6 @@ function App() {
         : null);
       setSchedules(results[4].schedules);
       setSettings(results[5]);
-      setWorkspace((current) =>
-        results[0].workspaces.some((w: Item) => w.id === current)
-          ? current
-          : results[0].workspaces[0]?.id || "",
-      );
       setLoadedOrg(org);
     } catch (e) {
       if (isCurrent()) setError(e instanceof Error ? e.message : "Unable to load workspace");
@@ -349,6 +354,41 @@ function App() {
       if (isCurrent()) setLoading(false);
     }
   }, [org, request]);
+  useEffect(() => {
+    if (initializing || pendingInvite || !org || search.trial || !orgReady) return;
+    const defaultWorkspace = search.prompt || search.run
+      ? linkedPrompt?.workspace_id ?? selectedRun?.workspace_id
+      : workspace;
+    if (!search.org || (!search.workspace && defaultWorkspace) || !search.tab) {
+      void navigate({
+        search: previous => ({ ...previous, org, workspace: previous.workspace ?? defaultWorkspace, tab }),
+        replace: true,
+      });
+    }
+  }, [initializing, pendingInvite, org, orgReady, search, workspace, linkedPrompt?.workspace_id, selectedRun?.workspace_id, tab, navigate]);
+  useEffect(() => {
+    setDetailError("");
+    setPromptDetail(null);
+    setSelectedRun(null);
+    const detail = search.prompt ?? search.run;
+    if (!workspaceReady || unavailableWorkspace || !detail) return;
+    const kind = search.prompt ? "prompt" : "run";
+    let canceled = false;
+    request("/" + kind + "s/" + encodeURIComponent(detail)).then(data => {
+      if (canceled) return;
+      const item = data[kind];
+      if (!item || (search.workspace && item.workspace_id !== search.workspace)) {
+        setDetailError("This " + kind + " is unavailable in the selected workspace.");
+      } else if (kind === "prompt") {
+        setPromptDetail(item);
+      } else {
+        setSelectedRun({ ...item, org_id: org });
+      }
+    }).catch(() => {
+      if (!canceled) setDetailError("This " + kind + " is unavailable. Check the link or ask your team for access.");
+    });
+    return () => { canceled = true; };
+  }, [org, workspaceReady, unavailableWorkspace, search.prompt, search.run, search.workspace, request]);
   useEffect(() => { setSelectedPromptIds([]); setSelectedScheduleIds([]); setEditingScheduleSelection(false); }, [org,workspace]);
   useEffect(() => {
     setPromptEngineChoices([editPrompt?.engine || "chatgpt"]);
@@ -424,7 +464,6 @@ function App() {
   useEffect(() => {
     setEditPrompt(null);
     setPromptText("");
-    setSelectedRun(null);
   }, [workspace]);
   async function action(fn: () => Promise<void>) {
     setBusy(true);
@@ -518,13 +557,6 @@ function App() {
   ].filter(
     (n) => !brands.some((b) => b.name.toLowerCase() === n.toLowerCase()),
   );
-  async function openRun(id: string) {
-    await action(async () => {
-      const d = await request("/runs/" + id);
-      setSelectedRun(d.run);
-      setTab("runs");
-    });
-  }
   function savePendingRun(batch: PendingRunBatch | null) {
     if (batch) sessionStorage.setItem(batchScope, JSON.stringify(batch));
     else sessionStorage.removeItem(batchScope);
@@ -604,8 +636,7 @@ function App() {
         {error && <p role="alert" className="form-error">{error}</p>}
         <Button disabled={busy || !pendingInvite.email_matches || !pendingInvite.email_verified} onClick={() => action(async () => {
           const accepted = await request("/invites/accept", "POST", { token: pendingInvite.token }, "");
-          setOrg(accepted.org_id);
-          history.replaceState(null, "", "/app");
+          setOrg(accepted.org_id, true);
           setPendingInvite(null);
           await reloadOrgs();
           setNotice("Invitation accepted. Your team workspace is ready.");
@@ -613,9 +644,9 @@ function App() {
         <Button variant="outline" disabled={busy} onClick={() => action(async () => {
           const r = await fetch("/api/auth/sign-out", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
           if (!r.ok) throw new Error("Unable to sign out. Please try again.");
-          location.assign("/login" + (new URLSearchParams(location.search).get("trial") === "start" ? "?trial=start" : "") + location.hash);
+          location.assign(appLoginPath(location.search, location.hash));
         })}>Switch account</Button>
-        <Button variant="ghost" disabled={busy} onClick={() => { history.replaceState(null, "", "/app"); setPendingInvite(null); }}>Not now</Button>
+        <Button variant="ghost" disabled={busy} onClick={() => { void navigate({ search, hash: "", replace: true }); setPendingInvite(null); }}>Not now</Button>
       </CardContent></Card>
     </main>
   );
@@ -655,6 +686,7 @@ function App() {
             }}
             aria-label="Organization"
           >
+            {org && !orgs.some(o => o.id === org) && <option value={org}>Unavailable organization</option>}
             {orgs.map((o) => (
               <option key={o.id} value={o.id}>
                 {o.name}
@@ -698,18 +730,17 @@ function App() {
         </details>
         <nav className="app-nav" aria-label="Application">
           {nav.map(({ id, label, Icon }) => (
-            <button
+            <Link
               key={id}
+              to="/app"
+              search={sectionSearch(id)}
               className={tab === id ? "active" : ""}
-              onClick={() => {
-                setTab(id);
-                setError("");
-              }}
+              onClick={() => setError("")}
               aria-current={tab === id ? "page" : undefined}
             >
               <Icon size={17} />
               <span>{label}</span>
-            </button>
+            </Link>
           ))}
         </nav>
         <div className="app-sidebar-bottom">
@@ -862,6 +893,12 @@ function App() {
             </CardContent></Card>
           ) : billingBlocksWorkspace(billing.access_status) ? (
             <Card><CardContent><h2>Choose your plan</h2><p>Starter includes 6,000 tracking runs and 200,000 API operations per calendar month, 3 concurrent runs, and team/API access. Complete payment above to continue. Existing data stays in your organization.</p></CardContent></Card>
+          ) : unavailableWorkspace ? (
+            <Card><CardContent>
+              <h2>Workspace unavailable</h2>
+              <p>Check the link or ask your team for access.</p>
+              <Link to="/app" search={{ org, tab }}>Open the default workspace</Link>
+            </CardContent></Card>
           ) : (
             <>
               <div className="app-page-heading">
@@ -1139,6 +1176,30 @@ function App() {
               )}
               {tab === "prompts" && (
                 <>
+                  {search.prompt && (
+                    <Card>
+                      <CardContent>
+                        <div className="panel-title">
+                          <h2>Saved prompt</h2>
+                          <Button variant="ghost" size="sm" asChild>
+                            <Link to="/app" search={sectionSearch("prompts")}>Close prompt</Link>
+                          </Button>
+                        </div>
+                        {detailError ? <p role="alert">{detailError}</p> : linkedPrompt ? (
+                          <>
+                            <p>{linkedPrompt.text}</p>
+                            <p className="data-note">
+                              {engines[linkedPrompt.engine]} · {linkedPrompt.location_name} · {linkedPrompt.language_code} ·{" "}
+                              {linkedPrompt.enabled ? "Enabled" : "Paused"}
+                            </p>
+                            <CopyValue value={Route.fullPath + "?" + new URLSearchParams({
+                              org, workspace: linkedPrompt.workspace_id, tab: "prompts", prompt: linkedPrompt.id,
+                            })} label="Copy prompt link" absolute />
+                          </>
+                        ) : <p role="status">Loading prompt…</p>}
+                      </CardContent>
+                    </Card>
+                  )}
                   {pendingRun && canWrite && (
                     <Card>
                       <CardContent>
@@ -1364,7 +1425,9 @@ function App() {
                             <div className="saved-prompt" key={p.id}>
                               {canWrite && <input type="checkbox" aria-label={`Select ${p.text} — ${engines[p.engine]}`} checked={selectedPromptIds.includes(p.id)} onChange={e=>setSelectedPromptIds(current=>e.target.checked?[...current,p.id]:current.filter(id=>id!==p.id))} />}
                               <div>
-                                <strong>{p.text}</strong>
+                                <Link to="/app" search={{ ...sectionSearch("prompts"), prompt: p.id }}>
+                                  <strong>{p.text}</strong>
+                                </Link>
                                 <small>
                                   {engines[p.engine]} · {p.location_name} ·{" "}
                                   {p.language_code} · {p.mode}{" "}
@@ -1549,6 +1612,12 @@ function App() {
               )}
               {tab === "runs" && (
                 <>
+                  {search.run && !selectedRun && (
+                    <Card><CardContent>
+                      {detailError ? <p role="alert">{detailError}</p> : <p role="status">Loading run…</p>}
+                      <Link to="/app" search={sectionSearch("runs")}>Close run</Link>
+                    </CardContent></Card>
+                  )}
                   {selectedRun && (
                     <Card className="selected-run">
                       <CardContent>
@@ -1562,18 +1631,17 @@ function App() {
                               {date(selectedRun.created_at)}
                             </p>
                           </div>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setSelectedRun(null)}
-                          >
-                            Close
+                          <Button variant="ghost" size="sm" asChild>
+                            <Link to="/app" search={sectionSearch("runs")}>Close run</Link>
                           </Button>
                         </div>
                         {selectedRun.error && (
                           <p className="form-error">{selectedRun.error}</p>
                         )}
                         <div className="run-actions">
+                          <CopyValue value={Route.fullPath + "?" + new URLSearchParams({
+                            org, workspace: selectedRun.workspace_id, tab: "runs", run: selectedRun.id,
+                          })} label="Copy run link" absolute />
                           {selectedRun.status === "submitted" && canWrite && (
                             <Button
                               variant="outline"
@@ -1586,7 +1654,7 @@ function App() {
                                     "POST",
                                     {},
                                   );
-                                  setSelectedRun(d.run);
+                                  setSelectedRun({ ...d.run, org_id: org });
                                   await load();
                                 })
                               }
@@ -1755,10 +1823,11 @@ function App() {
                       </div>
                       {visibleRuns.length ? (
                         visibleRuns.map((r) => (
-                          <button
+                          <Link
                             className="run-row"
                             key={r.id}
-                            onClick={() => openRun(r.id)}
+                            to="/app"
+                            search={{ ...sectionSearch("runs"), run: r.id }}
                           >
                             <span>
                               <strong>{r.prompt_text}</strong>
@@ -1769,7 +1838,7 @@ function App() {
                             </span>
                             <Status value={r.status} />
                             <ArrowUpRight size={15} />
-                          </button>
+                          </Link>
                         ))
                       ) : (
                         <Empty

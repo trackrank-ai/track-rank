@@ -20,6 +20,7 @@ Scopes: `read` for GET, `write` for research mutations, `run` for paid execution
 | GET, POST | `/brands` | List/create `{name, domain?, kind: own\|client\|competitor, aliases?: string[]}` |
 | PATCH | `/brands/:id` | Update name/domain/kind/aliases; future runs use changes |
 | GET, POST | `/prompts` | Optional GET `?workspace=id`; create shape below |
+| GET | `/prompts/:id` | Read a saved prompt in the selected organization |
 | PATCH | `/prompts/:id` | Full prompt configuration, same as creation |
 | POST | `/prompts/:id/run` | Paid collection; `Idempotency-Key` recommended, 8–128 chars |
 | POST | `/prompt-ideas` | Free deterministic templates `{topic, location?}` |

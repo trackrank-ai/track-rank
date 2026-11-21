@@ -95,6 +95,21 @@ function fixture() {
   return { env, sql, objects };
 }
 const ctx = { waitUntil: () => {} } as unknown as Ctx;
+test("saved prompt links enforce organization membership and allow viewers to read", async () => {
+  const { env, sql } = fixture();
+  const owned = await organization(env, "alice");
+  const other = await organization(env, "eve");
+  sql.prepare("INSERT INTO memberships VALUES(?,?,?,?)").run(owned.id, "bob", "viewer", Date.now());
+  const created = await call(env, { userId: "alice" }, "/prompts", "POST", {
+    workspace_id: owned.workspace_id, text: "A shared prompt",
+  }, owned.id);
+  const { id } = await created.json() as { id: string };
+  const detail = await call(env, { userId: "bob" }, "/prompts/" + id, "GET", undefined, owned.id);
+  assert.equal((await detail.json() as { prompt: { text: string } }).prompt.text, "A shared prompt");
+  await assert.rejects(call(env, { userId: "eve" }, "/prompts/" + id, "GET", undefined, owned.id), { status: 403 });
+  await assert.rejects(call(env, { userId: "eve" }, "/prompts/" + id, "GET", undefined, other.id), { status: 404 });
+});
+
 async function call(
   env: Env,
   p: Principal,
