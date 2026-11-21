@@ -4,6 +4,7 @@ import { inspectPromptInput, MAX_PROMPT_COMBINATIONS } from "@/lib/prompt-input"
 import { appLoginPath, parseAppSearch, type AppTab as Tab } from "@/lib/app-location";
 import { Tooltip as HelpTooltip } from "radix-ui";
 import { LegalLinks } from "@/components/legal-layout";
+import { TrialBanner } from "@/components/trial-banner";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { ProviderCredentialsCard } from "@/components/provider-credentials-card";
 import { ResearchDrilldown } from "@/components/research-drilldown";
@@ -927,6 +928,9 @@ function App() {
         </div>
       </aside>
       <div className="app-main">
+        {orgReady && billing.access_status === "free_trial" && Number.isFinite(Number(billing.free_trial?.ends_at)) && <TrialBanner endsAt={Number(billing.free_trial.ends_at)}>
+          <Link to="/app" search={sectionSearch("settings")} className="trial-banner-link">{billing.can_manage_billing ? "Choose a subscription →" : "View billing / ask your billing admin →"}</Link>
+        </TrialBanner>}
         <header className="app-topbar">
           <div>
             <Building2 size={15} />

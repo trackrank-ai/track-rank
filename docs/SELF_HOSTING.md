@@ -7,7 +7,7 @@ TrackRank is MIT-licensed. The currently supported infrastructure is Cloudflare 
 - Git, Node.js 22.13+ (Node 24 recommended), and npm.
 - A Cloudflare account with Workers, D1, R2 and Workflows available for your deployment. Infrastructure usage may be billed by Cloudflare; consult its current plans.
 - Resend credentials and a verified sending domain for hosted email signup, verification and password reset. Google sign-in is optional.
-- Access to the repository. It is private during development; public self-service installation requires publishing it or granting access.
+- GitHub access to clone the public MIT-licensed repository; no invitation is required.
 
 ```sh
 git clone https://github.com/trackrank-ai/track-rank.git
