@@ -29,7 +29,7 @@ flowchart TD
 
 ## Execution and reliability
 
-Create a durable run with an organization-scoped idempotency key and atomic monthly run-count admission. Persist before external work. The Workflow receives only the run ID and acquires a SQL admission guard allowing at most three submitting/submitted provider tasks per organization.
+Create a durable run with an organization-scoped idempotency key and atomic monthly run-count admission. Persist before external work. The Workflow receives only the run ID, claims that run with an atomic state update, and starts collection within the organization’s provider submission rate. Accepted tasks can remain in flight while more runs start.
 
 Submission is never automatically retried after an ambiguous network outcome. It becomes `uncertain`, requiring inspection in DataForSEO. This avoids silently charging twice. Unstarted queued jobs are dispatched round-robin by tenant using SQL window order.
 
@@ -80,7 +80,7 @@ A batch queues at most 100 runs under the organization's monthly allowance.
 Admission uses one D1 batch with per-insert quota conditions to handle races. Any
 changed allowance is reported explicitly; returned rows are the only queued work.
 Provider credentials and canonical engine/location/language settings are checked
-before admission. Provider concurrency remains unchanged (Starter: 3).
+before admission. Starter starts up to 10 provider submissions per UTC minute.
 
 Scheduled batches store one schedule per selected engine-prompt, a shared batch ID,
 up to 8 local times per scheduled day, and 1–10 independent samples per time slot.

@@ -105,7 +105,9 @@ Client-specific syntax may differ; the endpoint uses standard Streamable HTTP wi
 
 ## Customer rate limits and retries
 
-All keys and interactive members of the **same organization share their assigned plan’s API allowance** (Beta and Starter: 120 operations per UTC minute), including MCP tool calls (which wrap the same REST handler). Creating another key does not create another budget. Other organizations have separate budgets. Provider operations (`run`, `refresh`, `analyze`) additionally share the assigned provider rate (Beta/Starter: **10/minute**). Monthly API and run allowances and concurrency are versioned plan entitlements. See [plan catalog and lifecycle](PLANS.md).
+All keys and interactive members of the **same organization share their assigned plan’s API allowance** (Beta and Starter: 120 operations per UTC minute), including MCP tool calls (which wrap the same REST handler). Creating another key does not create another budget. Other organizations have separate budgets. Provider operations (`run`, `refresh`, `analyze`) additionally share the assigned provider rate (Beta/Starter: **10/minute**). Plans set minute rates and a monthly run allowance. Automatic and manual submissions share a provider submission budget at the same per-minute rate. See [plan catalog and lifecycle](PLANS.md).
+
+`GET /settings` and MCP `get_context` report the same plan limits and monthly run usage.
 
 MCP also permits the plan’s API-per-minute allowance of authenticated HTTP requests per organization, including initialization and tool discovery. A tool call consumes one MCP transport allowance and one shared API allowance, not two API operations. Account-level organization/invite routes use a separate 120/minute user budget when no organization is selected. Authentication has its own login/signup limits.
 

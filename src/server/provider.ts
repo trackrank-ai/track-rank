@@ -1,6 +1,7 @@
 import {assertProviderOptions} from "./provider-options";
 import { maintenance } from "./erasure";
 import { organizationPlan } from "./plans";
+import { enforceLimit, safetyCeiling } from "./rate-limit";
 import { prepareRunAdmission, runUsage, runUsagePeriods } from "./run-admission";
 import { trackedWorkspaceBrands } from "./workspace-brands";
 import {
@@ -329,12 +330,19 @@ export async function executeRun(env: Env, id: string) {
   }
   const lease = await exec(
     env,
-    "UPDATE runs SET status='submitting',updated_at=? WHERE id=? AND status='queued' AND (SELECT COUNT(*) FROM runs active WHERE active.org_id=runs.org_id AND active.status IN ('submitting','submitted'))<?",
+    "UPDATE runs SET status='submitting',updated_at=? WHERE id=? AND status='queued'",
     now(),
     id,
-    plan.limits.concurrent_runs,
   );
   if (!lease.meta.changes) return;
+  try {
+    await enforceLimit(env, `provider-submit:${run.org_id}`, safetyCeiling(env.PROVIDER_REQUESTS_PER_MINUTE, plan.limits.provider_per_minute));
+  } catch (error) {
+    // The provider has not been contacted. The workflow can retry this queued run.
+    await exec(env, "UPDATE runs SET status='queued',updated_at=? WHERE id=? AND status='submitting'", now(), id);
+    if (error instanceof HttpError && error.status === 429) return;
+    throw error;
+  }
   const config = JSON.parse(String(run.config)) as Config;
   try {
     const data = await dfs(

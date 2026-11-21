@@ -16,13 +16,14 @@ mapping available for renewals and reconciliation. See [billing operations](BILL
 
 ## Initial revisions
 
-| Revision | State | Price metadata | API/min | API/month | Provider ops/min | Runs/month | Concurrent runs |
-|---|---|---|---:|---:|---:|---:|---:|
-| beta-v1 | active | $0/month | 120 | 1,000,000,000 | 10 | 1,000,000 | 3 |
-| starter-v1 | draft | $10/month | 120 | 200,000 | 10 | 6,000 | 3 |
-| pro-v1 | draft | $30/month | 360 | 600,000 | 30 | 18,000 | 9 |
+| Revision | State | Price metadata | API/min | Provider ops/min | Runs/month |
+|---|---|---|---:|---:|---:|
+| beta-v1 | active | $0/month | 120 | 10 | 1,000,000 |
+| starter-v1 | active | $10/month | 120 | 10 | 6,000 |
+| trial-v1 | active | $0/month | 120 | 10 | 6,000 |
+| pro-v1 | draft | $30/month | 360 | 30 | 18,000 |
 
-Migration `0004` assigns pre-existing organizations to Beta. Starter and Pro are draft templates. Pro's values are illustrative and must be reviewed before activation. The default remains Beta until the operator changes it.
+Hosted signup starts in the trial flow. Local and self-hosted installations default to the free plan. Pro's limits are examples for a future offer.
 
 ## Operator commands
 
@@ -51,7 +52,7 @@ Example: keep `starter-v1` at $10, introduce `starter-v2` at $15. Create/activat
 
 Price and limit changes both require a new revision. The public family can remain `starter` so the brand stays the same. Keep old revisions forever for history/support. Retirement means “not available to new assignments,” not “turn existing customers off.”
 
-A deliberate upgrade/downgrade changes the assignment; it does NOT reset monthly usage. If the new allowance is below consumed usage, new work is blocked until rollover or a higher allowance is assigned. Already queued/submitted runs are not retroactively charged another allowance, deleted, or canceled; lower concurrency prevents additional submissions until active work falls below it.
+A deliberate upgrade/downgrade changes the assignment; it does NOT reset monthly usage. If the new allowance is below consumed usage, new work is blocked until rollover or a higher allowance is assigned. Already admitted runs keep their identities and count toward usage. New submissions use the currently assigned provider rate.
 
 CLI assignment records the plan terms. Hosted paid access requires a verified
 active Stripe subscription mapped to that revision. Billing webhooks and
@@ -61,10 +62,10 @@ and proration are separate work.
 
 ## What enforcement means
 
-- API minute and calendar-month budgets are shared across REST, MCP tool calls, keys and organization members. Authorized attempts reaching the handler count, including operations that later fail validation. Minute-limit rejections do not increment monthly usage. Monthly exhausted counters stop increasing.
-- MCP protocol discovery/initialize traffic has a separate per-minute transport budget. Tool execution additionally consumes the shared API allowance; it is not counted twice in monthly API operations.
-- Provider-operation rate includes POST `run`, `refresh`, `analyze`. All manual and scheduled run creation shares the monthly run allowance. Idempotent replay returns the original run without consuming another run. Failed/uncertain admitted runs count, preventing unlimited retry workload.
-- Run admission uses an atomic conditional INSERT. Database triggers record the accepted key and increment UTC day and month counters in the same transaction. History removal cannot reopen quota or allow a replay to queue replacement work. Concurrency uses an atomic conditional UPDATE, and API monthly accounting uses an atomic upsert. These counters are shared across Worker instances.
+- API minute budgets are shared across REST, MCP tool calls, keys and organization members. Authorized attempts reaching the handler count, including operations that later fail validation.
+- MCP discovery and initialization have a separate per-minute transport budget. Tool execution also uses the shared API allowance.
+- Provider operations include `run`, `refresh`, and `analyze`. The dispatcher applies the same per-minute rate to provider submissions from manual and scheduled queues. Accepted tasks may remain in flight while new submissions start.
+- Manual and scheduled runs share the UTC monthly allowance. Admission is atomic and its ledger survives result deletion. Replays reuse the original run identity. Each admitted failed or uncertain run counts once.
 - Calendar months are UTC, **not subscription anniversary months**. Usage is organization-scoped, not per plan revision, so changing plans cannot reset it. Account-level routes without a selected organization remain on their separate user-based rate budget.
 - Settings/MCP `get_context` return the assigned revision, allowances and monthly usage. Emergency ceilings can be lower than the displayed contracted allowances; keep them temporary and disclose material restrictions.
 

@@ -71,6 +71,7 @@ function fixture() {
   sql.exec(readFileSync(new URL("../migrations/0015_billing_offers.sql", import.meta.url), "utf8"));
   sql.exec(readFileSync(new URL("../migrations/0016_canonical_schedules.sql", import.meta.url), "utf8"));
   sql.exec(readFileSync(new URL("../migrations/0017_remove_unused_billing_fields.sql", import.meta.url), "utf8"));
+  sql.exec(readFileSync(new URL("../migrations/0018_remove_monthly_api_and_concurrency_caps.sql", import.meta.url), "utf8"));
   const db = {
     prepare: (s: string) => new Statement(sql, s),
     batch: async (stmts: Statement[]) => {
@@ -690,32 +691,32 @@ test("workspace brand sets isolate client research and permit local competitor r
     /Not found/,
   );
 });
-test("provider admission limits each organization to three active tasks", async () => {
+test("provider submission is paced by minute and allows more than three active runs", async (t) => {
+  let time = Date.UTC(2026, 10, 21, 12);
+  t.mock.method(Date, "now", () => time);
   const { env, sql } = fixture();
+  env.PROVIDER_REQUESTS_PER_MINUTE = "4";
   const a = await setupPrompt(env);
-  for (let i = 0; i < 3; i++) {
-    const r = await createRun(env, a.id, a.promptId, "concurrency-" + i);
-    sql
-      .prepare("UPDATE runs SET status='submitted',task_id=? WHERE id=?")
-      .run("task-" + i, r.id as string);
-  }
-  const waiting = await createRun(env, a.id, a.promptId, "concurrency-waiting");
-  const original = globalThis.fetch;
-  globalThis.fetch = (async () => {
-    throw new Error("Should not call provider when full");
-  }) as typeof fetch;
-  try {
-    await executeRun(env, String(waiting.id));
-    const status = sql
-      .prepare("SELECT status FROM runs WHERE id=?")
-      .get(waiting.id as string)?.status;
-    assert.equal(status, "queued");
-  } finally {
-    globalThis.fetch = original;
-  }
+  const runs = await Promise.all(Array.from({ length: 5 }, (_, i) =>
+    createRun(env, a.id, a.promptId, `submission-rate-${i}`),
+  ));
+  let submissions = 0;
+  t.mock.method(globalThis, "fetch", async () =>
+    Response.json({ status_code: 20000, tasks: [{ id: `external-${++submissions}`, status_code: 20100 }] }),
+  );
+  await Promise.all([...runs.slice(0, 4), runs[0]].map(run => executeRun(env, String(run.id))));
+  await executeRun(env, String(runs[4].id));
+  assert.equal(submissions, 4);
+  assert.equal(sql.prepare("SELECT count(*) AS n FROM runs WHERE status='submitted'").get()?.n, 4);
+  assert.equal(sql.prepare("SELECT status FROM runs WHERE id=?").get(String(runs[4].id))?.status, "queued");
+  time += 60_000;
+  await executeRun(env, String(runs[4].id));
+  assert.equal(submissions, 5);
+  assert.equal(sql.prepare("SELECT count(*) AS n FROM runs WHERE status='submitted'").get()?.n, 5);
 });
 
-test("customer rate budget is shared across keys, members and MCP while other customers remain isolated", async () => {
+test("customer rate budget is shared across keys, members and MCP while other customers remain isolated", async (t) => {
+  t.mock.method(Date, "now", () => Date.UTC(2026, 10, 21, 12));
   const { env, sql } = fixture();
   const a = await organization(env);
   const b = await organization(env, "bob");
@@ -819,31 +820,37 @@ test("hosted organizations start one card-free trial while checkout is paused", 
   assert.equal(sql.prepare("SELECT COUNT(*) AS n FROM billing_customers").get()!.n, 0);
 });
 
-test("monthly budgets survive key changes and plan changes without resetting usage", async () => {
+test("REST and MCP report the same rate and run limits, and API access resumes next minute", async (t) => {
+  let time = Date.UTC(2026, 10, 21, 12);
+  t.mock.method(Date, "now", () => time);
   const { env, sql } = fixture();
-  const a = await organization(env), b = await organization(env, 'bob');
-  const limits = JSON.stringify({ api_per_minute: 120, api_per_month: 2, provider_per_minute: 10, runs_per_month: 1, concurrent_runs: 1 });
-  sql.prepare("INSERT INTO plan_versions VALUES('tiny-v1','test','Tiny',0,'usd','month','active',?,0)").run(limits);
-  sql.prepare("UPDATE organization_plans SET plan_version_id='tiny-v1' WHERE org_id=?").run(a.id);
-  await call(env, {userId:'alice'}, '/workspaces', 'GET', undefined, a.id);
-  await call(env, {userId:'alice',orgId:a.id,keyId:'different-key',scopes:['read']}, '/workspaces');
-  await assert.rejects(call(env,{userId:'alice'},'/workspaces','GET',undefined,a.id),(e:any)=>e.status===429 && /Monthly API/.test(e.message) && Number(e.headers['Retry-After'])>0);
-  assert.equal((await call(env,{userId:'bob'},'/workspaces','GET',undefined,b.id)).status,200);
-  sql.prepare("UPDATE organization_plans SET plan_version_id='beta-v1' WHERE org_id=?").run(a.id);
-  assert.equal((await call(env,{userId:'alice'},'/workspaces','GET',undefined,a.id)).status,200);
-  const { calendarMonth } = await import('../src/server/plans');
-  assert.equal(sql.prepare("SELECT operations FROM monthly_api_usage WHERE org_id=? AND month=?").get(a.id,calendarMonth().key)!.operations,3);
-  sql.prepare("UPDATE organization_plans SET plan_version_id='tiny-v1' WHERE org_id=?").run(a.id);
-  await assert.rejects(call(env,{userId:'alice'},'/workspaces','GET',undefined,a.id),/Monthly API/);
-  sql.prepare("UPDATE monthly_api_usage SET month='2020-01' WHERE org_id=?").run(a.id);
-  assert.equal((await call(env,{userId:'alice'},'/workspaces','GET',undefined,a.id)).status,200);
-  assert.equal(calendarMonth(Date.UTC(2026,11,31)).end,Date.UTC(2027,0,1));
+  const org = await organization(env);
+  const owner = { userId: "alice" };
+  const { key } = await (await call(env, owner, "/keys", "POST", { name: "Agent", scopes: ["read"] }, org.id)).json() as { key: string };
+  sql.exec("DELETE FROM request_limits");
+  env.API_REQUESTS_PER_MINUTE = "2";
+  const settings = () => call(env, owner, "/settings", "GET", undefined, org.id);
+  const direct = await (await settings()).json() as any;
+  const { mcp } = await import("../src/server/mcp");
+  const result = await (await mcp(new Request(`${env.BASE_URL}/mcp`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "get_context", arguments: {} } }),
+  }), env, ctx)).json() as any;
+  assert.equal(result.result.isError, false);
+  const context = JSON.parse(result.result.content[0].text);
+  assert.deepEqual(context.plan.limits, direct.plan.limits);
+  assert.deepEqual(Object.keys(direct.plan.limits).sort(), ["api_per_minute", "provider_per_minute", "runs_per_month"]);
+  assert.deepEqual(context.monthly_usage, { runs: 0, resets_at: Date.UTC(2026, 11, 1) });
+  await assert.rejects(settings(), (error: any) => error.status === 429 && Number(error.headers["Retry-After"]) === 60);
+  time += 60_000;
+  assert.equal((await settings()).status, 200);
 });
 
 test("monthly provider admission is atomic, includes scheduled runs and does not count idempotent retries twice", async () => {
   const { env, sql } = fixture();
   const a = await setupPrompt(env);
-  const limits = JSON.stringify({api_per_minute:120,api_per_month:200000,provider_per_minute:10,runs_per_month:1,concurrent_runs:1});
+  const limits = JSON.stringify({api_per_minute:120,provider_per_minute:10,runs_per_month:1});
   sql.prepare("INSERT INTO plan_versions VALUES('one-v1','test','One run',0,'usd','month','active',?,0)").run(limits);
   sql.prepare("UPDATE organization_plans SET plan_version_id='one-v1' WHERE org_id=?").run(a.id);
   const results = await Promise.allSettled([createRun(env,a.id,a.promptId,'first-monthly-run'),createRun(env,a.id,a.promptId,'schedule:monthly-test')]);
@@ -860,7 +867,7 @@ test("monthly provider admission is atomic, includes scheduled runs and does not
     const second=await createRun(env,a.id,a.promptId,'second-monthly-run');
     await executeRun(env,String(winner.id));
     await executeRun(env,String(second.id));
-    assert.equal(sql.prepare("SELECT status FROM runs WHERE id=?").get(String(second.id))!.status,'queued');
+    assert.equal(sql.prepare("SELECT status FROM runs WHERE id=?").get(String(second.id))!.status,'submitted');
   } finally {globalThis.fetch=original;}
 });
 

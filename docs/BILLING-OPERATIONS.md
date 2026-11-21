@@ -29,8 +29,8 @@ confirmed. No invented registrations, head-office address or product tax code.
    through the deployment-owner vault. Never replace CREDENTIALS_KEY to set up billing.
 3. Apply pending D1 migrations for the release using the explicit production
    configuration. Hosted billing enrolls eligible new organizations in the no-card trial.
-   Keep the Worker in maintenance through migrations `0016` and `0017` and the
-   matching deployment. These migrations remove columns used by older Workers.
+   Keep the Worker in maintenance through migrations `0016` to `0018` and the
+   matching deployment. These migrations remove schema used by older Workers.
 4. Obtain live restricted credentials via the deployment's secret store; confirm
    Stripe account charges/payouts eligibility and required business details.
 5. Create live Product/Price (USD 10 monthly, tax-exclusive) and portal (invoices,

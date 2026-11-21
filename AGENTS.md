@@ -15,7 +15,7 @@ Applies to this repository. Read this before changing code. More-specific instru
 - TypeScript / React 19 / TanStack Start and Router / Vite. Cloudflare Workers hosts the app; D1 stores metadata, private R2 stores raw evidence, Workflows executes runs, and Cron dispatches/reconciles work.
 - `src/routes/`: pages, onboarding and authenticated UI. `src/components/ui/`: shared shadcn/Radix primitives. `src/styles.css`: shared styles; follow `docs/DESIGN.md`.
 - `src/worker.ts`: HTTP routing, auth/API/MCP/webhook entry points and scheduled work. `src/server/types.ts`: environment bindings and shared helpers.
-- `src/server/api.ts`: REST routes, validation and tenant authorization. `mcp.ts`: agent-facing interface. Preserve REST/MCP behavior together when changing shared capabilities.
+- `src/server/api.ts`: REST routes, validation and tenant authorization. `mcp.ts`: MCP tools and agent-facing schemas.
 - `auth.ts`, `auth-schema.ts`, `local-auth.ts`: identity, roles, invitations and tightly scoped local verification bypass.
 - `provider.ts`, `dispatch.ts`, `workflow.ts`, `scheduler.ts`: provider payloads, run admission, durable execution, callbacks and recovery.
 - `prompt-batch.ts`, `bulk.ts`, `provider-options.ts`: batch prompt settings, independent samples, schedules and supported provider options. `src/lib/prompt-input.ts`: paste parsing.
@@ -41,11 +41,13 @@ Local account creation and UI exploration need no paid provider credentials. Rea
 
 ## Implementation conventions
 
+- Ship every new, changed, or removed user-facing capability across the UI, REST API, and MCP in the same change. Every action a user can perform in the UI needs an equivalent agent workflow, including reads, writes, bulk operations, and management actions. Add or update the REST routes, discoverable MCP tools and schemas, and `docs/API.md` before calling the feature complete.
+- Reuse the same server operations and validation across these surfaces. Apply equivalent organization scope, roles, entitlements, and usage limits. Give privileged agent actions explicit authorization scopes and preserve any required user confirmation or verified handoff.
 - Reuse existing server helpers, schemas and UI primitives. Prefer small cohesive modules over adding more unrelated logic to the main app/API files. Keep secrets and server-only imports out of browser bundles.
 - Validate untrusted input with strict schemas, bounded lengths/counts and supported enumerations. UI dropdowns do not replace server validation.
 - Put exact bulk/static routes before generic item routes so names such as `bulk-settings` are not interpreted as resource IDs.
 - Every tenant resource lookup and mutation must be organization-scoped. Validate all selected IDs before a batch write; reject foreign/missing IDs without partial changes. Preserve session roles, API-key scopes and read-only viewer behavior.
-- Keep authorization, plan eligibility, rate limits, run quotas and concurrency checks server-side. Bulk operations do not bypass per-run accounting. Show users total runs and separate provider costs.
+- Keep authorization, plan eligibility, minute rate limits and monthly run quotas server-side. Bulk operations share per-run accounting. Show users total runs and separate provider costs.
 - Preserve raw provider evidence and normalization semantics. Keep organic Google results separate from AI answer citations/mention metrics. Missing AI Overviews and failed runs are not successful AI answers.
 - Use supported engine location/language values. Refresh the public catalog with `scripts/refresh-provider-options.mjs` when needed; credentials belong in the execution environment, never in the catalog or Git.
 - Use accessible labeled controls, keyboard-operable tooltips, loading/error/empty states, and the existing responsive light/dark design. Authenticated views show actual data, not invented metrics.
@@ -55,7 +57,7 @@ Local account creation and UI exploration need no paid provider credentials. Rea
 
 ## Durable execution and data changes
 
-- Provider submission can spend money. Never blindly retry an accepted or uncertain submission. Correlate callbacks to the run/task; preserve durable polling, bounded recovery, concurrency and explicit uncertain states.
+- Provider submission can spend money. Never blindly retry an accepted or uncertain submission. Correlate callbacks to the run/task and preserve per-run submission claims, durable polling, bounded recovery and explicit uncertain states.
 - Each requested sample has its own stable identity; replaying the same batch must not create more runs. Keep shared-settings updates partial: changing enabled state must not reset repetitions, time slots or other unspecified settings.
 - Add ordered migrations rather than editing already-applied migrations. Before launch, replace obsolete API and storage shapes with one supported path. Coordinate schema cutovers with Worker deployments and preserve admitted run identities. Update affected test fixtures.
 - Workspace and prompt deletion archives the records and removes their schedules. Keep existing run links, raw evidence and historical brand snapshots available.
@@ -72,6 +74,7 @@ npm run typecheck
 ```
 
 - Add meaningful regression coverage for changed behavior: tenant boundaries, quota admission, idempotency, lifecycle transitions and partial updates where applicable. Do not add implementation-mirroring tests or rerun broad suites for documentation-only edits.
+- Verify new or changed user actions through the REST endpoint and an actual MCP tool invocation, including permissions and error behavior where relevant.
 - Inspect changed UI in a browser, including bulk selection, Advanced controls, errors and responsive behavior as relevant. An HTTP200 alone does not prove a working interaction.
 - `scripts/local-smoke.py` is opt-in, loopback-only and leaves disposable local data. `npm run test:billing:lifecycle` is opt-in and creates Stripe TEST resources; it is not part of the offline suite. Read the scripts before running acceptance tools.
 - Real OAuth/email/invitation/provider/scheduled-workflow acceptance is separate from mocked tests. Do not create fake production users, enable paid schedules, send messages or incur provider charges merely to make a test pass.
@@ -82,7 +85,7 @@ npm run typecheck
 - Local: `wrangler.local.jsonc`. Staging: `wrangler.staging.json`. Hosted production: `wrangler.jsonc`. Self-hosting uses the separate `*:selfhost` commands and owner-supplied configuration; see `docs/SELF_HOSTING.md`.
 - `npm run deploy:staging` and `npm run deploy:production` rebuild for their target and verify generated Worker/D1 bindings. Do not deploy a stale build or bypass these environment guards. `npm run deploy` targets hosted PRODUCTION, not a preview.
 - Deployment and remote migrations require task authorization. Read `docs/BILLING-OPERATIONS.md` for backup, migration, rollback, recovery and release checks. Preserve existing resources/secrets and verify the deployed environment afterward. CI checks do not automatically deploy.
-- Apply pending D1 migrations with the explicit target configuration before deploying Worker code that relies on them. Apply migrations `0016` and `0017` in a coordinated cutover because older Workers use the removed columns.
+- Apply pending D1 migrations with the explicit target configuration before deploying Worker code that relies on them. Apply migrations `0016` through `0018` in a coordinated cutover because older Workers require the removed schema.
 - Publish hosted offers in D1 only after the pre-enable checks and tax review in `docs/BILLING-OPERATIONS.md`. Keep Stripe Price mappings immutable and deployment-specific. Live Checkout always uses Stripe Tax. Obtain explicit authorization before creating a live charge. Hosted billing gives eligible new organizations a 14-day no-card trial even with an empty offer catalog. Leave hosted billing off for local and self-hosted defaults.
 - Stripe Checkout success redirects are not proof of payment. Preserve verified duplicate-safe webhooks, exact immutable price-to-plan mapping, failure/cancellation enforcement and billing-management access after product access expires. Existing subscriptions retain their agreed terms.
 - Self-hosting stays independent of hosted subscriptions. Keep local-only auth bypass constrained to local development; never weaken production verification to simplify testing.

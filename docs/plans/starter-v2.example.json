@@ -7,9 +7,7 @@
   "interval": "month",
   "limits": {
     "api_per_minute": 120,
-    "api_per_month": 200000,
     "provider_per_minute": 10,
-    "runs_per_month": 6000,
-    "concurrent_runs": 3
+    "runs_per_month": 6000
   }
 }

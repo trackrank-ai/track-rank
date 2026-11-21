@@ -9,13 +9,13 @@
 - Durable workflows, signed callbacks, polling recovery, timezone-aware schedules, paused by default.
 - D1 normalized history and R2 raw payloads; answer/mention/citation evidence, grounding queries, organic SERPs, entity discovery, dated chart, paginated aggregation and CSV export.
 - Scoped expiring/revocable API keys and working Streamable HTTP MCP tools.
-- Three submitting/submitted tasks per organization; round-robin queue dispatch; conservative run-count guardrail and usage visibility.
+- Provider submissions paced per organization; round-robin queue dispatch; monthly run allowances and usage visibility.
 
 - Public privacy, terms, support and security pages; footer/signup/app links; security.txt disclosure contact. Operator: Track Rank Ai; contact: info@trackrank.ai. See [operations](OPERATIONS.md) for the manual support/incident process and remaining retention/recovery work. Inbox delivery and legal review are not certified by the app checks.
 
 ## Verified in development
 
-- 17 meaningful core/guard tests: tenant-bound authenticated encryption, matching/normalization, Google organic-vs-AI separation, scheduling/timezones, SQL/API tenant isolation, viewer/scoped-key enforcement, revocation/membership removal, invitation single-use, idempotency/daily cap, async task correlation/raw persistence, uncertain-submit non-retry, credential redaction, workspace brand isolation, and provider concurrency admission.
+- Core and guard tests cover tenant-bound authenticated encryption, matching/normalization, Google organic-vs-AI separation, scheduling/timezones, SQL/API tenant isolation, viewer/scoped-key enforcement, revocation/membership removal, invitation single-use, idempotency and monthly run admission, async task correlation/raw persistence, uncertain-submit non-retry, credential redaction, workspace brand isolation, and provider submission pacing.
 - Real local Worker HTTP checks: Better Auth password login/session/logout, D1 organization/default workspace, brand/prompt persistence, clean-SERP default, schedule timing edit, API key, MCP initialize/tools/list/get_context, scope enforcement, revocation and CSV response.
 - No paid DataForSEO or OpenRouter calls and no real emails were sent by automated tests.
 
@@ -49,7 +49,7 @@ Docker/self-hosting and portable storage/execution adapters are a separate distr
 ## Hosted rollout order
 
 1. Complete real-account authentication/email, second-account invitation, all provider engines and one scheduled workflow acceptance checks above.
-2. Invite a small free beta cohort with clear BYOK/provider-cost and beta-limit disclosures. No seat or agent-key caps; this does not remove API rate, run-count or provider concurrency limits.
+2. Invite a small free beta cohort with clear BYOK/provider-cost and beta-limit disclosures. Organization API rates, provider rates, and monthly run allowances apply across seats and agent keys.
 3. Before paid access: publish pricing, integrate checkout/customer portal and verified idempotent subscription webhooks, enforce organization entitlements server-side, test cancellation/payment failure. Publish terms/privacy and a support contact.
 4. Verify recoverable D1/R2 backups with stable encryption keys, add failure/queue alerts, test representative tenant/load/failure cases and define retention/deletion. Dollar budgeting is required if promising a dollar spending cap; existing run caps are not monetary budgets.
 
@@ -90,7 +90,7 @@ Production paid checkout remains paused pending the existing live gates.
 Prompts accept newline/CSV batches and engine checkboxes. Saved prompts and
 schedules support selection, shared settings, enable/pause and batch actions.
 Repeated sampling (1–10) and up to eight daily times use independent run IDs,
-idempotent retries and the existing daily/monthly/concurrency safeguards.
+idempotent retries, monthly run accounting, and per-minute submission pacing.
 Supported location/language selectors are under Advanced. Google organic
 results remain separate from AI Overview evidence. See AGENTS.md for the
 bulk-by-default product principle.

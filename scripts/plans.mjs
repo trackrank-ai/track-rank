@@ -6,10 +6,8 @@ import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 const limitSchema = z.object({
   api_per_minute: z.number().int().min(1).max(10000),
-  api_per_month: z.number().int().min(1).max(1000000000),
   provider_per_minute: z.number().int().min(1).max(10000),
   runs_per_month: z.number().int().min(1).max(1000000),
-  concurrent_runs: z.number().int().min(1).max(100),
 }).strict();
 export const revisionSchema = z.object({
   id: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,79}$/),

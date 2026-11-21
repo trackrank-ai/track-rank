@@ -65,7 +65,7 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
     "get_context",
     {
       description:
-        "List accessible organization context and usage/settings. Start here.",
+        "Read organization settings, per-minute limits, and monthly run usage. Start here.",
       inputSchema: {},
     },
     async () => invoke("/settings"),

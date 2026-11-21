@@ -12,7 +12,6 @@ function setup(){const f=fixture();f.sql.exec(`
  INSERT INTO schedules(id,org_id,prompt_id,preset,days,times_json,timezone,enabled,last_slot,created_at,batch_id) VALUES('schedule','org','prompt','daily','[1]','["10:00"]','UTC',0,NULL,0,'batch');
  INSERT INTO api_keys(id,org_id,user_id,name,prefix,token_hash,scopes,expires_at,created_at) VALUES('key','org','owner','Key','trk','hash','[]',1,0);
  INSERT INTO usage_daily VALUES('org','2026-11-21',1);
- INSERT INTO monthly_api_usage VALUES('org','2026-11',1);
  INSERT INTO audit_log VALUES('audit','org','owner','read',NULL,0);
  `);Object.assign(f.env,{MAINTENANCE_MODE:'true',MAINTENANCE_SINCE:String(Date.now()-11*60000),BILLING_ENABLED:'false'});const objects=new Map([['org/answer.json','private'],['other/keep.json','other']]);let fail=false;Object.assign(f.env,{ANSWERS:{list:async({prefix}:{prefix:string})=>({objects:[...objects.keys()].filter(k=>k.startsWith(prefix)).map(key=>({key})),truncated:false}),delete:async(keys:string[])=>{if(fail)throw Error('R2 unavailable');for(const k of keys)objects.delete(k);}}});return {...f,objects,setFail:(value:boolean)=>{fail=value}};}
 test('erasure rejects live app, invalid maintenance timestamp, active work and active billing',async()=>{

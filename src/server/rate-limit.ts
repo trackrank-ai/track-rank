@@ -1,4 +1,4 @@
-import { monthlyApiLimit, organizationPlan } from "./plans";
+import { organizationPlan } from "./plans";
 import { HttpError, now, one, type Env } from "./types";
 
 export function requestLimit(value: string | undefined, fallback: number) {
@@ -35,7 +35,6 @@ export function safetyCeiling(value: string | undefined, allowance: number) {
 export async function customerLimit(env: Env, org: string, expensive = false) {
   const { limits } = await organizationPlan(env, org);
   await enforceLimit(env, `customer:${org}`, safetyCeiling(env.API_REQUESTS_PER_MINUTE, limits.api_per_minute));
-  await monthlyApiLimit(env, org, limits.api_per_month);
   if (expensive)
     await enforceLimit(env, `provider:${org}`, safetyCeiling(env.PROVIDER_REQUESTS_PER_MINUTE, limits.provider_per_minute));
 }

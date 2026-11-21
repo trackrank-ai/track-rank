@@ -25,12 +25,10 @@ function Pricing() {
       <p>Before applicable tax.</p>
       <ul>
         <li>{offer.limits.runs_per_month.toLocaleString("en-US")} tracking runs per calendar month</li>
-        <li>{offer.limits.api_per_month.toLocaleString("en-US")} API operations per calendar month</li>
         <li>{offer.limits.api_per_minute} API operations and {offer.limits.provider_per_minute} provider operations per minute</li>
-        <li>{offer.limits.concurrent_runs} concurrent tracking runs</li>
       </ul>
     </section>)}
-    {offers.length > 0 && <p>Allowances are shared across your organization and reset on the first day UTC each month.</p>}
+    {offers.length > 0 && <p>Limits are shared across your organization. The run allowance resets at midnight UTC on the first day of each month.</p>}
     <section><h2>Provider usage</h2><p>DataForSEO and optional OpenRouter usage are billed separately by those providers. Run allowances do not cap provider spending.</p></section>
     {hosted && <section>
       <h2>Cancellation, invoices and support</h2>

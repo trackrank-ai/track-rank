@@ -688,7 +688,7 @@ function App() {
         const result = await request("/runs/bulk", "POST", { prompt_ids, repetitions, batch_key });
         savePendingRun(result.complete ? null : { ...batch, accepted: result.runs.length });
         if (activeOrg.current !== org) return;
-        setNotice(`${result.runs.length} of ${result.requested} runs queued. Existing concurrency and spending guardrails apply.`);
+        setNotice(`${result.runs.length} of ${result.requested} runs queued. Provider rate limits and separate provider charges apply.`);
         if (result.error) setError(result.error);
         await load();
         if (result.complete && activeOrg.current === org) setTab("runs");
@@ -1031,11 +1031,13 @@ function App() {
             {!billing.owner && <p>Ask your organization owner to choose a plan or manage billing.</p>}
           </CardContent></Card>}
 
-          <details className="app-structure-guide">
-            <summary>When to use a workspace or an organization</summary>
-            <p>Give each client a workspace inside your agency organization. A workspace holds its prompts, schedules, run history, and tracked brands. Your agency team, provider credentials, billing, and usage allowance are shared across those workspaces.</p>
-            <p>Use a separate organization when a client needs their own billing, provider account, or private team. For example, invite a client to their own organization when they should only see their own work. Organization members can access its workspaces according to their organization role.</p>
-          </details>
+          {tab === "settings" && (
+            <details className="app-structure-guide">
+              <summary>When to use a workspace or an organization</summary>
+              <p>Give each client a workspace inside your agency organization. A workspace holds its prompts, schedules, run history, and tracked brands. Your agency team, provider credentials, billing, and usage allowance are shared across those workspaces.</p>
+              <p>Use a separate organization when a client needs their own billing, provider account, or private team. For example, invite a client to their own organization when they should only see their own work. Organization members can access its workspaces according to their organization role.</p>
+            </details>
+          )}
           {error && (
             <div className="app-message error" role="alert">
               {error}
@@ -1698,7 +1700,7 @@ function App() {
                             <p className="data-note">Schedules and future runs follow the prompts. Previously queued and collected runs stay in their original workspace.</p>
                           </details>
                         )}
-                        <details><summary>Advanced · sampling & bulk settings</summary><form className="app-inline-form" onSubmit={e=>submit(e,async f=>{await request("/prompts/bulk-settings","PATCH",{ids:savedSelection,mode:f.get("bulk_mode")});await load();setNotice("Execution mode updated for selected prompts. No provider request was made.");})}><FormField label="Execution mode for selected prompts" hint="Priority and live may cost more on future runs. This only changes saved settings."><select name="bulk_mode"><option value="standard">Standard queue</option><option value="priority">Priority queue</option><option value="live">Live</option></select></FormField><Button disabled={busy||!savedSelection.length||savedSelection.length>100}>Apply mode to selected</Button></form><FormField label="Samples per prompt" hint="Independent back-to-back samples, queued under the normal concurrency limit. Each sample is a separate provider charge and run."><input type="number" min={1} max={10} value={runSamples} onChange={e=>setRunSamples(Math.max(1,Math.min(10,Number(e.target.value)||1)))} /></FormField></details>
+                        <details><summary>Advanced · sampling & bulk settings</summary><form className="app-inline-form" onSubmit={e=>submit(e,async f=>{await request("/prompts/bulk-settings","PATCH",{ids:savedSelection,mode:f.get("bulk_mode")});await load();setNotice("Execution mode updated for selected prompts. No provider request was made.");})}><FormField label="Execution mode for selected prompts" hint="Priority and live may cost more on future runs. This only changes saved settings."><select name="bulk_mode"><option value="standard">Standard queue</option><option value="priority">Priority queue</option><option value="live">Live</option></select></FormField><Button disabled={busy||!savedSelection.length||savedSelection.length>100}>Apply mode to selected</Button></form><FormField label="Samples per prompt" hint="Independent samples are queued for collection. Each sample is a separate provider charge and run."><input type="number" min={1} max={10} value={runSamples} onChange={e=>setRunSamples(Math.max(1,Math.min(10,Number(e.target.value)||1)))} /></FormField></details>
                       </div>}
                       {savedSelection.length*runSamples>100 && (
                         <p className="data-note">Choose up to 100 prompts for a bulk action and up to 100 runs per collection batch.</p>
@@ -2328,12 +2330,12 @@ function App() {
                           </div>
                           {["weekly","custom"].includes(scheduleFrequency) && <fieldset><legend>Weekdays</legend>{["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map((day,index)=><label className="check-field" key={day}><input type="checkbox" checked={scheduleDays.includes(index)} onChange={e=>setScheduleDays(current=>scheduleFrequency==='weekly'?[index]:e.target.checked?[...current,index]:current.filter(d=>d!==index))} />{day}</label>)}</fieldset>}
                           <details className="advanced-settings"><summary>Advanced · repeated samples & extra daily times</summary>
-                            <FormField label="Samples per prompt per time slot" hint="For example: 4 saved prompts × 5 samples = 20 independent provider runs each time. Back-to-back means queued consecutively, not bypassing concurrency or spending limits."><input type="number" min={1} max={10} value={scheduleSamples} onChange={e=>setScheduleSamples(Math.max(1,Math.min(10,Number(e.target.value)||1)))} /></FormField>
+                            <FormField label="Samples per prompt per time slot" hint="For example: 4 saved prompts × 5 samples = 20 independent provider runs each time. Samples are queued and submitted according to the provider rate limit."><input type="number" min={1} max={10} value={scheduleSamples} onChange={e=>setScheduleSamples(Math.max(1,Math.min(10,Number(e.target.value)||1)))} /></FormField>
                             {scheduleTimes.slice(1).map((time,index)=><div className="app-inline-form" key={index}><input type="time" required aria-label={`Additional daily time ${index+1}`} value={time} onChange={e=>setScheduleTimes(current=>current.map((value,i)=>i===index+1?e.target.value:value))} /><Button type="button" variant="ghost" onClick={()=>setScheduleTimes(current=>current.filter((_,i)=>i!==index+1))}>Remove time</Button></div>)}
                             <Button type="button" variant="outline" disabled={scheduleTimes.length>=8} onClick={()=>setScheduleTimes(current=>[...current,"17:00"])}>Add another daily time</Button>
                           </details>
                           <p aria-live="polite">{editingScheduleSelection?selectedScheduleIds.length:selectedPromptIds.length} prompts × {scheduleSamples} samples × {new Set(scheduleTimes).size} times = <strong>{(editingScheduleSelection?selectedScheduleIds.length:selectedPromptIds.length)*scheduleSamples*new Set(scheduleTimes).size} runs per scheduled day</strong>.</p>
-                          <p className="data-note">Each sample/engine variant consumes its own run and provider charges. The monthly allowance applies. Runs queue under the existing concurrency limit. Missed slots do not trigger a historical burst. Saving a batch does not run it.</p>
+                          <p className="data-note">Each sample/engine variant consumes its own run and provider charges. The monthly allowance applies. Runs are submitted according to the provider rate limit. Missed slots do not trigger a historical burst. Saving a batch does not run it.</p>
                           <Button disabled={busy || !(editingScheduleSelection?selectedScheduleIds.length:selectedPromptIds.length) || !scheduleDays.length}>{editingScheduleSelection?"Save settings for selected schedules":"Create paused batch schedule"}</Button>
                           {editingScheduleSelection && <Button type="button" variant="ghost" onClick={()=>setEditingScheduleSelection(false)}>Cancel bulk edit</Button>}
                         </form>
@@ -2585,11 +2587,11 @@ function App() {
                   {settings.plan && (
                     <Card>
                       <CardContent>
-                        <h2>{settings.plan.name} · {settings.plan.version}</h2>
+                        <h2>{settings.plan.name}</h2>
                         <p className="data-note">Plan allowances are shared by all organization members and API keys.</p>
-                        <p>{settings.plan.limits.api_per_minute.toLocaleString()} API operations/minute · {settings.plan.limits.provider_per_minute.toLocaleString()} provider operations/minute · {settings.plan.limits.concurrent_runs} concurrent runs</p>
-                        <p>{Number(settings.monthly_usage?.api_operations || 0).toLocaleString()} / {settings.plan.limits.api_per_month.toLocaleString()} monthly API operations · {Number(settings.monthly_usage?.runs || 0).toLocaleString()} / {settings.plan.limits.runs_per_month.toLocaleString()} monthly runs</p>
-                        <p className="data-note">Monthly allowances reset on the first UTC. Hosted subscriptions are managed separately from self-hosted installs.</p>
+                        <p>{settings.plan.limits.api_per_minute.toLocaleString()} API operations/minute · {settings.plan.limits.provider_per_minute.toLocaleString()} provider operations/minute</p>
+                        <p>{Number(settings.monthly_usage?.runs || 0).toLocaleString()} / {settings.plan.limits.runs_per_month.toLocaleString()} monthly runs</p>
+                        <p className="data-note">The run allowance resets at midnight UTC on the first day of each month.</p>
                       </CardContent>
                     </Card>
                   )}

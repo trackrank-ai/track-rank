@@ -7,7 +7,7 @@ import { sweep } from '../src/server/scheduler';
 async function setup(){const f=fixture();f.env.CREDENTIALS_KEY=Buffer.alloc(32,4).toString('base64');f.sql.exec("INSERT INTO workspaces(id,org_id,name,created_at) VALUES('w','org','Space',0);INSERT INTO prompts(id,org_id,workspace_id,text,created_at,updated_at) VALUES('p1','org','w','First question',0,0),('p2','org','w','Second question',0,0)");f.sql.prepare('INSERT INTO credentials VALUES(?,?,1,0)').run('org',await seal(f.env,'org',{login:'test',password:'fixture'}));return f;}
 function assignRunLimit(sql: ReturnType<typeof fixture>["sql"], limit: number) {
   const id = "limited-" + limit;
-  const caps = JSON.stringify({ api_per_minute: 120, api_per_month: 1000, provider_per_minute: 10, runs_per_month: limit, concurrent_runs: 3 });
+  const caps = JSON.stringify({ api_per_minute: 120, provider_per_minute: 10, runs_per_month: limit });
   sql.prepare("INSERT INTO plan_versions VALUES(?,'test','Limited',0,'usd','month','active',?,0)").run(id,caps);
   sql.prepare("UPDATE organization_plans SET plan_version_id=? WHERE org_id='org'").run(id);
 }
@@ -57,7 +57,7 @@ test('single and bulk admissions share quota and neither deletion nor replay reo
   const { env, sql } = await setup();
   sql.exec(`INSERT INTO user VALUES('owner','Owner','owner@example.invalid',1,NULL,0,0);
     INSERT INTO memberships VALUES('org','owner','owner',0)`);
-  const caps = JSON.stringify({ api_per_minute: 120, api_per_month: 1000, provider_per_minute: 10, runs_per_month: 3, concurrent_runs: 3 });
+  const caps = JSON.stringify({ api_per_minute: 120, provider_per_minute: 10, runs_per_month: 3 });
   sql.prepare("INSERT INTO plan_versions VALUES('limited','test','Limited',0,'usd','month','active',?,0)").run(caps);
   sql.exec("UPDATE organization_plans SET plan_version_id='limited' WHERE org_id='org'");
 

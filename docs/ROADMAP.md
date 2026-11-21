@@ -1,6 +1,6 @@
 # Implementation roadmap
 
-TrackRank is an independent original codebase, not an OpenSEO fork. Private initially; open-source/MIT direction. Hosted provider spend remains on customer-owned accounts.
+TrackRank is an independent codebase licensed under the MIT License. The source is private during initial development. Hosted provider spend remains on customer-owned accounts.
 
 The first hosted beta is implemented. See [launch status](LAUNCH.md) for the exact verified boundaries and remaining public-launch gates, and [architecture](ARCHITECTURE.md) for current implementation details.
 

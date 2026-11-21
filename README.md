@@ -1,6 +1,6 @@
 # TrackRank
 
-Independent AI visibility tracking for [trackrank.ai](https://trackrank.ai). Original standalone codebase, not an OpenSEO fork. Private during development; licensed under [MIT](LICENSE), with an eventual public source release planned.
+Independent AI visibility tracking for [trackrank.ai](https://trackrank.ai). Private during development and licensed under [MIT](LICENSE), with a public source release planned.
 
 ## Product features
 
@@ -66,7 +66,7 @@ The core suite uses an isolated in-memory SQLite D1 test adapter and mocked prov
 
 Infrastructure: Cloudflare Worker `trackrank-ai`, D1 `trackrank-db`, private R2 `trackrank-answers`, Workflow `trackrank-tracking`, and Cron `*/5 * * * *`. Deployment configuration is committed in `wrangler.jsonc`.
 
-Back up the target database and review pending migrations before deploying. Apply pending migrations before running the matching deploy command. Migrations `0016` and `0017` switch to canonical schedules and remove obsolete billing fields. Pause scheduled execution during this cutover and deploy the matching Worker before resuming. See the [billing and release runbook](docs/BILLING-OPERATIONS.md) for backup, recovery, and release checks.
+Back up the target database and review pending migrations before deploying. Apply pending migrations before running the matching deploy command. Migrations `0016` through `0018` switch to canonical schedules and remove obsolete billing and usage fields. Pause scheduled execution during this cutover and deploy the matching Worker before resuming. See the [billing and release runbook](docs/BILLING-OPERATIONS.md) for backup, recovery, and release checks.
 
 Staging uses its own Cloudflare resources and Stripe test configuration.
 
@@ -92,7 +92,7 @@ Hosted billing starts a 14-day no-card trial for eligible new organizations. Loc
 
 ## License
 
-TrackRank is licensed under the [MIT License](LICENSE), the same license used by [OpenSEO](https://github.com/every-app/open-seo/blob/main/LICENSE).
+TrackRank is licensed under the [MIT License](LICENSE).
 
 You may use, self-host, modify, fork, redistribute, and commercially use the software, provided you retain the copyright and permission notice in copies or substantial portions. The software is provided without warranty. Third-party dependencies retain their own licenses.
 
@@ -100,7 +100,7 @@ The software license is separate from the hosted service’s [Terms of Service](
 
 ## Agent access and customer limits
 
-Owners/admins generate scoped, expiring, revocable keys in **API & agents**. Agents can use REST or the MCP wrapper on hosted, self-hosted, and local deployments. All keys share the organization’s assigned [versioned plan allowances](docs/PLANS.md). Starter allows **120 API operations/minute**, **10 provider operations/minute**, **200,000 API operations/month**, and **6,000 runs/month**. See [agent setup, examples, configurable limits, and retry behavior](docs/API.md#customer-rate-limits-and-retries).
+Owners/admins generate scoped, expiring, revocable keys in **API & agents**. Agents can use REST and MCP on hosted, self-hosted, and local deployments. New and changed UI capabilities ship with corresponding REST and MCP support. All keys share the organization’s assigned [versioned plan allowances](docs/PLANS.md). Starter allows **120 API operations/minute**, **10 provider operations/minute**, and **6,000 runs/month**. See [agent setup, examples, configurable limits, and retry behavior](docs/API.md#customer-rate-limits-and-retries).
 
 ## Account identity and team invitations
 
