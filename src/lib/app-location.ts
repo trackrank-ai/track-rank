@@ -7,6 +7,7 @@ export type AppSearch = {
   tab?: AppTab;
   prompt?: string;
   run?: string;
+  runPrompt?: string;
   trial?: "start";
   billing?: "processing" | "canceled";
 };
@@ -25,6 +26,7 @@ export function parseAppSearch(search: Record<string, unknown>): AppSearch {
     tab,
     prompt: tab === "prompts" ? prompt : undefined,
     run: tab === "runs" ? run : undefined,
+    runPrompt: tab === "runs" ? resourceId(search.runPrompt) : undefined,
     trial: search.trial === "start" ? "start" : undefined,
     billing: search.billing === "processing" || search.billing === "canceled" ? search.billing : undefined,
   };

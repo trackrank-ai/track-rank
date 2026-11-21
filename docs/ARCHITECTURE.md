@@ -21,7 +21,7 @@ flowchart TD
 - Better Auth owns users, accounts, sessions, verifications, auth rate limits. Drizzle adapter supplies its D1 access.
 - Organizations own memberships, encrypted provider settings, API keys, invitations, audit events and run-count settings.
 - Brands belong to an organization, not a user: own, client or competitor, with domain and explicit aliases.
-- Workspaces belong to an organization and optionally reference a primary brand. Default workspace supports sandbox research.
+- Workspaces belong to an organization and optionally reference a primary brand. One workspace per agency client groups prompts and history while sharing the agency's team, billing, credentials, and limits. Use a separate organization for a client with separate access, credentials, or billing. Default workspace supports sandbox research.
 - Prompts belong to a workspace and optionally reference a brand. Workspace brand sets define context-specific own/client/competitor relationships; an empty set is an organization-wide research sandbox. Every run snapshots **the workspace brand set (or all organization brands for a sandbox)**, execution settings, prompt text, and parser outputs; historical snapshots do not change when a brand is added later.
 - Composite organization/resource foreign keys prevent cross-tenant workspace/brand references. API membership checks are enforced independently.
 - Schedules attach to individual prompts. One date-local slot per schedule makes duplicate dispatcher invocations and DST fall-back safe. Daily, weekly, M/W/F, custom weekdays; editable IANA timezone/time; same-day catch-up only.

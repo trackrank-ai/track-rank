@@ -7,6 +7,7 @@ test("app links preserve the selected organization, workspace and record through
   const login = new URL(appLoginPath(search, "#invite=example"), "https://trackrank.invalid");
   assert.equal(login.hash, "#invite=example");
   assert.equal(appReturnPath(login.searchParams.get("next")), "/app" + search);
+  assert.equal(appReturnPath("/app?tab=runs&runPrompt=prompt-abc"), "/app?tab=runs&runPrompt=prompt-abc");
   assert.equal(appReturnPath("/app?org=second-org&prompt=prompt-abc"), "/app?org=second-org&tab=prompts&prompt=prompt-abc");
   assert.equal(new URL(appLoginPath("?trial=start", ""), login).searchParams.get("trial"), "start");
 });

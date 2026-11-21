@@ -2,6 +2,7 @@ import { bulkRunSchema, bulkScheduleSchema, bulkToggleSchema, updateBulkSchedule
 import { assertProviderOptions, providerOptions } from "./provider-options";
 import { MAX_PROMPT_BATCH_BYTES, promptBatchSchema, savePromptBatch } from "./prompt-batch";
 import { listSavedPrompts } from "./prompt-library";
+import { historyWhere } from "./run-history";
 import { startTrial } from "./trials";
 import { billingRoute } from "./billing";
 import { localAuthEnabled } from "./local-auth";
@@ -379,6 +380,19 @@ export async function api(
   }
   if (path === "/prompts/bulk" && method === "POST")
     return json(await savePromptBatch(env, org, await body(req, promptBatchSchema, MAX_PROMPT_BATCH_BYTES)), 201);
+  if (path === "/prompts/move" && method === "POST") {
+    const b = await body(req, z.object({ ids: z.array(id).min(1).max(100), workspace_id: id }).strict());
+    await belongs(env, "workspaces", org, b.workspace_id);
+    const rows = await selectedRows(env, org, "prompts", b.ids);
+    const changed = rows.filter(p => p.workspace_id !== b.workspace_id);
+    if (changed.length) {
+      const movedAt = now();
+      await env.DB.batch(changed.map(p => env.DB.prepare(
+        "UPDATE prompts SET workspace_id=?,updated_at=? WHERE org_id=? AND id=?",
+      ).bind(b.workspace_id, movedAt, org, p.id)));
+    }
+    return json({ moved: changed.length });
+  }
   if (path === "/prompts" && method === "POST") {
     const b = await body(req, promptSchema);
     await assertProviderOptions([b.engine], b.location_name, b.language_code);
@@ -486,17 +500,15 @@ export async function api(
       throw new HttpError(400, "Invalid run history cursor");
     }
     if (w) await belongs(env, "workspaces", org, w);
+    const { conditions, bindings } = historyWhere(org, u.searchParams);
+    conditions.push(beforeId === null ? "created_at<?" : "(created_at,id)<(?,?)");
+    bindings.push(before, ...(beforeId === null ? [] : [beforeId]));
     const pageSize = 100;
     const runs = await all(
       env,
-      "SELECT id,prompt_id,workspace_id,prompt_text,config,status,mentions,citations,grounding_queries,has_answer,error,provider_cost,created_at,updated_at FROM runs WHERE org_id=?" +
-        (beforeId === null ? " AND created_at<?" : " AND (created_at,id)<(?,?)") +
-        (w ? " AND workspace_id=?" : "") +
-        " ORDER BY created_at DESC,id DESC LIMIT ?",
-      org,
-      before,
-      ...(beforeId === null ? [] : [beforeId]),
-      ...(w ? [w] : []),
+      "SELECT id,prompt_id,workspace_id,prompt_text,config,status,mentions,citations,grounding_queries,has_answer,error,provider_cost,created_at,updated_at FROM runs WHERE " +
+        conditions.join(" AND ") + " ORDER BY created_at DESC,id DESC LIMIT ?",
+      ...bindings,
       pageSize + 1,
     );
     const last = runs.length > pageSize ? runs[pageSize - 1] : null;
@@ -908,10 +920,14 @@ export async function api(
     });
   }
   if (path === "/export" && method === "GET") {
+    const workspace = u.searchParams.get("workspace");
+    if (workspace) await belongs(env, "workspaces", org, workspace);
+    const { conditions, bindings } = historyWhere(org, u.searchParams);
     const rows = await all<Row>(
       env,
-      "SELECT id,prompt_text,status,config,mentions,citations,grounding_queries,provider_cost,created_at FROM runs WHERE org_id=? ORDER BY created_at DESC LIMIT 1000",
-      org,
+      "SELECT id,prompt_text,status,config,mentions,citations,grounding_queries,provider_cost,created_at FROM runs WHERE " +
+        conditions.join(" AND ") + " ORDER BY created_at DESC,id DESC LIMIT 1000",
+      ...bindings,
     );
     const headers = [
       "id",

@@ -3,6 +3,7 @@ import { appLoginPath, parseAppSearch, type AppTab as Tab } from "@/lib/app-loca
 import { Tooltip as HelpTooltip } from "radix-ui";
 import { LegalLinks } from "@/components/legal-layout";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { RunStatus, WorkspaceRunHistory } from "@/components/workspace-run-history";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
   useCallback,
@@ -110,13 +111,6 @@ function Empty({
 function ScanIcon() {
   return <BarChart3 size={25} />;
 }
-function Status({ value }: { value: string }) {
-  return (
-    <Badge variant="outline" className={"run-status status-" + value}>
-      {value}
-    </Badge>
-  );
-}
 function CopyValue({
   value,
   label = "Copy",
@@ -220,6 +214,7 @@ function App() {
   const selectedRun = runDetail?.id === search.run && runDetail?.org_id === org ? runDetail : null;
   const workspace = search.workspace ?? linkedPrompt?.workspace_id ?? selectedRun?.workspace_id ??
     (workspaceReady ? workspaces[0]?.id : undefined) ?? "";
+  const workspaceName = workspaces.find(w => w.id === workspace)?.name || "this workspace";
   const unavailableWorkspace = workspaceReady && !!search.workspace && !workspaces.some(w => w.id === search.workspace);
   const libraryQuery = new URLSearchParams({ view: "library", workspace });
   if (promptSearch.trim()) libraryQuery.set("q", promptSearch.trim());
@@ -416,16 +411,18 @@ function App() {
     setPromptDetail(null);
     setSelectedRun(null);
     const detail = search.prompt ?? search.run;
-    if (!workspaceReady || unavailableWorkspace || !detail) return;
+    if (!workspaceReady || !detail || (unavailableWorkspace && !search.prompt)) return;
     const kind = search.prompt ? "prompt" : "run";
     let canceled = false;
     request("/" + kind + "s/" + encodeURIComponent(detail)).then(data => {
       if (canceled) return;
       const item = data[kind];
-      if (!item || (search.workspace && item.workspace_id !== search.workspace)) {
+      if (!item || (kind === "run" && search.workspace && item.workspace_id !== search.workspace)) {
         setDetailError("This " + kind + " is unavailable in the selected workspace.");
       } else if (kind === "prompt") {
         setPromptDetail(item);
+        if (search.workspace && item.workspace_id !== search.workspace)
+          void navigate({ search: previous => ({ ...previous, workspace: item.workspace_id }), replace: true });
       } else {
         setSelectedRun({ ...item, org_id: org });
       }
@@ -433,7 +430,7 @@ function App() {
       if (!canceled) setDetailError("This " + kind + " is unavailable. Check the link or ask your team for access.");
     });
     return () => { canceled = true; };
-  }, [org, workspaceReady, unavailableWorkspace, search.prompt, search.run, search.workspace, request]);
+  }, [org, workspaceReady, unavailableWorkspace, search.prompt, search.run, search.workspace, request, navigate]);
   useEffect(() => { setSelectedPromptIds([]); setSelectedScheduleIds([]); setEditingScheduleSelection(false); }, [org,workspace]);
   useEffect(() => {
     setPromptEngineChoices([editPrompt?.engine || "chatgpt"]);
@@ -892,7 +889,11 @@ function App() {
             {!billing.owner && <p>Ask your organization owner to choose a plan or manage billing.</p>}
           </CardContent></Card>}
 
-          <details className="app-structure-guide"><summary>How organizations, workspaces and brands fit together</summary><p><strong>Organization:</strong> your team account, billing, provider credentials and shared limits. <strong>Workspace:</strong> a folder for a client, brand or campaign inside that organization. <strong>Brands:</strong> the businesses you compare in its answers.</p><p>Example: an agency can have one organization, a workspace for each client, and the client plus several competitors as brands inside each workspace. You can also keep multiple related brands in one workspace.</p></details>
+          <details className="app-structure-guide">
+            <summary>When to use a workspace or an organization</summary>
+            <p>Give each client a workspace inside your agency organization. A workspace holds its prompts, schedules, run history, and tracked brands. Your agency team, provider credentials, billing, and usage allowance are shared across those workspaces.</p>
+            <p>Use a separate organization when a client needs their own billing, provider account, or private team. For example, invite a client to their own organization when they should only see their own work. Organization members can access its workspaces according to their organization role.</p>
+          </details>
           {error && (
             <div className="app-message error" role="alert">
               {error}
@@ -976,7 +977,11 @@ function App() {
                   <p>
                     {tab === "overview"
                       ? "Real collected results. No sample data."
-                      : "Organization-scoped research and collaboration."}
+                      : tab === "prompts"
+                        ? `New prompts and future runs belong to ${workspaceName}.`
+                        : tab === "runs"
+                          ? `Viewing runs in ${workspaceName}. Switch workspaces to see another client’s history.`
+                          : "Organization-scoped research and collaboration."}
                   </p>
                 </div>
                 {[
@@ -1004,20 +1009,22 @@ function App() {
                     {canWrite && (
                       <details>
                         <summary>
-                          <Plus size={14} /> New
+                          <Plus size={14} /> New workspace
                         </summary>
                         <form
                           className="popover-form"
-                          onSubmit={(e) =>
-                            submit(e, async (f) => {
+                          onSubmit={(e) => {
+                            const popover = e.currentTarget.closest("details");
+                            return submit(e, async (f) => {
                               const d = await request("/workspaces", "POST", {
                                 name: f.get("name"),
                                 brand_id: f.get("brand_id") || null,
                               });
                               await load();
+                              if (popover) popover.open = false;
                               setWorkspace(d.id);
-                            })
-                          }
+                            });
+                          }}
                         >
                           <input
                             required
@@ -1255,6 +1262,9 @@ function App() {
                             <CopyValue value={Route.fullPath + "?" + new URLSearchParams({
                               org, workspace: linkedPrompt.workspace_id, tab: "prompts", prompt: linkedPrompt.id,
                             })} label="Copy prompt link" absolute />
+                            <Button variant="ghost" size="sm" asChild>
+                              <Link to="/app" search={{ ...sectionSearch("runs"), runPrompt: linkedPrompt.id }}>View prompt runs</Link>
+                            </Button>
                           </>
                         ) : <p role="status">Loading prompt…</p>}
                       </CardContent>
@@ -1522,6 +1532,27 @@ function App() {
                         <Button variant="outline" disabled={!savedSelection.length||savedSelection.length>100} onClick={()=>{setSelectedPromptIds(savedSelection);setEditingScheduleSelection(false);setTab("schedules");}}>Schedule selected</Button>
                         <Button variant="outline" disabled={busy||!savedSelection.length||savedSelection.length>100} onClick={()=>action(async()=>{await request("/prompts/bulk-settings","PATCH",{ids:savedSelection,enabled:true});await load();setNotice("Selected prompts enabled.");})}>Enable selected</Button>
                         <Button variant="outline" disabled={busy||!savedSelection.length||savedSelection.length>100} onClick={()=>action(async()=>{await request("/prompts/bulk-settings","PATCH",{ids:savedSelection,enabled:false});await load();setNotice("Selected prompts paused; history retained.");})}>Pause selected</Button>
+                        {savedSelection.length > 0 && savedSelection.length <= 100 && workspaces.length > 1 && (
+                          <details>
+                            <summary>Move selected prompts</summary>
+                            <form className="app-inline-form" onSubmit={e => submit(e, async f => {
+                              const destination = f.get("workspace_id");
+                              const result = await request("/prompts/move", "POST", { ids: savedSelection, workspace_id: destination });
+                              setSelectedPromptIds([]);
+                              await load();
+                              setNotice(`Moved ${result.moved} ${result.moved === 1 ? "prompt" : "prompts"} to ${workspaces.find(w => w.id === destination)?.name || "the selected workspace"}.`);
+                            })}>
+                              <FormField label="Destination workspace">
+                                <select name="workspace_id" required defaultValue="">
+                                  <option value="" disabled>Choose a workspace</option>
+                                  {workspaces.filter(w => w.id !== workspace).map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+                                </select>
+                              </FormField>
+                              <Button disabled={busy}>Move prompts</Button>
+                            </form>
+                            <p className="data-note">Schedules and future runs follow the prompts. Previously queued and collected runs stay in their original workspace.</p>
+                          </details>
+                        )}
                         <details><summary>Advanced · sampling & bulk settings</summary><form className="app-inline-form" onSubmit={e=>submit(e,async f=>{await request("/prompts/bulk-settings","PATCH",{ids:savedSelection,mode:f.get("bulk_mode")});await load();setNotice("Execution mode updated for selected prompts. No provider request was made.");})}><FormField label="Execution mode for selected prompts" hint="Priority and live may cost more on future runs. This only changes saved settings."><select name="bulk_mode"><option value="standard">Standard queue</option><option value="priority">Priority queue</option><option value="live">Live</option></select></FormField><Button disabled={busy||!savedSelection.length||savedSelection.length>100}>Apply mode to selected</Button></form><FormField label="Samples per prompt" hint="Independent back-to-back samples, queued under the normal concurrency limit. Each sample is a separate provider charge and run."><input type="number" min={1} max={10} value={runSamples} onChange={e=>setRunSamples(Math.max(1,Math.min(10,Number(e.target.value)||1)))} /></FormField></details>
                       </div>}
                       {savedSelection.length*runSamples>100 && (
@@ -1732,7 +1763,7 @@ function App() {
                   {search.run && !selectedRun && (
                     <Card><CardContent>
                       {detailError ? <p role="alert">{detailError}</p> : <p role="status">Loading run…</p>}
-                      <Link to="/app" search={sectionSearch("runs")}>Close run</Link>
+                      <Link to="/app" search={{ ...sectionSearch("runs"), runPrompt: search.runPrompt }}>Close run</Link>
                     </CardContent></Card>
                   )}
                   {selectedRun && (
@@ -1740,7 +1771,7 @@ function App() {
                       <CardContent>
                         <div className="panel-title">
                           <div>
-                            <Status value={selectedRun.status} />
+                            <RunStatus value={selectedRun.status} />
                             <h2>{selectedRun.prompt_text}</h2>
                             <p>
                               {engines[selectedRun.config?.engine]} ·{" "}
@@ -1749,7 +1780,7 @@ function App() {
                             </p>
                           </div>
                           <Button variant="ghost" size="sm" asChild>
-                            <Link to="/app" search={sectionSearch("runs")}>Close run</Link>
+                            <Link to="/app" search={{ ...sectionSearch("runs"), runPrompt: search.runPrompt }}>Close run</Link>
                           </Button>
                         </div>
                         {selectedRun.error && (
@@ -1927,53 +1958,21 @@ function App() {
                       </CardContent>
                     </Card>
                   )}
-                  <Card>
-                    <CardContent>
-                      <div className="panel-title">
-                        <h2>Collection history</h2>
-                        <a
-                          className="small-link"
-                          href={"/api/v1/export?org=" + org}
-                        >
-                          <Download size={14} /> CSV export
-                        </a>
-                      </div>
-                      {visibleRuns.length ? (
-                        visibleRuns.map((r) => (
-                          <Link
-                            className="run-row"
-                            key={r.id}
-                            to="/app"
-                            search={{ ...sectionSearch("runs"), run: r.id }}
-                          >
-                            <span>
-                              <strong>{r.prompt_text}</strong>
-                              <small>
-                                {engines[r.config?.engine]} ·{" "}
-                                {date(r.created_at)} · {r.config?.mode}
-                              </small>
-                            </span>
-                            <Status value={r.status} />
-                            <ArrowUpRight size={15} />
-                          </Link>
-                        ))
-                      ) : (
-                        <Empty
-                          title="Your history starts with a question."
-                          description="Add a prompt and run it to collect your first answer."
-                        >
-                          <Button size="sm" onClick={() => setTab("prompts")}>
-                            Manage prompts
-                          </Button>
-                        </Empty>
-                      )}
-                      <p className="data-note">
-                        Standard/priority runs finish asynchronously. Refresh
-                        this page to retrieve updated status. Provider-reported
-                        cost can lag or differ from final billing.
-                      </p>
-                    </CardContent>
-                  </Card>
+                  <WorkspaceRunHistory
+                    key={org + ":" + workspace}
+                    org={org}
+                    workspace={workspace}
+                    workspaceName={workspaceName}
+                    runPrompt={search.runPrompt}
+                    prompts={visiblePrompts}
+                    brands={brands}
+                    engines={engines}
+                    request={request}
+                    refresh={runs}
+                    onPromptChange={promptId => {
+                      void navigate({ search: { ...sectionSearch("runs"), runPrompt: promptId || undefined } });
+                    }}
+                  />
                 </>
               )}
               {tab === "brands" && (
@@ -2928,7 +2927,7 @@ function App() {
                   )}
                 </>
               )}
-              {["overview", "research", "runs"].includes(tab) && (
+              {["overview", "research"].includes(tab) && (
                 <div className="load-history">
                   <p>
                     {runs.length} organization runs loaded. Charts and research

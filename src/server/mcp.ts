@@ -4,6 +4,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { z } from "zod";
 import { api } from "./api";
+import { runHistoryFilters } from "./run-history";
 import { authenticate } from "./auth";
 import { HttpError, type Ctx, type Env } from "./types";
 export async function mcp(req: Request, env: Env, ctx: Ctx) {
@@ -196,6 +197,7 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
       description:
         "List run history with status, citations, grounding queries and mentions. Continue with next_before and next_before_id.",
       inputSchema: {
+        ...runHistoryFilters.shape,
         workspace_id: z.string().optional(),
         before: z.number().optional(),
         before_id: z.string().min(1).max(100).optional(),
@@ -206,6 +208,8 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
       if (args.workspace_id) q.set("workspace", args.workspace_id);
       if (args.before !== undefined) q.set("before", String(args.before));
       if (args.before_id !== undefined) q.set("before_id", args.before_id);
+      for (const key of ["engine", "prompt_id", "q", "status", "brand_id"] as const)
+        if (args[key]) q.set(key, args[key]);
       return invoke("/runs?" + q);
     },
   );
