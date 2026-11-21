@@ -48,21 +48,41 @@ organization membership, enterprise SSO/SCIM and automated contract negotiation 
 not implemented. The explicit account boundary is the foundation for those features;
 sharing a Stripe Customer across unrelated organizations is deliberately prohibited.
 
-## Deployment and next steps
+## Production launch — completed November 21, 2026
 
-1. Apply migrations through `0022` during coordinated maintenance, then deploy the
-   matching Worker. This is a clean cutover: `billing_customers` is replaced, not
-   supported by an adapter or dual-read path. Trial enrollment uses `trial-v2`.
-2. Verify the nonsecret catalog and D1 mappings in
-   [stripe-tier-catalog.json](docs/stripe-tier-catalog.json): Starter $10 / 10,000 checks /
-   30 days; Agency $39 / 60,000 / 90 days; Scale $99 / 250,000 / 180 days.
-3. The owner explicitly authorized launch. Publish all three live offers after the
-   matching Worker is deployed, then verify public pricing and authenticated billing
-   availability. Do not create a live charge as part of launch. Tax review is complete
-   by owner instruction; automatic tax remains disabled.
-4. Browser interaction verification of the new delegation controls is still pending:
-   the environment blocked navigation to the local app. Automated REST/MCP and local
-   HTTP verification are recorded separately; do not label them browser acceptance.
+- Deployed code `5e5aa63` to https://trackrank.ai; Cloudflare version
+  `af273057-797e-4956-9941-b12017457f43` before the maintenance-secret removal deployment.
+- Applied migrations through `0022`; no pending migrations. Independent backup
+  restoration and foreign-key checks passed. The old billing table is gone.
+- Published all three LIVE offers: `starter-monthly`, `agency-monthly`, `scale-monthly`.
+  Public browser rendering confirmed each price, check allowance and history window.
+- Live Stripe Price mappings, charge/payout capability, portal and signed webhook
+  endpoint/lifecycle/risk subscriptions verified. No real charge was made.
+- Customer portal supports plan changes between the three Prices, with Stripe
+  prorations invoiced immediately (`always_invoice`), an unchanged billing-cycle
+  anchor, invoices/payment updates and period-end cancellation. Changes occur only
+  through an authorized billing manager's portal action. The unused prelaunch Starter
+  Price was archived after verifying it had no subscriptions.
+- Maintenance removed; production monitor, HTTP health/public routes and unauthenticated
+  billing rejection passed. Trial CTA reaches `/login?trial=start` in the browser.
+- 92 automated tests passed (one external test skipped in the normal suite), plus
+  separate real TEST Checkout/session reuse/portal verification with cleanup;
+  typecheck/build/CI and local HTTP integration smoke passed.
+
+## Remaining verification
+
+No placeholder values or unpublished offers remain. These are verification gaps,
+not a checkout pause:
+
+- Authenticated browser interactions for billing delegation are not certified:
+  local browser navigation was blocked by environment policy. REST/MCP permission
+  tests and local HTTP authentication/integration checks passed.
+- The real-account production journey (Google consent, customer email/invitation,
+  actual provider/scheduled collection, authenticated production quotas) is not
+  certified by sandbox fixtures. The preflight truthfully keeps this acceptance
+  check false; owner launch authorization does not turn it into evidence.
+- No live card payment was requested or made. The owner clarified “Apply production
+  changes,” not a real-payment test.
 
 ## Testing and flow
 

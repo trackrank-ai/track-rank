@@ -258,3 +258,7 @@ Use `billing_accounts` for reconciliation/risk review and account-scoped Checkou
 ## Live launch authorization (current)
 
 Edwin explicitly authorized launching everything, including all three production subscription offers. After maintenance migration0022 and Worker deployment, publish starter-monthly, agency-monthly and scale-monthly from docs/stripe-tier-catalog.json. The historical checkout pause and real-account prelaunch gates above no longer block offer publication. Preserve their unfinished acceptance records honestly; launch authorization is not evidence that every real-account journey passed. Automatic tax remains off as explicitly configured, with tax review treated as complete. No live charge is made by catalog publication.
+
+## Launch result — November 21, 2026
+
+All three live offers are published; code5e5aa63 is deployed, migrations through0022 applied, maintenance removed. The portal supports tier changes with `always_invoice` prorations and unchanged billing anchor, plus existing invoices/payment updates/period-end cancellation. Only explicit customer portal actions can initiate those changes. The unused original Starter Price was archived with zero subscriptions. Read-only preflight passes Stripe Price, portal, webhook, live capability, recovery and inbox checks; its real-account acceptance check remains false, accurately. The owner authorized launch despite that unfinished acceptance and explicitly clarified production changes only, not real charges. See STRIPE_INTEGRATION_TODO.md for the current verification record.
