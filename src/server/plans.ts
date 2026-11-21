@@ -14,6 +14,8 @@ export async function organizationPlan(env: Env, org: string) {
     `SELECT p.* FROM organization_plans a JOIN plan_versions p ON p.id=a.plan_version_id WHERE a.org_id=?`, org);
   // Retired versions continue serving assigned customers. Missing/corrupt plans fail closed.
   if (!row) throw new HttpError(503, "Organization plan is not configured");
+  if (row.family === "pending" && env.BILLING_ENABLED === "true")
+    throw new HttpError(402, "Choose Starter in billing settings to access this organization");
   if (row.family === "trial") {
     const trial = await one<Row>(env, "SELECT ends_at FROM organization_trials WHERE org_id=?", org);
     if (!trial || Number(trial.ends_at) <= now()) throw new HttpError(402, "Your 14-day free trial has ended. Choose a plan and pay to continue; your data is retained.");
@@ -32,7 +34,7 @@ export async function organizationPlan(env: Env, org: string) {
     price_cents: Number(row.price_cents), currency: String(row.currency), interval: String(row.interval), limits };
 }
 export async function defaultPlanVersion(env: Env) {
-  const version = env.BILLING_ENFORCE_NEW_ORGS === "true" ? "pending-v1" : env.DEFAULT_PLAN_VERSION || "beta-v1";
+  const version = env.BILLING_ENABLED === "true" ? "pending-v1" : env.DEFAULT_PLAN_VERSION || "beta-v1";
   const row = await one(env, "SELECT id FROM plan_versions WHERE id=? AND status='active'", version);
   if (!row) throw new HttpError(503, "Default plan is not available for new organizations");
   return version;

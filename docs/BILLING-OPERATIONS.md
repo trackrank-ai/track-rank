@@ -28,7 +28,7 @@ confirmed. No invented registrations, head-office address or product tax code.
 2. Export/back up production D1 and preserve the existing encryption/auth secrets
    through the deployment-owner vault. Never replace CREDENTIALS_KEY to set up billing.
 3. Apply pending D1 migrations for the release using the explicit production
-   configuration. `BILLING_ENFORCE_NEW_ORGS=true` only controls new hosted organizations.
+   configuration. Hosted billing enrolls eligible new organizations in the no-card trial.
 4. Obtain live restricted credentials via the deployment's secret store; confirm
    Stripe account charges/payouts eligibility and required business details.
 5. Create live Product/Price (USD 10 monthly, tax-exclusive) and portal (invoices,
@@ -52,8 +52,9 @@ confirmed. No invented registrations, head-office address or product tax code.
     by the deployment owner. It checks the candidate configuration before checkout
     is enabled. Confirm the production journey in `production-journey.json`.
     Checkout also requires `BILLING_TAX_REVIEWED=true` with a live key. To use
-    automatic tax, configure and verify Stripe first, then set both
-    `STRIPE_AUTOMATIC_TAX=true` and `STRIPE_TAX_READY=true`.
+    automatic tax, configure and verify Stripe first, then set
+    `STRIPE_AUTOMATIC_TAX=true`. Checkout checks the live Stripe registration,
+    product tax code, and tax-exclusive price.
 12. Once the live gates are cleared, enable paid checkouts and perform an explicitly
     authorized real-card purchase. Paid upgrade charges immediately: no second
     Stripe trial. Verify signed-webhook entitlements, invoice and cancellation.
@@ -147,7 +148,7 @@ HTTP402 for paid settings/API while the billing portal still returned HTTP200.
 No real funds, production user records or live subscription were involved.
 
 Edwin confirmed November 21, 2026: TrackRank has no sales-tax registrations yet.
-Automatic tax remains off; STRIPE_TAX_READY and BILLING_TAX_REVIEWED remain false.
+Automatic tax and the tax-review flag remained off at that time.
 No registrations were created. This fact alone does not establish that collection
 is unnecessary; actual registration/collection obligations still need review
 before live launch. Do not invent registrations or mark the tax preflight passed.
@@ -158,7 +159,7 @@ Live catalog IDs are recorded in `stripe-live.json`. The protected live key and
 signing secret are configured in the Worker. Charges/payouts are enabled on the
 merchant account; no live subscription or payment was created by setup.
 `BILLING_ENABLED=true` keeps billing management and reconciliation online;
-**`BILLING_CHECKOUT_ENABLED=false` keeps paid purchases paused**; the independent hosted free-trial flag controls no-card enrollment.
+**`BILLING_CHECKOUT_ENABLED=false` keeps paid purchases paused**; eligible new organizations still receive a no-card trial.
 
 Backups: the production database export was independently restored into SQLite
 with integrity checks. Original authentication/encryption secrets were exported
@@ -205,7 +206,7 @@ subscription or automatic charge. Checkout creates an immediate paid subscriptio
 with NO second Stripe trial. Existing Stripe subscriptions/trials are not altered.
 The $10-before-tax price and 7-day first-paid-charge refund remain unchanged.
 Paid checkout remains paused for the previously documented external launch gates;
-free trial enrollment is independent through HOSTED_FREE_TRIAL_ENABLED.
+trial enrollment follows `BILLING_ENABLED` and remains available while checkout is paused.
 
 Migrations 0009 and 0010 are additive. Trial dates are organization-bound and an
 account claim prevents new organizations from restarting a trial. Existing beta

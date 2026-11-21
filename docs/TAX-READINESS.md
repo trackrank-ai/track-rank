@@ -37,8 +37,8 @@ Primary sources checked:
    product tax code, then verify exclusive-price tax/address behavior in sandbox.
    Review B&O/reporting obligations separately from checkout sales-tax calculation.
 4. Only after the decision is documented set BILLING_TAX_REVIEWED=true. If using
-   Stripe automatic tax, verify active settings/registrations and set
-   STRIPE_TAX_READY=true and STRIPE_AUTOMATIC_TAX=true. Keep the $10 base price
+   Stripe automatic tax, verify active settings and registrations, then set
+   STRIPE_AUTOMATIC_TAX=true. Keep the $10 base price
    exclusive of tax. Do not make up a tax code, registration date or exemption.
 5. Complete the real-account production acceptance gates, then enable checkout
    for a controlled real-card Starter upgrade. Payment is due at checkout. The

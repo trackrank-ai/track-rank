@@ -13,8 +13,7 @@ function checkoutEnabled(env: Env) {
   return env.BILLING_ENABLED === "true" &&
     env.BILLING_CHECKOUT_ENABLED === "true" &&
     !!env.STRIPE_SECRET_KEY &&
-    (env.STRIPE_SECRET_KEY.includes("_test_") || env.BILLING_TAX_REVIEWED === "true") &&
-    (env.STRIPE_AUTOMATIC_TAX !== "true" || env.STRIPE_TAX_READY === "true");
+    (env.STRIPE_SECRET_KEY.includes("_test_") || env.BILLING_TAX_REVIEWED === "true");
 }
 export async function billingRoute(req: Request, env: Env, p: Principal, path: string) {
   if (p.keyId) throw new HttpError(403, "Sign in to manage billing");
@@ -26,7 +25,7 @@ export async function billingRoute(req: Request, env: Env, p: Principal, path: s
     const assignment = await one<Row>(env, "SELECT p.family FROM organization_plans a JOIN plan_versions p ON p.id=a.plan_version_id WHERE a.org_id=?", org);
     const freeTrial = assignment?.family === "trial";
     const claimed = await one(env, "SELECT user_id FROM account_trial_claims WHERE user_id=?", p.userId);
-    return json({ enabled: env.BILLING_ENABLED === "true", checkout_enabled: checkoutEnabled(env), ...state, has_billing_account: !!state, free_trial: trial, free_trial_enabled: env.HOSTED_FREE_TRIAL_ENABLED === "true", trial_eligible: !claimed && !state?.trial_used && assignment?.family === "pending", access_status: freeTrial ? Number(trial?.ends_at) > now() ? "free_trial" : "trial_expired" : assignment?.family === "pending" ? "choose_plan" : "assigned", owner: p.role === "owner" });
+    return json({ enabled: env.BILLING_ENABLED === "true", checkout_enabled: checkoutEnabled(env), ...state, has_billing_account: !!state, free_trial: trial, trial_eligible: !claimed && !state?.trial_used && assignment?.family === "pending", access_status: freeTrial ? Number(trial?.ends_at) > now() ? "free_trial" : "trial_expired" : assignment?.family === "pending" ? "choose_plan" : "assigned", owner: p.role === "owner" });
   }
   if (p.role !== "owner") throw new HttpError(403, "Only the organization owner can manage billing");
   if (req.method === "GET" && path === "/billing/alerts") return json({ alerts: await all(env, "SELECT id,kind,summary,created_at FROM billing_alerts WHERE org_id=? AND resolved_at IS NULL ORDER BY created_at DESC LIMIT 50", org) });

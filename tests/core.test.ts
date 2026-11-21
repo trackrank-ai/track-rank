@@ -64,6 +64,7 @@ function fixture() {
   sql.exec(readFileSync(new URL("../migrations/0005_recipient_invitations.sql", import.meta.url), "utf8"));
   sql.exec(readFileSync(new URL("../migrations/0006_stripe_billing.sql", import.meta.url), "utf8"));
   sql.exec(readFileSync(new URL("../migrations/0007_billing_operations.sql", import.meta.url), "utf8"));
+  sql.exec(readFileSync(new URL("../migrations/0009_no_card_trials.sql", import.meta.url), "utf8"));
   sql.exec(readFileSync(new URL("../migrations/0011_run_admission_accounting.sql", import.meta.url), "utf8"));
   sql.exec(readFileSync(new URL("../migrations/0014_archive_workspace_resources.sql", import.meta.url), "utf8"));
   const db = {
@@ -761,10 +762,35 @@ test("plan versions are immutable; retired customers are grandfathered and defau
   assert.equal(settings.plan.price_cents, 1000);
   assert.equal(settings.plan.limits.runs_per_month, 6000);
   assert.equal(sql.prepare("SELECT plan_version_id FROM organization_plans WHERE org_id=?").get(a.id)!.plan_version_id, 'beta-v1');
+  delete env.BILLING_ENABLED;
   await assert.rejects(organization(env, 'eve'), /Default plan/);
   assert.equal(sql.prepare("SELECT COUNT(*) AS n FROM organizations").get()!.n, 2);
   sql.prepare("UPDATE organization_plans SET plan_version_id='beta-v1',assigned_at=?,reason='Test downgrade' WHERE org_id=?").run(Date.now(),b.id);
   assert.equal(sql.prepare("SELECT COUNT(*) AS n FROM plan_assignment_history WHERE org_id=?").get(b.id)!.n, 2);
+});
+
+test("hosted organizations start one card-free trial while checkout is paused", async () => {
+  const { env, sql } = fixture();
+  env.BILLING_ENABLED = "true";
+  env.BILLING_CHECKOUT_ENABLED = "false";
+  env.DEFAULT_PLAN_VERSION = "beta-v1";
+
+  const first = await organization(env);
+  const settings = await (await call(env, { userId: "alice" }, "/settings", "GET", undefined, first.id)).json() as any;
+  assert.equal(settings.plan.version, "trial-v1");
+  const second = await organization(env);
+  await assert.rejects(call(env, { userId: "alice" }, "/workspaces", "GET", undefined, second.id), (error: any) => error.status === 402);
+  const billing = await (await call(env, { userId: "alice" }, "/billing", "GET", undefined, second.id)).json() as any;
+  assert.equal(billing.access_status, "choose_plan");
+  assert.equal(billing.checkout_enabled, false);
+
+  const response = await call(env, { userId: "bob" }, "/onboarding/trial", "POST", {});
+  assert.equal(response.status, 201);
+  const onboarded = await response.json() as { id: string };
+  const repeat = await call(env, { userId: "bob" }, "/onboarding/trial", "POST", {});
+  assert.deepEqual(await repeat.json(), onboarded);
+  assert.equal(sql.prepare("SELECT COUNT(*) AS n FROM organization_trials").get()!.n, 2);
+  assert.equal(sql.prepare("SELECT COUNT(*) AS n FROM billing_customers").get()!.n, 0);
 });
 
 test("monthly budgets survive key changes and plan changes without resetting usage", async () => {

@@ -1,7 +1,7 @@
 import {HttpError, now, one, type Env, type Row} from './types';
 export const trialDuration = 14 * 24 * 3600000;
 export async function startTrial(env:Env,userId:string,orgId:string){
- if(env.HOSTED_FREE_TRIAL_ENABLED!=='true')throw new HttpError(503,'Free trial enrollment is temporarily unavailable');
+ if(env.BILLING_ENABLED!=='true')throw new HttpError(503,'Hosted billing is not enabled');
  const user=await one(env,'SELECT emailVerified FROM user WHERE id=?',userId);
  if(!user?.emailVerified)throw new HttpError(403,'Verify your email before starting the free trial');
  const assignment=await one<Row>(env,'SELECT plan_version_id FROM organization_plans WHERE org_id=?',orgId);

@@ -88,9 +88,8 @@ test('trial access, once-per-org trial consumption, pending onboarding and stale
  sql.exec("UPDATE billing_customers SET updated_at=0 WHERE org_id='org'");
  await assert.rejects(organizationPlan(env,'org'),/Subscription payment required/);
  const {defaultPlanVersion}=await import('../src/server/plans');
- env.BILLING_ENFORCE_NEW_ORGS='true';
  assert.equal(await defaultPlanVersion(env),'pending-v1');
- delete env.BILLING_ENFORCE_NEW_ORGS;
+ delete env.BILLING_ENABLED;
  assert.equal(await defaultPlanVersion(env),'beta-v1');
 });
 
@@ -121,7 +120,7 @@ test('paused checkout leaves portal and recovery status available',async()=>{
  assert.equal((await billingRoute(new Request('https://example.test'),env,{userId:'alice',orgId:'org',role:'owner'},'/billing')).status,200);
 });
 
-test('live checkout requires tax review and automatic-tax readiness when configured', async () => {
+test('live checkout requires a documented tax review', async () => {
  const { env } = fixture();
  env.STRIPE_SECRET_KEY = 'sk_live_fixture';
  const principal = { userId: 'alice', orgId: 'org', role: 'owner' };
@@ -132,12 +131,6 @@ test('live checkout requires tax review and automatic-tax readiness when configu
  await assert.rejects(checkout(), /temporarily paused/);
 
  env.BILLING_TAX_REVIEWED = 'true';
- assert.equal((await getState()).checkout_enabled, true);
- env.STRIPE_AUTOMATIC_TAX = 'true';
- assert.equal((await getState()).checkout_enabled, false);
- await assert.rejects(checkout(), /temporarily paused/);
-
- env.STRIPE_TAX_READY = 'true';
  assert.equal((await getState()).checkout_enabled, true);
  await assert.rejects(checkout(), /Starter billing price is not configured/);
 });

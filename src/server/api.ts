@@ -143,7 +143,7 @@ export async function api(
   }
   if (path === "/onboarding/trial" && method === "POST") {
     if (p.keyId) throw new HttpError(403, "Sign in to start a trial");
-    if (env.HOSTED_FREE_TRIAL_ENABLED !== "true") throw new HttpError(503, "Free trial enrollment is temporarily unavailable");
+    if (env.BILLING_ENABLED !== "true") throw new HttpError(503, "Hosted billing is not enabled");
     const user = await one<Row>(env, "SELECT name,emailVerified FROM user WHERE id=?", p.userId);
     if (!user?.emailVerified) throw new HttpError(403, "Verify your email before starting the trial");
     const claim = await one<Row>(env, "SELECT org_id FROM account_trial_claims WHERE user_id=?", p.userId);
@@ -185,7 +185,7 @@ export async function api(
       ).bind(workspaceId, orgId, t),
     ]);
     // Creating another organization must never restart the account's introductory trial.
-    if (env.HOSTED_FREE_TRIAL_ENABLED === "true" && planVersion === "pending-v1") {
+    if (env.BILLING_ENABLED === "true") {
       const claim = await one(env, "SELECT user_id FROM account_trial_claims WHERE user_id=?", p.userId);
       if (!claim) await startTrial(env, p.userId, orgId);
     }

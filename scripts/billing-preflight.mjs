@@ -31,7 +31,7 @@ const registrations=await stripe.tax.registrations.list({status:'active',limit:1
 check('Tax obligations reviewed',config.vars.BILLING_TAX_REVIEWED==='true',`Stripe Tax: ${tax.status}; active registrations: ${registrations.data.length}. Confirm the selling entity’s actual registration and collection obligations.`);
 if(config.vars.STRIPE_AUTOMATIC_TAX==='true'){
  const product=price.product;
- check('Automatic tax configured',config.vars.STRIPE_TAX_READY==='true'&&tax.status==='active'&&registrations.data.length>0&&price.tax_behavior==='exclusive'&&typeof product!=='string'&&!product.deleted&&!!product.tax_code,`Settings: ${tax.status}; active registrations: ${registrations.data.length}. Requires a tax-exclusive Price and explicit Product tax code.`);
+ check('Automatic tax configured',tax.status==='active'&&registrations.data.length>0&&price.tax_behavior==='exclusive'&&typeof product!=='string'&&!product.deleted&&!!product.tax_code,`Settings: ${tax.status}; active registrations: ${registrations.data.length}. Requires a tax-exclusive Price and explicit Product tax code.`);
 }
 if(!test){const account=await stripe.accounts.retrieveCurrent();check('Live charges enabled',account.charges_enabled);check('Live payouts enabled',account.payouts_enabled);}
 check('Mode suitable for live launch',!test,test?'TEST key: sandbox verification only, cannot approve live charging':'Live key detected');

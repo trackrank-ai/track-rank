@@ -15,8 +15,6 @@
     "SIGNUP_ENABLED": "false",
     "BILLING_ENABLED": "true",
     "BILLING_CHECKOUT_ENABLED": "true",
-    "BILLING_ENFORCE_NEW_ORGS": "true",
-    "HOSTED_FREE_TRIAL_ENABLED": "true",
     "STRIPE_STARTER_PRICE_ID": "price_1Ue3uj5cBsaZf4oTW3xI4lis",
     "STRIPE_PORTAL_CONFIGURATION": "bpc_1Ue3uj5cBsaZf4oT6QPc7EQK"
   },

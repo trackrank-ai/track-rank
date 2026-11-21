@@ -1,6 +1,6 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';
 import {fixture} from './helpers/billing-fixture';import {startTrial,trialDuration} from '../src/server/trials';import {organizationPlan} from '../src/server/plans';import {billingRoute,syncSubscription} from '../src/server/billing';import type Stripe from 'stripe';
-function setup(){const f=fixture();f.env.HOSTED_FREE_TRIAL_ENABLED='true';f.env.BASE_URL='https://test.example';f.env.STRIPE_STARTER_PRICE_ID='price_test';f.sql.exec("INSERT INTO user VALUES('owner','Owner','owner@example.invalid',1,NULL,0,0);UPDATE organization_plans SET plan_version_id='pending-v1'");return f;}
+function setup(){const f=fixture();f.env.BASE_URL='https://test.example';f.env.STRIPE_STARTER_PRICE_ID='price_test';f.sql.exec("INSERT INTO user VALUES('owner','Owner','owner@example.invalid',1,NULL,0,0);UPDATE organization_plans SET plan_version_id='pending-v1'");return f;}
 test('verified account starts full Starter-equivalent trial without contacting Stripe; repeats do not extend it',async()=>{
  const {env,sql}=setup();const first=await startTrial(env,'owner','org');assert.equal(Number(first.ends_at)-Number(first.started_at),trialDuration);assert.deepEqual((await organizationPlan(env,'org')).limits,(await import('../src/server/plans')).planLimits.parse(JSON.parse(String(sql.prepare("SELECT limits_json FROM plan_versions WHERE id='starter-v1'").get()?.limits_json))));
  assert.deepEqual(await startTrial(env,'owner','org'),first);assert.equal(sql.prepare('SELECT count(*) AS n FROM account_trial_claims').get()?.n,1);
@@ -25,4 +25,29 @@ test('paid upgrade Checkout has no second trial and requires immediate payment, 
  return new Response(JSON.stringify(data),{status:200,headers:{'Content-Type':'application/json'}});
  };
  try{const r=await billingRoute(new Request('https://test.example',{method:'POST'}),env,{userId:'owner',orgId:'org',role:'owner'},'/billing/checkout');assert.equal(r.status,200);assert.ok(checkoutBody);assert.equal(checkoutBody!.get('subscription_data[trial_period_days]'),null);assert.equal(checkoutBody!.get('payment_method_collection'),'always');assert.equal(checkoutBody!.get('metadata[trackrank_checkout_revision]'),'paid-after-trial-v3');assert.equal((await organizationPlan(env,'org')).version,'trial-v1','creating checkout is not proof of payment');}finally{globalThis.fetch=old;}
+});
+
+test('automatic tax checkout uses actual Stripe registration status', async (t) => {
+ const { env } = setup();
+ env.STRIPE_AUTOMATIC_TAX = 'true';
+ let registered = false;
+ let checkoutUsesTax = false;
+ t.mock.method(globalThis, 'fetch', async (input: string, init?: RequestInit) => {
+  const path = new URL(input).pathname;
+  if (path === '/v1/prices/price_test') return Response.json({ active: true, unit_amount: 1000, currency: 'usd', recurring: { interval: 'month', interval_count: 1 }, tax_behavior: 'exclusive', product: 'prod_test' });
+  if (path === '/v1/tax/settings') return Response.json({ status: 'active' });
+  if (path === '/v1/tax/registrations') return Response.json({ data: registered ? [{ id: 'taxreg_test' }] : [] });
+  if (path === '/v1/products/prod_test') return Response.json({ tax_code: 'txcd_test' });
+  if (path === '/v1/checkout/sessions' && init?.method === 'POST') {
+   checkoutUsesTax = new URLSearchParams(String(init.body)).get('automatic_tax[enabled]') === 'true';
+   return Response.json({ url: 'https://checkout.stripe.com/test' });
+  }
+  if (path === '/v1/subscriptions' || path === '/v1/checkout/sessions') return Response.json({ data: [], has_more: false });
+  throw Error(`Unexpected Stripe request ${path}`);
+ });
+ const checkout = () => billingRoute(new Request('https://test.example', { method: 'POST' }), env, { userId: 'owner', orgId: 'org', role: 'owner' }, '/billing/checkout');
+ await assert.rejects(checkout(), /Tax configuration requires verified registrations/);
+ registered = true;
+ assert.equal((await checkout()).status, 200);
+ assert.equal(checkoutUsesTax, true);
 });

@@ -8,7 +8,7 @@ async function request(path,method='GET',body){const r=await fetch(base+path,{me
 await request('/api/auth/sign-in/email','POST',{email:fixture.email,password:fixture.password});
 if(!fixture.org){const org=await request('/api/v1/organizations','POST',{name:'Stripe acceptance — staging only'});fixture.org=org.id;fs.writeFileSync(path,JSON.stringify(fixture),{mode:0o600});}
 const suffix='?org='+fixture.org;
-const settings=await request('/api/v1/settings'+suffix);assert.equal(settings.plan.version,'pending-v1');
+const billing=await request('/api/v1/billing'+suffix);assert.ok(['free_trial','trial_expired','choose_plan'].includes(billing.access_status));
 const checkout=await request('/api/v1/billing/checkout'+suffix,'POST',{});
 const repeated=await request('/api/v1/billing/checkout'+suffix,'POST',{});assert.equal(checkout.url,repeated.url);
 fs.writeFileSync('.staging-checkout.local',checkout.url,{mode:0o600});

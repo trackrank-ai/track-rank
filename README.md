@@ -88,7 +88,7 @@ Configure app-level Google/Resend/auth/encryption values as described at [/setup
 
 DataForSEO/OpenRouter credentials belong in **organization Settings**, not Worker bindings. Never use a shared platform-funded provider key as the default for customer workloads.
 
-Hosted billing management is implemented. Paid checkout stays paused until the documented pre-enable checks pass. Verify the first controlled live upgrade separately using the [billing and release runbook](docs/BILLING-OPERATIONS.md).
+Hosted billing starts a 14-day no-card trial for eligible new organizations. Local and self-hosted organizations use their configured plan. Paid checkout stays paused until the documented pre-enable checks pass. Verify the first controlled live upgrade separately using the [billing and release runbook](docs/BILLING-OPERATIONS.md).
 
 ## License
 
@@ -100,7 +100,7 @@ The software license is separate from the hosted service’s [Terms of Service](
 
 ## Agent access and customer limits
 
-Owners/admins generate scoped, expiring, revocable keys in **API & agents**. Agents can use REST or the MCP wrapper on hosted, self-hosted, and local deployments. All keys share the organization’s assigned [versioned plan allowances](docs/PLANS.md). Starter allows **120 API operations/minute**, **10 provider operations/minute**, **200,000 API operations/month**, and **6,000 runs/month**. Existing free organizations keep their assigned plan. See [agent setup, examples, configurable limits, and retry behavior](docs/API.md#customer-rate-limits-and-retries).
+Owners/admins generate scoped, expiring, revocable keys in **API & agents**. Agents can use REST or the MCP wrapper on hosted, self-hosted, and local deployments. All keys share the organization’s assigned [versioned plan allowances](docs/PLANS.md). Starter allows **120 API operations/minute**, **10 provider operations/minute**, **200,000 API operations/month**, and **6,000 runs/month**. See [agent setup, examples, configurable limits, and retry behavior](docs/API.md#customer-rate-limits-and-retries).
 
 ## Account identity and team invitations
 

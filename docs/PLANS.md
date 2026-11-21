@@ -4,7 +4,7 @@
 
 - **D1 plan catalog:** each immutable revision owns its name, price, currency, interval and allowances. Versions can be added/activated/retired without rebuilding the app. Repository migrations and JSON examples make changes reviewable.
 - **D1 organization assignment:** pins an organization to an exact revision, never to a floating `starter` family alias. Retirement does not change its price or entitlements. Assignment changes are recorded by database triggers in `plan_assignment_history`.
-- **Deployment variables:** `DEFAULT_PLAN_VERSION` chooses the revision for NEW organizations only. Optional `API_REQUESTS_PER_MINUTE` and `PROVIDER_REQUESTS_PER_MINUTE` are emergency ceilings, applied as `min(plan allowance, ceiling)`; they cannot upgrade anyone. Changing these ceilings affects existing organizations too, so do not use them for normal pricing changes.
+- **Deployment variables:** `DEFAULT_PLAN_VERSION` chooses the revision for new local and self-hosted organizations. Hosted billing starts with the 14-day trial or awaits a subscription if the account has already used its trial. Optional `API_REQUESTS_PER_MINUTE` and `PROVIDER_REQUESTS_PER_MINUTE` are emergency ceilings, applied as `min(plan allowance, ceiling)`; they cannot upgrade anyone. Changing these ceilings affects existing organizations too, so do not use them for normal pricing changes.
 - **Run usage:** the monthly run allowance governs admission. Daily tracking counts remain available for reporting.
 
 No service subscription or external licensing check is required for self-hosting. Self-hosters control their catalog and can create a $0 plan with their own allowances. Limits are resource protections, not software licensing restrictions.
