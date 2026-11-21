@@ -5,7 +5,6 @@ import { enforceLimit, safetyCeiling } from "./rate-limit";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { z } from "zod";
-import { MAX_COLLECTION_RUNS } from "../lib/collection-limits";
 import { api } from "./api";
 import { bulkRunSchema, bulkScheduleSchema, bulkScheduleUpdateSchema } from "./bulk";
 import { runHistoryFilters } from "./run-history";
@@ -249,7 +248,7 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
   server.registerTool(
     "run_prompts",
     {
-      description: `Queue up to ${MAX_COLLECTION_RUNS} independent runs from one workspace (selected prompts × samples). Reuse the same batch key and payload on retry. Obtain authorization for provider costs first.`,
+      description: "Queue independent runs from one workspace up to its remaining monthly allowance. Pass include_runs=false for counts only. Reuse the same batch key and selection on retry. Obtain authorization for provider costs first.",
       inputSchema: bulkRunSchema,
     },
     async (args) => invoke("/runs/bulk", "POST", args),
@@ -289,7 +288,7 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
     "create_schedules",
     {
       description:
-        "Create timezone-aware schedules for one or more prompts. Saving defaults to paused. Enabling spends customer DataForSEO balance over time.",
+        "Create timezone-aware schedules. Reuse the same optional batch_id UUID and settings to add prompts to one batch across requests. Saving defaults to paused. Enabling spends customer DataForSEO balance over time.",
       inputSchema: bulkScheduleSchema,
     },
     async (args) => invoke("/schedules/bulk", "POST", args),
@@ -304,8 +303,17 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
   );
   server.registerTool(
     "list_schedules",
-    { description: "List active and paused schedules.", inputSchema: {} },
-    async () => invoke("/schedules"),
+    {
+      description: "List active and paused schedules. Use the returned cursor to load more.",
+      inputSchema: { workspace_id: z.string().optional(), before: z.number().int().nonnegative().optional(), before_id: z.string().optional() },
+    },
+    async ({ workspace_id, before, before_id }) => {
+      const query = new URLSearchParams();
+      if (workspace_id) query.set("workspace", workspace_id);
+      if (before !== undefined) query.set("before", String(before));
+      if (before_id !== undefined) query.set("before_id", before_id);
+      return invoke("/schedules?" + query);
+    },
   );
   const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: undefined,

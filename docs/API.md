@@ -29,15 +29,15 @@ Scopes: `read` for GET, `write` for research mutations, `run` for paid execution
 | PATCH | `/prompts/bulk-tags` | Add or remove tags on up to 100 prompts with `{ids, action: "add" or "remove", tags}` |
 | DELETE | `/prompts/:id` or `/prompts/bulk` | Delete one prompt or a batch with `{ids}`, along with its schedules |
 | POST | `/prompts/:id/run` | Paid collection; `Idempotency-Key` recommended, 8–128 chars |
-| POST | `/runs/bulk` | Queue up to 500 independent runs from one workspace with `{prompt_ids, repetitions?, batch_key}`. Repetitions are 1–10. The limit applies to prompts × repetitions. Reuse the same batch key and payload on retries. |
+| POST | `/runs/bulk` | Queue independent runs from one workspace with `{prompt_ids, repetitions?, batch_key, include_runs?}`. Repetitions are 1–10. Reuse the same batch key and selection on retries. |
 | POST | `/prompt-ideas` | Free deterministic templates `{topic, location?}` |
 | GET | `/runs` | Up to 100 runs with optional workspace, history filters, and cursor |
 | GET | `/runs/:id` | Full normalized result and analysis |
 | GET | `/runs/:id/raw` | Authenticated private R2 JSON download |
 | POST | `/runs/:id/refresh` | Collect the existing external task, never resubmit |
 | POST | `/runs/:id/analyze` | Interactive member: explicit paid OpenRouter analysis |
-| GET | `/schedules` | List schedules |
-| POST | `/schedules/bulk` | Create schedules with `{prompt_ids, preset, days, times, timezone, name?, repetitions?, enabled?}`. Schedules are paused by default. |
+| GET | `/schedules` | List schedules. Pass both `before` and `before_id` from `next_cursor` for the next page. |
+| POST | `/schedules/bulk` | Schedule prompts with `{prompt_ids, preset, days, times, timezone, name?, repetitions?, enabled?, batch_id?}`. Returns `batch_id`, `schedule_ids`, `prompts`, `runs_per_time`, `runs_per_scheduled_day`, and `enabled`. Schedules are paused by default. |
 | PATCH | `/schedules/bulk` | Update selected schedule IDs with `{ids, preset?, days?, times?, timezone?, repetitions?, enabled?}` |
 | DELETE | `/schedules/:id` | Remove schedule, retain history |
 | GET | `/settings` | Defaults, credential configured flags, today's usage |
@@ -63,7 +63,9 @@ The prompt library spans the organization when `workspace` is omitted. It suppor
 
 Manual and scheduled runs share the organization's monthly allowance.
 
-One manual collection can span several workflow launch calls and several provider requests. Each admitted run has its own status. The response lists the admitted runs and uses HTTP 202 for complete admission or HTTP 207 when the batch was only partly admitted. A run that is queued can be dispatched even if the client disconnects.
+Manual collections draw from the remaining monthly allowance. The response includes `accepted`, `requested`, and `complete`. Use `include_runs: false` to omit run details from the response. HTTP 202 indicates complete admission and HTTP 207 indicates partial admission. A queued run can be dispatched even if the client disconnects.
+
+Each bulk run or schedule request has a 64 KiB JSON body budget. For large selections, split IDs into multiple requests. For manual runs, use a distinct stable `batch_key` for each page and retry that page with the same prompt IDs and repetitions. TrackRank's UI handles these requests automatically.
 
 Provider-specific deletion preserves the other provider. Credential saves and provider-specific deletions return saved-status flags and the OpenRouter model identifier. TrackRank stores secrets encrypted and provider account controls handle revocation.
 
@@ -98,6 +100,10 @@ Engine is `chatgpt`, `gemini`, or `google`. Mode is `standard` (default), `prior
 ```
 
 Days are Sunday=0 … Saturday=6. Weekly uses the first supplied day. Enabling a schedule incurs recurring provider charges. Newly created schedules default paused. Delayed dispatch catches up eligible slots on the same local day. Enabling or editing schedule times takes effect for future slots.
+
+A batch supports 1–10 samples per prompt per slot and up to eight local times per scheduled day. At each slot, due runs are queued in pages under the organization's monthly allowance and submitted according to the provider rate limits. MCP `create_schedules` and `update_schedules` use the same limits.
+
+Pass the same client-generated `batch_id` UUID and settings on each create request to add pages of prompts to one schedule batch. Replaying a prompt in that batch returns its original schedule ID. Change saved settings with `PATCH /schedules/bulk` or `update_schedules`. `list_schedules` supports optional `workspace_id`, `before`, and `before_id`.
 
 ## MCP configuration
 
