@@ -3,7 +3,7 @@ import { createRun } from '../src/server/provider';
 import { readFileSync, readdirSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { runUsage, runUsagePeriods } from '../src/server/run-admission';
-import { sweep } from '../src/server/scheduler';
+import { admitDueSchedules, sweep } from '../src/server/scheduler';
 async function setup(){const f=fixture();f.env.CREDENTIALS_KEY=Buffer.alloc(32,4).toString('base64');f.sql.exec("INSERT INTO workspaces(id,org_id,name,created_at) VALUES('w','org','Space',0);INSERT INTO prompts(id,org_id,workspace_id,text,created_at,updated_at) VALUES('p1','org','w','First question',0,0),('p2','org','w','Second question',0,0)");f.sql.prepare('INSERT INTO credentials VALUES(?,?,1,0)').run('org',await seal(f.env,'org',{login:'test',password:'fixture'}));return f;}
 function assignRunLimit(sql: ReturnType<typeof fixture>["sql"], limit: number) {
   const id = "limited-" + limit;
@@ -39,7 +39,7 @@ test('REST queues 500 independent runs, Cron recovers a missed workflow, and rep
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
   }), env, context, { userId: 'alice', orgId: 'org' });
 
-  await assert.rejects(queue({ ...payload, repetitions: 3 }), { status: 400 });
+  await assert.rejects(queue({ ...payload, repetitions: 3 }), { status: 429 });
   await assert.rejects(queue({ ...payload, prompt_ids: [...prompt_ids.slice(1), 'foreign'] }), { status: 404 });
   assert.equal(sql.prepare('SELECT count(*) AS n FROM runs').get()?.n, 0);
   const response = await queue();
@@ -87,6 +87,22 @@ test('retrying a partially admitted batch queues only its missing samples', asyn
   assert.equal(sql.prepare('SELECT count(*) AS n FROM runs').get()?.n, 6);
 });
 
+test('a collection above 500 runs uses the monthly quota and can return counts without rows', async () => {
+  const { env, sql } = await setup();
+  assignRunLimit(sql, 750);
+  const insert = sql.prepare("INSERT INTO prompts(id,org_id,workspace_id,text,created_at,updated_at) VALUES(?,'org','w',?,0,0)");
+  const prompt_ids = Array.from({ length: 250 }, (_, i) => `collection-prompt-${i}`);
+  for (const id of prompt_ids) insert.run(id, `Question ${id}`);
+  const input = { prompt_ids, repetitions: 3, batch_key: 'over-old-limit', include_runs: false };
+  const summary = await createBulkRuns(env, 'org', input);
+  assert.equal(summary.complete, true);
+  assert.equal(summary.accepted, 750);
+  assert.deepEqual(summary.runs, []);
+  const replay = await createBulkRuns(env, 'org', { ...input, include_runs: true });
+  assert.equal(new Set(replay.runs.map(run => run.id)).size, 750);
+  assert.equal((await runUsage(env, 'org', runUsagePeriods(Date.now())))?.monthly, 750);
+});
+
 test('single and bulk admissions share quota and neither deletion nor replay reopens it', async () => {
   const { env, sql } = await setup();
   sql.exec(`INSERT INTO user VALUES('owner','Owner','owner@example.invalid',1,NULL,0,0);
@@ -124,6 +140,79 @@ test('single and bulk admissions share quota and neither deletion nor replay reo
 });
 test('batch schedules retain sampling and times through bulk pause/enable; invalid batch does not partially save',async()=>{
  const {env,sql}=await setup();const input={prompt_ids:['p1','p2'],preset:'daily',days:[1],times:['09:00','17:00'],timezone:'UTC',repetitions:5};const made=await createBulkSchedules(env,'org',input);assert.equal(made.runs_per_time,10);assert.equal(made.runs_per_scheduled_day,20);const rows=sql.prepare('SELECT * FROM schedules').all();assert.equal(rows.length,2);assert.ok(rows.every(r=>r.enabled===0));await updateBulkSchedules(env,'org',{ids:rows.map(r=>r.id),enabled:true});const updated=sql.prepare('SELECT * FROM schedules').all();assert.ok(updated.every(r=>r.enabled===1&&r.repetitions===5&&r.times_json==='["09:00","17:00"]'));await assert.rejects(createBulkSchedules(env,'org',{...input,prompt_ids:['p1','foreign']}),/not in this organization/);assert.equal(sql.prepare('SELECT count(*) AS n FROM schedules').get()?.n,2);
+});
+test('a large schedule is created paused through REST, enabled through MCP, and admitted in pages', async (t) => {
+  const { env, sql } = await setup();
+  assignRunLimit(sql, 1200);
+  let time = Date.parse('2026-11-21T08:00Z');
+  t.mock.method(Date, 'now', () => time);
+  const insert = sql.prepare("INSERT INTO prompts(id,org_id,workspace_id,text,created_at,updated_at) VALUES(?,'org','w',?,0,0)");
+  const prompt_ids = Array.from({ length: 600 }, (_, i) => `schedule-prompt-${i}`);
+  for (const id of prompt_ids) insert.run(id, `Question ${id}`);
+  const { api } = await import('../src/server/api');
+  const { mcp } = await import('../src/server/mcp');
+  const { hashToken } = await import('../src/server/crypto');
+  const context = { waitUntil: () => {} } as unknown as import('../src/server/types').Ctx;
+  const key = 'trk_large_schedule_fixture';
+  sql.prepare(`INSERT INTO api_keys(id,org_id,user_id,name,prefix,token_hash,scopes,expires_at,created_at)
+    VALUES('schedule-key','org','alice','Agent','trk',?,'["read","write"]',?,0)`).run(await hashToken(key), time + 60_000);
+  const tool = async (name: string, args: object) => (await mcp(new Request('https://example.test/mcp', {
+    method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }),
+  }), env, context)).json() as Promise<{ result: { isError: boolean; content: { text: string }[] } }>;
+  const payload = { prompt_ids, batch_id: crypto.randomUUID(), preset: 'daily', days: [0], times: ['09:00', '17:00'], timezone: 'UTC', repetitions: 2 };
+  const create = (input = payload) => api(new Request('https://example.test/api/v1/schedules/bulk?org=org', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+  }), env, context, { userId: 'alice', orgId: 'org' });
+
+  await assert.rejects(create({ ...payload, prompt_ids: [...prompt_ids, 'foreign'] }), { status: 404 });
+  assert.equal(sql.prepare('SELECT count(*) AS n FROM schedules').get()?.n, 0);
+  const response = await create({ ...payload, prompt_ids: prompt_ids.slice(0, 550) });
+  assert.equal(response.status, 201);
+  const batch = await response.json() as { batch_id: string; schedule_ids: string[]; enabled: boolean; runs_per_time: number; runs_per_scheduled_day: number };
+  assert.equal(batch.enabled, false);
+  assert.equal(batch.runs_per_time, 1100);
+  assert.equal(batch.runs_per_scheduled_day, 2200);
+  assert.equal(new Set(batch.schedule_ids).size, 550);
+  const appended = await tool('create_schedules', { ...payload, prompt_ids: prompt_ids.slice(550) });
+  assert.equal(appended.result.isError, false);
+  const remainder = JSON.parse(appended.result.content[0].text) as typeof batch;
+  const replay = await (await create()).json() as typeof batch;
+  assert.equal(remainder.batch_id, batch.batch_id);
+  assert.deepEqual(new Set(replay.schedule_ids), new Set([...batch.schedule_ids, ...remainder.schedule_ids]));
+  assert.equal(sql.prepare('SELECT count(*) AS n FROM schedules').get()?.n, 600);
+  assert.equal(sql.prepare('SELECT count(*) AS n FROM runs').get()?.n, 0);
+  const list = async (query = '') => (await api(new Request('https://example.test/api/v1/schedules?org=org' + query),
+    env, context, { userId: 'alice', orgId: 'org' })).json() as Promise<{
+      schedules: { id: string }[]; next_cursor: { before: number; before_id: string } | null;
+    }>;
+  const firstPage = await list();
+  assert.equal(firstPage.schedules.length, 500);
+  const cursor = firstPage.next_cursor!;
+  const listed = await tool('list_schedules', cursor);
+  assert.equal(listed.result.isError, false);
+  const secondPage = JSON.parse(listed.result.content[0].text) as typeof firstPage;
+  assert.equal(secondPage.next_cursor, null);
+  assert.deepEqual(new Set([...firstPage.schedules, ...secondPage.schedules].map(schedule => schedule.id)), new Set(replay.schedule_ids));
+
+  const rejected = await tool('update_schedules', { ids: [...replay.schedule_ids, 'foreign'], enabled: true });
+  assert.equal(rejected.result.isError, true);
+  assert.equal(sql.prepare('SELECT count(*) AS n FROM schedules WHERE enabled=1').get()?.n, 0);
+  const enabled = await tool('update_schedules', { ids: replay.schedule_ids, enabled: true });
+  assert.equal(enabled.result.isError, false);
+  assert.equal(JSON.parse(enabled.result.content[0].text).updated, 600);
+  await admitDueSchedules(env, time);
+  assert.equal(sql.prepare('SELECT count(*) AS n FROM runs').get()?.n, 0);
+
+  time = Date.parse('2026-11-21T09:05Z');
+  await admitDueSchedules(env, time);
+  await admitDueSchedules(env, time);
+  assert.equal(sql.prepare('SELECT count(*) AS n FROM runs').get()?.n, 1200);
+  assert.equal(sql.prepare('SELECT count(*) AS n FROM schedules WHERE batch_id=? AND repetitions=2 AND next_due_at=?')
+    .get(batch.batch_id, Date.parse('2026-11-21T17:00Z'))?.n, 600);
+  time = Date.parse('2026-11-21T17:05Z');
+  await admitDueSchedules(env, time);
+  assert.equal(sql.prepare('SELECT count(*) AS n FROM runs').get()?.n, 1200);
 });
 test('schedule migration recovers admitted daily slots and leaves canonical batches intact', () => {
   const sql = new DatabaseSync(':memory:');
