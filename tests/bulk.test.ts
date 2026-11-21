@@ -2,16 +2,34 @@ import {test} from 'node:test';import assert from 'node:assert/strict';import {f
 import { createRun } from '../src/server/provider';
 import { runUsage, runUsagePeriods } from '../src/server/run-admission';
 async function setup(){const f=fixture();f.env.CREDENTIALS_KEY=Buffer.alloc(32,4).toString('base64');f.sql.exec("INSERT INTO workspaces(id,org_id,name,created_at) VALUES('w','org','Space',0);INSERT INTO prompts(id,org_id,workspace_id,text,created_at,updated_at) VALUES('p1','org','w','First question',0,0),('p2','org','w','Second question',0,0)");f.sql.prepare('INSERT INTO credentials VALUES(?,?,1,0)').run('org',await seal(f.env,'org',{login:'test',password:'fixture'}));return f;}
+function assignRunLimit(sql: ReturnType<typeof fixture>["sql"], limit: number) {
+  const id = "limited-" + limit;
+  const caps = JSON.stringify({ api_per_minute: 120, api_per_month: 1000, provider_per_minute: 10, runs_per_month: limit, concurrent_runs: 3 });
+  sql.prepare("INSERT INTO plan_versions VALUES(?,'test','Limited',0,'usd','month','active',?,0)").run(id,caps);
+  sql.prepare("UPDATE organization_plans SET plan_version_id=? WHERE org_id='org'").run(id);
+}
 test('bulk sampling creates independent runs, replays safely, and rejects changed-payload reuse',async()=>{
  const {env,sql}=await setup();const input={prompt_ids:['p1','p2'],repetitions:5,batch_key:'bulk-test-unique'};const first=await createBulkRuns(env,'org',input);assert.equal(first.runs.length,10);assert.equal(new Set(first.runs.map(r=>r.id)).size,10);assert.ok(first.complete);const again=await createBulkRuns(env,'org',input);assert.deepEqual(again.runs.map(r=>r.id),first.runs.map(r=>r.id));assert.equal(sql.prepare('SELECT count(*) AS n FROM runs').get()?.n,10);await assert.rejects(createBulkRuns(env,'org',{...input,repetitions:2}),/different request/);
 });
-test('bulk quotas and cross-tenant selections are checked before any partial queueing',async()=>{
- const {env,sql}=await setup();sql.exec('UPDATE organizations SET daily_run_ceiling=3');await assert.rejects(createBulkRuns(env,'org',{prompt_ids:['p1','p2'],repetitions:2,batch_key:'batch-too-large'}),/exceeds/);assert.equal(sql.prepare('SELECT count(*) AS n FROM runs').get()?.n,0);await assert.rejects(createBulkRuns(env,'other',{prompt_ids:['p1'],batch_key:'foreign-batch'}),/not in this organization/);
+test('bulk monthly quotas and cross-tenant selections are checked before any partial queueing',async()=>{
+ const {env,sql}=await setup();assignRunLimit(sql,3);await assert.rejects(createBulkRuns(env,'org',{prompt_ids:['p1','p2'],repetitions:2,batch_key:'batch-too-large'}),/needs 4 new runs.*3 runs left/);assert.equal(sql.prepare('SELECT count(*) AS n FROM runs').get()?.n,0);await assert.rejects(createBulkRuns(env,'other',{prompt_ids:['p1'],batch_key:'foreign-batch'}),/not in this organization/);
+});
+test('an 87-run batch can exceed the old daily ceiling when monthly allowance is available', async () => {
+  const { env, sql } = await setup();
+  assignRunLimit(sql, 100);
+  sql.exec("UPDATE organizations SET daily_run_ceiling=20");
+  const insert = sql.prepare("INSERT INTO prompts(id,org_id,workspace_id,text,created_at,updated_at) VALUES(?,'org','w',?,0,0)");
+  const prompt_ids = Array.from({length:87}, (_, i) => "batch-prompt-" + i);
+  for (const id of prompt_ids) insert.run(id, "Question " + id);
+  const batch = await createBulkRuns(env, "org", { prompt_ids, batch_key:"batch-above-daily-limit" });
+  assert.equal(batch.runs.length,87);
+  assert.equal(batch.complete,true);
+  assert.equal((await runUsage(env,"org",runUsagePeriods(Date.now())))?.monthly,87);
 });
 test('retrying a partially admitted batch queues only its missing samples', async () => {
   const { env, sql } = await setup();
   const input = { prompt_ids: ['p1', 'p2'], repetitions: 2, batch_key: 'partially-admitted' };
-  sql.exec('UPDATE organizations SET daily_run_ceiling=4');
+  assignRunLimit(sql,4);
   const batch = env.DB.batch.bind(env.DB);
   env.DB.batch = (statements) => {
     // Simulate another request consuming two slots after the initial quota check.
@@ -25,7 +43,7 @@ test('retrying a partially admitted batch queues only its missing samples', asyn
   assert.equal(partial.complete, false);
   assert.equal(partial.runs.length, 2);
   env.DB.batch = batch;
-  sql.exec('UPDATE organizations SET daily_run_ceiling=20');
+  assignRunLimit(sql,20);
   const complete = await createBulkRuns(env, 'org', input);
   assert.equal(complete.complete, true);
   assert.equal(complete.runs.length, 4);
@@ -64,8 +82,6 @@ test('single and bulk admissions share quota and neither deletion nor replay reo
   assert.equal(settings.usage.runs, 3);
   assert.equal(settings.monthly_usage.runs, 3);
 
-  sql.exec("UPDATE organizations SET daily_run_ceiling=3 WHERE id='org'; UPDATE organization_plans SET plan_version_id='beta-v1' WHERE org_id='org'");
-  await assert.rejects(createRun(env, 'org', 'p1', 'new-single'), /Daily run limit reached/);
   const usage = await runUsage(env, 'org', runUsagePeriods(Number(single.created_at)));
   assert.equal(usage?.daily, 3);
   assert.equal(usage?.monthly, 3);

@@ -143,11 +143,9 @@ export async function createRun(
     const usage = await runUsage(env, orgId, periods);
     if (usage?.plan_version_id !== plan.version)
       throw new HttpError(409, "Organization plan changed. Retry the request.");
-    if (usage.monthly >= plan.limits.runs_per_month)
-      throw new HttpError(429, "Monthly run allowance reached; resets on the first of the month UTC", {
-        "Retry-After": String(Math.max(1, Math.ceil((periods.month.end - now()) / 1000))),
-      });
-    throw new HttpError(429, "Daily run limit reached. Limit resets at midnight UTC.");
+    throw new HttpError(429, "Monthly run allowance reached. It resets on the first of the month UTC.", {
+      "Retry-After": String(Math.max(1, Math.ceil((periods.month.end - now()) / 1000))),
+    });
   }
   return result;
 }

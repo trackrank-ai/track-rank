@@ -30,7 +30,10 @@ export async function createBulkRuns(env:Env,org:string,input:unknown){
  if (usage?.plan_version_id !== plan.version)
    throw new HttpError(409, 'Organization plan changed. Retry the request.');
  const needed=total-existing.admitted;
- if(needed>0 && (usage.daily+needed>usage.ceiling||usage.monthly+needed>plan.limits.runs_per_month))throw new HttpError(429,`This batch needs ${needed} new runs and exceeds your remaining daily or monthly allowance. Reduce the batch or review Settings.`);
+ if (needed > 0 && usage.monthly + needed > plan.limits.runs_per_month) {
+  const remaining = Math.max(0, plan.limits.runs_per_month - usage.monthly);
+  throw new HttpError(429, `This batch needs ${needed} new runs. You have ${remaining} runs left in this month's allowance.`);
+ }
  await exec(env,'INSERT OR IGNORE INTO run_batches VALUES(?,?,?,?)',org,b.batch_key,payloadHash,periods.timestamp);
  const stored=await one(env,'SELECT payload_hash FROM run_batches WHERE org_id=? AND batch_key=?',org,b.batch_key);if(stored?.payload_hash!==payloadHash)throw new HttpError(409,'Batch key conflict');
  const workspace=String(rows[0].workspace_id);

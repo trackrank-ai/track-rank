@@ -1,6 +1,7 @@
 import { bulkRunSchema, bulkScheduleSchema, bulkToggleSchema, updateBulkSchedules, bulkScheduleUpdateSchema, selectedRows, createBulkRuns, createBulkSchedules } from "./bulk";
 import { assertProviderOptions, providerOptions } from "./provider-options";
-import { promptBatchSchema, savePromptBatch } from "./prompt-batch";
+import { MAX_PROMPT_BATCH_BYTES, promptBatchSchema, savePromptBatch } from "./prompt-batch";
+import { listSavedPrompts } from "./prompt-library";
 import { startTrial } from "./trials";
 import { billingRoute } from "./billing";
 import { localAuthEnabled } from "./local-auth";
@@ -51,11 +52,25 @@ const promptSchema = z
     enabled: z.boolean().default(true),
   })
   .strict();
-async function body<T>(req: Request, s: z.ZodType<T>): Promise<T> {
-  if (Number(req.headers.get("content-length") || 0) > 32768)
+async function body<T>(req: Request, s: z.ZodType<T>, limit = 32_768): Promise<T> {
+  if (Number(req.headers.get("content-length") || 0) > limit)
     throw new HttpError(413, "Request too large");
-  const text = await req.text();
-  if (text.length > 32768) throw new HttpError(413, "Request too large");
+  const reader = req.body?.getReader();
+  const decoder = new TextDecoder();
+  let text = "", bytes = 0;
+  if (reader) {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > limit) {
+        await reader.cancel().catch(() => {});
+        throw new HttpError(413, "Request too large");
+      }
+      text += decoder.decode(value, { stream: true });
+    }
+    text += decoder.decode();
+  }
   let value;
   try {
     value = JSON.parse(text);
@@ -349,6 +364,8 @@ export async function api(
   if (path === "/prompts" && method === "GET") {
     const w = u.searchParams.get("workspace");
     if (w) await belongs(env, "workspaces", org, w);
+    if (u.searchParams.get("view") === "library")
+      return json(await listSavedPrompts(env, org, u.searchParams));
     return json({
       prompts: await all(
         env,
@@ -360,7 +377,8 @@ export async function api(
       ),
     });
   }
-  if (path === "/prompts/bulk" && method === "POST") return json(await savePromptBatch(env, org, await body(req, promptBatchSchema)), 201);
+  if (path === "/prompts/bulk" && method === "POST")
+    return json(await savePromptBatch(env, org, await body(req, promptBatchSchema, MAX_PROMPT_BATCH_BYTES)), 201);
   if (path === "/prompts" && method === "POST") {
     const b = await body(req, promptSchema);
     await assertProviderOptions([b.engine], b.location_name, b.language_code);
@@ -637,7 +655,7 @@ export async function api(
   }
   if (path === "/settings" && method === "GET") {
     const o = required(
-      await one<Row>(env, "SELECT * FROM organizations WHERE id=?", org),
+      await one<Row>(env, "SELECT id,name,created_at,resolve_poisoned_results FROM organizations WHERE id=?", org),
     );
     let configured = {
       dataforseo_configured: false,
@@ -662,7 +680,7 @@ export async function api(
       one<Row>(env, "SELECT operations FROM monthly_api_usage WHERE org_id=? AND month=?", org, periods.month.key),
     ]);
     const usage = { runs: counts?.daily ?? 0, reported_provider_cost: cost?.reported_provider_cost ?? 0 };
-    return json({ ...o, ...configured, usage, role: t.role, daily_run_limit: o.daily_run_ceiling, plan,
+    return json({ ...o, ...configured, usage, role: t.role, plan,
       monthly_usage: { api_operations: monthly?.operations || 0, runs: counts?.monthly ?? 0, resets_at: periods.month.end } });
   }
   if (path === "/settings" && method === "PATCH") {
@@ -672,15 +690,14 @@ export async function api(
       z
         .object({
           resolve_poisoned_results: z.boolean(),
-          daily_run_limit: z.number().int().min(1).max(1000000),
+          daily_run_limit: z.number().int().min(1).max(1000000).optional(),
         })
         .strict(),
     );
     await exec(
       env,
-      "UPDATE organizations SET resolve_poisoned_results=?,daily_run_ceiling=? WHERE id=?",
+      "UPDATE organizations SET resolve_poisoned_results=? WHERE id=?",
       b.resolve_poisoned_results ? 1 : 0,
-      b.daily_run_limit,
       org,
     );
     await audit(env, t, "settings.updated", org);

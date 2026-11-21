@@ -1,4 +1,4 @@
-import { parsePromptInput } from "@/lib/prompt-input";
+import { inspectPromptInput, MAX_PROMPT_COMBINATIONS } from "@/lib/prompt-input";
 import { appLoginPath, parseAppSearch, type AppTab as Tab } from "@/lib/app-location";
 import { Tooltip as HelpTooltip } from "radix-ui";
 import { LegalLinks } from "@/components/legal-layout";
@@ -147,6 +147,7 @@ function CopyValue({
   );
 }
 type RunHistoryCursor = { before: number; beforeId: string };
+type PromptLibraryCursor = { before: number; before_id: string };
 const billingBlocksWorkspace = (status: unknown) =>
   status === "trial_expired" || status === "choose_plan" || status === "payment_required";
 
@@ -176,6 +177,12 @@ function App() {
   const [providerChoices, setProviderChoices] = useState<Item | null>(null);
   const [providerChoicesLoading, setProviderChoicesLoading] = useState(false);
   const [promptSeparator, setPromptSeparator] = useState("auto");
+  const [promptSearch, setPromptSearch] = useState("");
+  const [promptEngineFilter, setPromptEngineFilter] = useState("");
+  const [promptScheduleFilter, setPromptScheduleFilter] = useState("");
+  const [promptBrandFilter, setPromptBrandFilter] = useState("");
+  const [promptLibrary, setPromptLibrary] = useState<{ key: string; rows: Item[]; next: PromptLibraryCursor | null; error?: string } | null>(null);
+  const [loadingMorePrompts, setLoadingMorePrompts] = useState(false);
   const [session, setSession] = useState<Item | null>(null),
     [initializing, setInitializing] = useState(true),
     [orgs, setOrgs] = useState<Item[]>([]),
@@ -214,6 +221,25 @@ function App() {
   const workspace = search.workspace ?? linkedPrompt?.workspace_id ?? selectedRun?.workspace_id ??
     (workspaceReady ? workspaces[0]?.id : undefined) ?? "";
   const unavailableWorkspace = workspaceReady && !!search.workspace && !workspaces.some(w => w.id === search.workspace);
+  const libraryQuery = new URLSearchParams({ view: "library", workspace });
+  if (promptSearch.trim()) libraryQuery.set("q", promptSearch.trim());
+  if (promptEngineFilter) libraryQuery.set("engine", promptEngineFilter);
+  if (promptScheduleFilter) libraryQuery.set("schedule", promptScheduleFilter);
+  if (promptBrandFilter) libraryQuery.set("brand", promptBrandFilter);
+  const libraryPath = "/prompts?" + libraryQuery;
+  const libraryKey = org + ":" + libraryPath;
+  const currentLibrary = promptLibrary?.key === libraryKey ? promptLibrary : null;
+  const savedPrompts = currentLibrary?.rows ?? [];
+  const savedSelection = selectedPromptIds.filter(id => savedPrompts.some(prompt => prompt.id === id));
+  const filteredPrompts = !!(promptSearch.trim() || promptEngineFilter || promptScheduleFilter || promptBrandFilter);
+  const promptInput = useMemo(() => editPrompt
+    ? { prompts: promptText.trim() ? [promptText.trim()] : [], error: "" }
+    : inspectPromptInput(promptText, promptSeparator), [editPrompt, promptText, promptSeparator]);
+  const promptCombinations = promptInput.prompts.length * promptEngineChoices.length;
+  const tooManyPromptCombinations = promptCombinations > MAX_PROMPT_COMBINATIONS;
+  const promptsToRemove = tooManyPromptCombinations
+    ? promptInput.prompts.length - Math.floor(MAX_PROMPT_COMBINATIONS / promptEngineChoices.length)
+    : 0;
   const sectionSearch = (nextTab: Tab) => ({ org: org || undefined, workspace: workspace || undefined, tab: nextTab });
   function setTab(nextTab: Tab) {
     if (nextTab !== tab || search.prompt || search.run) void navigate({ search: sectionSearch(nextTab) });
@@ -355,6 +381,25 @@ function App() {
     }
   }, [org, request]);
   useEffect(() => {
+    if (!workspaceReady || !workspace || unavailableWorkspace || tab !== "prompts") return;
+    let canceled = false;
+    setPromptLibrary(null);
+    const timer = window.setTimeout(() => {
+      request(libraryPath).then(result => {
+        if (!canceled) setPromptLibrary({ key: libraryKey, rows: result.prompts, next: result.next_cursor });
+      }).catch(e => {
+        if (!canceled) setPromptLibrary({ key: libraryKey, rows: [], next: null, error: e.message });
+      });
+    }, 200);
+    return () => { canceled = true; window.clearTimeout(timer); };
+  }, [workspaceReady, workspace, unavailableWorkspace, tab, libraryPath, libraryKey, prompts, request]);
+  useEffect(() => {
+    setPromptSearch("");
+    setPromptEngineFilter("");
+    setPromptScheduleFilter("");
+    setPromptBrandFilter("");
+  }, [org, workspace]);
+  useEffect(() => {
     if (initializing || pendingInvite || !org || search.trial || !orgReady) return;
     const defaultWorkspace = search.prompt || search.run
       ? linkedPrompt?.workspace_id ?? selectedRun?.workspace_id
@@ -489,7 +534,7 @@ function App() {
       form.reset();
     });
   }
-  const visiblePrompts = prompts.filter((p) => p.workspace_id === workspace),
+  const visiblePrompts = [...new Map([...prompts.filter(p => p.workspace_id === workspace), ...savedPrompts].map(p => [p.id, p])).values()],
     visibleRuns = runs.filter((r) => r.workspace_id === workspace);
   const [engine, setEngine] = useState("all"),
     [brand, setBrand] = useState(""),
@@ -602,6 +647,21 @@ function App() {
     await submitRunBatch({ prompt_ids: ids, repetitions: samples, batch_key: crypto.randomUUID() });
   }
   async function runPrompt(p: Item) { await queuePromptBatch([p.id],1); }
+  async function moreSavedPrompts() {
+    if (!currentLibrary?.next || loadingMorePrompts) return;
+    setLoadingMorePrompts(true);
+    const { before, before_id } = currentLibrary.next;
+    try {
+      const result = await request(libraryPath + "&" + new URLSearchParams({ before: String(before), before_id }));
+      setPromptLibrary(current => current === currentLibrary
+        ? { ...current, rows: [...current.rows, ...result.prompts], next: result.next_cursor }
+        : current);
+    } catch (e) {
+      if (activeOrg.current === org) setError(e instanceof Error ? e.message : "Unable to load more saved prompts");
+    } finally {
+      setLoadingMorePrompts(false);
+    }
+  }
   async function moreRuns() {
     if (!nextRunCursor) return;
     await action(async () => {
@@ -1239,11 +1299,13 @@ function App() {
                           className="form-stack"
                           onSubmit={(e) =>
                             submit(e, async (f) => {
-                              const texts = editPrompt ? [promptText.trim()] : parsePromptInput(promptText, promptSeparator);
+                              const { prompts: texts, error: inputError } = promptInput;
+                              if (inputError) throw new Error(inputError);
                               const selected = f.getAll("engines").map(String);
                               const ordered = editPrompt && selected.includes(editPrompt.engine) ? [editPrompt.engine, ...selected.filter(e => e !== editPrompt.engine)] : selected;
                               if (!texts.length || !ordered.length) throw new Error("Enter prompts and select at least one engine.");
-                              if (texts.length * ordered.length > 100) throw new Error("Save at most 100 prompt/engine combinations per batch.");
+                              if (texts.length * ordered.length > MAX_PROMPT_COMBINATIONS)
+                                throw new Error(`Save at most ${MAX_PROMPT_COMBINATIONS} prompt/engine combinations per batch.`);
                               const result = await request("/prompts/bulk", "POST", {
                                 workspace_id: workspace, brand_id: f.get("brand_id") || null,
                                 texts, engines: ordered, ...(editPrompt ? { source_id: editPrompt.id } : {}),
@@ -1264,15 +1326,27 @@ function App() {
                               name="text"
                               required
                               minLength={3}
-                              maxLength={editPrompt ? 700 : 30000}
+                              maxLength={editPrompt ? 700 : undefined}
                               value={promptText}
                               onChange={(e) => setPromptText(e.target.value)}
                               placeholder="Who are the best house cleaning services in Seattle?"
                               rows={3}
                             />
                           </FormField>
+                          <p className="data-note" role="status">
+                            {promptInput.prompts.length} {promptInput.prompts.length === 1 ? "prompt" : "prompts"} detected
+                            {" × "}{promptEngineChoices.length} {promptEngineChoices.length === 1 ? "engine" : "engines"}
+                            {" = "}{promptCombinations} combinations. Up to {MAX_PROMPT_COMBINATIONS} per batch.
+                          </p>
+                          {promptInput.error && <p className="form-error">{promptInput.error}</p>}
+                          {tooManyPromptCombinations && (
+                            <p className="form-error">
+                              Remove at least {promptsToRemove} {promptsToRemove === 1 ? "prompt" : "prompts"}
+                              {promptEngineChoices.length > 1 ? " or select fewer engines" : ""} before saving.
+                            </p>
+                          )}
                           <div className="form-grid">
-                            <fieldset className="form-stack"><legend>Engines <HelpTip label="engines" text="Select one or more engines. Each prompt/engine pair is saved separately and consumes its own run when executed. Saving never runs a collection." /></legend>
+                            <fieldset className="form-stack prompt-engines"><legend>Engines <HelpTip label="engines" text="Select one or more engines. Each prompt/engine pair is saved separately and consumes its own run when executed. Saving never runs a collection." /></legend>
                               {Object.entries(engines).map(([value,label]) => <label className="check-field" key={value}><input type="checkbox" name="engines" value={value} checked={promptEngineChoices.includes(value)} onChange={e => setPromptEngineChoices(current => e.target.checked ? [...current,value] : current.filter(x => x !== value))} /> {label}</label>)}
                             </fieldset>
                             {!editPrompt && <FormField label="Paste format"><select value={promptSeparator} onChange={e => setPromptSeparator(e.target.value)}><option value="auto">Auto — lines first, otherwise commas</option><option value="lines">One per line — keep commas in prompts</option><option value="commas">Comma-separated — quote prompts containing commas</option></select></FormField>}
@@ -1330,7 +1404,8 @@ function App() {
                             </label>
                           </div>
                           <div className="form-actions">
-                            <Button disabled={busy || providerChoicesLoading || !providerChoices || !!providerChoices.error || !promptEngineChoices.length}>
+                            <Button disabled={busy || providerChoicesLoading || !providerChoices || !!providerChoices.error ||
+                              !promptEngineChoices.length || !promptInput.prompts.length || !!promptInput.error || tooManyPromptCombinations}>
                               <Plus size={14} />
                               {editPrompt ? "Save prompt settings" : "Save prompts for selected engines"}
                             </Button>
@@ -1409,19 +1484,54 @@ function App() {
                   <Card>
                     <CardContent>
                       <div className="panel-title">
-                        <h2>{visiblePrompts.length} saved prompts</h2>
+                        <h2>Saved prompts</h2>
                       </div>
-                      {visiblePrompts.length>0 && canWrite && <div className="bulk-toolbar">
-                        <label className="check-field"><input type="checkbox" aria-label="Select all saved prompts in this workspace" checked={selectedPromptIds.length>0 && visiblePrompts.every(p=>selectedPromptIds.includes(p.id))} onChange={e=>setSelectedPromptIds(e.target.checked?visiblePrompts.map(p=>p.id):[])} /> Select all shown ({visiblePrompts.length})</label><span>{selectedPromptIds.length} selected</span>
-                        <Button disabled={busy||!!pendingRun||!selectedPromptIds.length} onClick={()=>queuePromptBatch(selectedPromptIds,runSamples)}>Run selected — {selectedPromptIds.length*runSamples} runs</Button>
-                        <Button variant="outline" disabled={!selectedPromptIds.length} onClick={()=>{setEditingScheduleSelection(false);setTab("schedules");}}>Schedule selected</Button>
-                        <Button variant="outline" disabled={busy||!selectedPromptIds.length} onClick={()=>action(async()=>{await request("/prompts/bulk-settings","PATCH",{ids:selectedPromptIds,enabled:true});await load();setNotice("Selected prompts enabled.");})}>Enable selected</Button>
-                        <Button variant="outline" disabled={busy||!selectedPromptIds.length} onClick={()=>action(async()=>{await request("/prompts/bulk-settings","PATCH",{ids:selectedPromptIds,enabled:false});await load();setNotice("Selected prompts paused; history retained.");})}>Pause selected</Button>
-                        <details><summary>Advanced · sampling & bulk settings</summary><form className="app-inline-form" onSubmit={e=>submit(e,async f=>{await request("/prompts/bulk-settings","PATCH",{ids:selectedPromptIds,mode:f.get("bulk_mode")});await load();setNotice("Execution mode updated for selected prompts. No provider request was made.");})}><FormField label="Execution mode for selected prompts" hint="Priority and live may cost more on future runs. This only changes saved settings."><select name="bulk_mode"><option value="standard">Standard queue</option><option value="priority">Priority queue</option><option value="live">Live</option></select></FormField><Button disabled={busy||!selectedPromptIds.length}>Apply mode to selected</Button></form><FormField label="Samples per prompt" hint="Independent back-to-back samples, queued under the normal concurrency limit. Each sample is a separate provider charge and run."><input type="number" min={1} max={10} value={runSamples} onChange={e=>setRunSamples(Math.max(1,Math.min(10,Number(e.target.value)||1)))} /></FormField></details>
+                      <div className="form-grid prompt-filters">
+                        <FormField label="Search saved prompts">
+                          <input type="search" value={promptSearch} maxLength={200} placeholder="Search prompt text"
+                            onChange={e => { setPromptSearch(e.target.value); setSelectedPromptIds([]); }} />
+                        </FormField>
+                        <FormField label="Filter by engine">
+                          <select value={promptEngineFilter} onChange={e => { setPromptEngineFilter(e.target.value); setSelectedPromptIds([]); }}>
+                            <option value="">All engines</option>
+                            {Object.entries(engines).map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+                          </select>
+                        </FormField>
+                        <FormField label="Filter by schedule">
+                          <select value={promptScheduleFilter} onChange={e => { setPromptScheduleFilter(e.target.value); setSelectedPromptIds([]); }}>
+                            <option value="">All prompts</option>
+                            <option value="active">Actively scheduled</option>
+                            <option value="inactive">No active schedule</option>
+                          </select>
+                        </FormField>
+                        <FormField label="Filter by brand or client" hint="Uses the prompt’s brand or its workspace’s primary brand. Switch client workspaces above.">
+                          <select value={promptBrandFilter} onChange={e => { setPromptBrandFilter(e.target.value); setSelectedPromptIds([]); }}>
+                            <option value="">All brands</option>
+                            {brands.map(brand => <option key={brand.id} value={brand.id}>{brand.name}</option>)}
+                          </select>
+                        </FormField>
+                      </div>
+                      {currentLibrary && !currentLibrary.error && (
+                        <p className="data-note" role="status">
+                          {savedPrompts.length} {filteredPrompts ? "matching prompts" : "prompts"} shown{currentLibrary.next ? " · More available" : ""}
+                        </p>
+                      )}
+                      {savedPrompts.length > 0 && canWrite && <div className="bulk-toolbar">
+                        <label className="check-field"><input type="checkbox" aria-label="Select all shown prompts" checked={savedSelection.length===savedPrompts.length} onChange={e=>setSelectedPromptIds(e.target.checked?savedPrompts.map(p=>p.id):[])} /> Select all shown ({savedPrompts.length})</label><span>{savedSelection.length} selected</span>
+                        <Button disabled={busy||!!pendingRun||!savedSelection.length||savedSelection.length*runSamples>100} onClick={()=>queuePromptBatch(savedSelection,runSamples)}>Run selected — {savedSelection.length*runSamples} runs</Button>
+                        <Button variant="outline" disabled={!savedSelection.length||savedSelection.length>100} onClick={()=>{setSelectedPromptIds(savedSelection);setEditingScheduleSelection(false);setTab("schedules");}}>Schedule selected</Button>
+                        <Button variant="outline" disabled={busy||!savedSelection.length||savedSelection.length>100} onClick={()=>action(async()=>{await request("/prompts/bulk-settings","PATCH",{ids:savedSelection,enabled:true});await load();setNotice("Selected prompts enabled.");})}>Enable selected</Button>
+                        <Button variant="outline" disabled={busy||!savedSelection.length||savedSelection.length>100} onClick={()=>action(async()=>{await request("/prompts/bulk-settings","PATCH",{ids:savedSelection,enabled:false});await load();setNotice("Selected prompts paused; history retained.");})}>Pause selected</Button>
+                        <details><summary>Advanced · sampling & bulk settings</summary><form className="app-inline-form" onSubmit={e=>submit(e,async f=>{await request("/prompts/bulk-settings","PATCH",{ids:savedSelection,mode:f.get("bulk_mode")});await load();setNotice("Execution mode updated for selected prompts. No provider request was made.");})}><FormField label="Execution mode for selected prompts" hint="Priority and live may cost more on future runs. This only changes saved settings."><select name="bulk_mode"><option value="standard">Standard queue</option><option value="priority">Priority queue</option><option value="live">Live</option></select></FormField><Button disabled={busy||!savedSelection.length||savedSelection.length>100}>Apply mode to selected</Button></form><FormField label="Samples per prompt" hint="Independent back-to-back samples, queued under the normal concurrency limit. Each sample is a separate provider charge and run."><input type="number" min={1} max={10} value={runSamples} onChange={e=>setRunSamples(Math.max(1,Math.min(10,Number(e.target.value)||1)))} /></FormField></details>
                       </div>}
-                      {visiblePrompts.length ? (
+                      {savedSelection.length*runSamples>100 && (
+                        <p className="data-note">Choose up to 100 prompts for a bulk action and up to 100 runs per collection batch.</p>
+                      )}
+                      {!currentLibrary ? <p role="status">Loading saved prompts…</p> :
+                        currentLibrary.error ? <p role="alert">{currentLibrary.error}</p> :
+                        savedPrompts.length ? (
                         <div className="prompt-table">
-                          {visiblePrompts.map((p) => (
+                          {savedPrompts.map((p) => (
                             <div className="saved-prompt" key={p.id}>
                               {canWrite && <input type="checkbox" aria-label={`Select ${p.text} — ${engines[p.engine]}`} checked={selectedPromptIds.includes(p.id)} onChange={e=>setSelectedPromptIds(current=>e.target.checked?[...current,p.id]:current.filter(id=>id!==p.id))} />}
                               <div>
@@ -1431,7 +1541,7 @@ function App() {
                                 <small>
                                   {engines[p.engine]} · {p.location_name} ·{" "}
                                   {p.language_code} · {p.mode}{" "}
-                                  {!p.enabled && "· paused"}
+                                  {!p.enabled ? "· Paused" : p.actively_scheduled ? "· Scheduled" : ""}
                                 </small>
                                 <code>{p.id}</code>
                               </div>
@@ -1470,11 +1580,18 @@ function App() {
                             </div>
                           ))}
                         </div>
+                      ) : filteredPrompts ? (
+                        <Empty title="No matching prompts" description="Change the filters or search another keyword." />
                       ) : (
                         <Empty
                           title="Ask a better question."
                           description="Save a prompt above. It won't incur charges until you run it or enable a schedule."
                         />
+                      )}
+                      {currentLibrary?.next && (
+                        <Button variant="outline" size="sm" disabled={loadingMorePrompts} onClick={moreSavedPrompts}>
+                          {loadingMorePrompts ? "Loading…" : "Load more prompts"}
+                        </Button>
                       )}
                     </CardContent>
                   </Card>
@@ -2072,7 +2189,7 @@ function App() {
                             <Button type="button" variant="outline" disabled={scheduleTimes.length>=8} onClick={()=>setScheduleTimes(current=>[...current,"17:00"])}>Add another daily time</Button>
                           </details>
                           <p aria-live="polite">{editingScheduleSelection?selectedScheduleIds.length:selectedPromptIds.length} prompts × {scheduleSamples} samples × {new Set(scheduleTimes).size} times = <strong>{(editingScheduleSelection?selectedScheduleIds.length:selectedPromptIds.length)*scheduleSamples*new Set(scheduleTimes).size} runs per scheduled day</strong>.</p>
-                          <p className="data-note">Each sample/engine variant consumes its own run and provider charges. Normal daily/monthly quotas still apply. Runs queue under the existing concurrency limit. Missed slots do not trigger a historical burst; saving a new batch does not run it.</p>
+                          <p className="data-note">Each sample/engine variant consumes its own run and provider charges. The monthly allowance applies. Runs queue under the existing concurrency limit. Missed slots do not trigger a historical burst. Saving a batch does not run it.</p>
                           <Button disabled={busy || !(editingScheduleSelection?selectedScheduleIds.length:selectedPromptIds.length) || !scheduleDays.length}>{editingScheduleSelection?"Save settings for selected schedules":"Create paused batch schedule"}</Button>
                           {editingScheduleSelection && <Button type="button" variant="ghost" onClick={()=>setEditingScheduleSelection(false)}>Cancel bulk edit</Button>}
                         </form>
@@ -2374,7 +2491,7 @@ function App() {
                     <Card>
                       <CardContent>
                         <h2>{settings.plan.name} · {settings.plan.version}</h2>
-                        <p className="data-note">Assigned plan allowances; shared by all organization members and API keys. Deployment safety ceilings and your daily run guardrail may be lower.</p>
+                        <p className="data-note">Plan allowances are shared by all organization members and API keys.</p>
                         <p>{settings.plan.limits.api_per_minute.toLocaleString()} API operations/minute · {settings.plan.limits.provider_per_minute.toLocaleString()} provider operations/minute · {settings.plan.limits.concurrent_runs} concurrent runs</p>
                         <p>{Number(settings.monthly_usage?.api_operations || 0).toLocaleString()} / {settings.plan.limits.api_per_month.toLocaleString()} monthly API operations · {Number(settings.monthly_usage?.runs || 0).toLocaleString()} / {settings.plan.limits.runs_per_month.toLocaleString()} monthly runs</p>
                         <p className="data-note">Monthly allowances reset on the first UTC. Hosted subscriptions are managed separately from self-hosted installs.</p>
@@ -2385,11 +2502,7 @@ function App() {
                     <Card className="app-stat">
                       <CardContent>
                         <span>Today's runs (UTC)</span>
-                        <strong>
-                          {settings.usage?.runs || 0}
-                          <small> / {settings.daily_run_limit}</small>
-                        </strong>
-                        <small>Run-count guardrail, not a dollar budget</small>
+                        <strong>{settings.usage?.runs || 0}</strong>
                       </CardContent>
                     </Card>
                     <Card className="app-stat">
@@ -2537,17 +2650,12 @@ function App() {
                                 await request("/settings", "PATCH", {
                                   resolve_poisoned_results:
                                     f.get("clean") === "on",
-                                  daily_run_limit: Number(f.get("limit")),
                                 });
                                 setNotice("Organization settings saved.");
                                 await load();
                               })
                             }
-                            key={
-                              settings.resolve_poisoned_results +
-                              "-" +
-                              settings.daily_run_limit
-                            }
+                            key={settings.resolve_poisoned_results}
                           >
                             <label className="check-field">
                               <input
@@ -2565,19 +2673,6 @@ function App() {
                               can incur additional provider charges.
                               Asynchronous AI Overview loading is also enabled.
                             </p>
-                            <FormField
-                              label="Daily run-count limit"
-                              hint="Shared organization run-count guardrail; resets at midnight UTC. This is not a guaranteed dollar-spending cap."
-                            >
-                              <input
-                                type="number"
-                                name="limit"
-                                min={1}
-                                max={1000000}
-                                defaultValue={settings.daily_run_limit || 20}
-                                required
-                              />
-                            </FormField>
                             <Button disabled={busy}>Save defaults</Button>
                           </form>
                         </CardContent>

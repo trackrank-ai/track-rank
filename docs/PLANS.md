@@ -5,7 +5,7 @@
 - **D1 plan catalog:** each immutable revision owns its name, price, currency, interval and allowances. Versions can be added/activated/retired without rebuilding the app. Repository migrations and JSON examples make changes reviewable.
 - **D1 organization assignment:** pins an organization to an exact revision, never to a floating `starter` family alias. Retirement does not change its price or entitlements. Assignment changes are recorded by database triggers in `plan_assignment_history`.
 - **Deployment variables:** `DEFAULT_PLAN_VERSION` chooses the revision for NEW organizations only. Optional `API_REQUESTS_PER_MINUTE` and `PROVIDER_REQUESTS_PER_MINUTE` are emergency ceilings, applied as `min(plan allowance, ceiling)`; they cannot upgrade anyone. Changing these ceilings affects existing organizations too, so do not use them for normal pricing changes.
-- **Organization Settings:** customers may lower their daily run safety guardrail. This does not change the subscribed plan or override its monthly allowance. Existing daily limits are preserved. The daily guardrail defaults to 20, may be raised to 1,000,000, and is always subordinate to plan admission controls.
+- **Run usage:** the monthly run allowance governs admission. Daily tracking counts remain available for reporting.
 
 No service subscription or external licensing check is required for self-hosting. Self-hosters control their catalog and can create a $0 plan with their own allowances. Limits are resource protections, not software licensing restrictions.
 
@@ -17,7 +17,7 @@ No service subscription or external licensing check is required for self-hosting
 | starter-v1 | draft | $10/month | 120 | 200,000 | 10 | 6,000 | 3 |
 | pro-v1 | draft | $30/month | 360 | 600,000 | 30 | 18,000 | 9 |
 
-Migration `0004` assigns all pre-existing organizations to Beta; it does not silently put them on a paid plan or apply Starter's new monthly limits. Beta monthly ceilings are intentionally nonbinding at its existing API rate and normal daily guardrail. Starter and Pro are draft templates, not offers currently sold. Pro's values are illustrative and must be reviewed before activation. The default remains Beta until the operator changes it.
+Migration `0004` assigns pre-existing organizations to Beta. Starter and Pro are draft templates. Pro's values are illustrative and must be reviewed before activation. The default remains Beta until the operator changes it.
 
 ## Operator commands
 

@@ -1,4 +1,6 @@
-export function parsePromptInput(input: string, separator = 'auto'): string[] {
+export const MAX_PROMPT_COMBINATIONS = 500;
+
+export function inspectPromptInput(input: string, separator = 'auto') {
   const lines = separator === 'lines' || (separator === 'auto' && /[\r\n]/.test(input));
   let parts: string[] = [];
   if (lines) parts = input.split(/\r?\n|\r/);
@@ -10,11 +12,18 @@ export function parsePromptInput(input: string, separator = 'auto'): string[] {
         if(quoted && input[i+1]==='"'){current+='"';i++;}else quoted=!quoted;
       } else if(c===',' && !quoted){parts.push(current);current='';}else current+=c;
     }
-    if(quoted)throw new Error('Close the quoted prompt, or select One per line to keep punctuation unchanged.');
+    if (quoted) return { prompts: [], error: 'Close the quoted prompt, or select One per line to keep punctuation unchanged.' };
     parts.push(current);
   }
   const prompts=[...new Set(parts.map(p=>p.trim()).filter(Boolean))];
-  if(prompts.some(p=>p.length<3 || p.length>700))throw new Error('Each prompt must contain 3–700 characters.');
-  if(prompts.length>100)throw new Error('Paste up to 100 prompts at a time.');
+  const error = prompts.some(p => p.length < 3 || p.length > 700)
+    ? 'Each prompt must contain 3–700 characters.'
+    : '';
+  return { prompts, error };
+}
+
+export function parsePromptInput(input: string, separator = 'auto'): string[] {
+  const { prompts, error } = inspectPromptInput(input, separator);
+  if (error) throw new Error(error);
   return prompts;
 }

@@ -2120,6 +2120,13 @@ input[type="checkbox"] {
 .form-grid .check-field {
   align-self: center;
 }
+.form-grid .prompt-engines .check-field {
+  align-self: stretch;
+  justify-content: flex-start;
+}
+.prompt-filters {
+  margin-block: 12px;
+}
 .form-actions {
   display: flex;
   align-items: center;

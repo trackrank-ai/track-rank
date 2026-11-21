@@ -19,7 +19,8 @@ Scopes: `read` for GET, `write` for research mutations, `run` for paid execution
 | DELETE | `/workspaces/:id/brands/:brand_id` | Unlink; future runs use remaining set |
 | GET, POST | `/brands` | List/create `{name, domain?, kind: own\|client\|competitor, aliases?: string[]}` |
 | PATCH | `/brands/:id` | Update name/domain/kind/aliases; future runs use changes |
-| GET, POST | `/prompts` | Optional GET `?workspace=id`; create shape below |
+| GET, POST | `/prompts` | Optional GET `?workspace=id`; use `view=library` for filtered pagination |
+| POST | `/prompts/bulk` | Save up to 500 prompt/engine combinations per request |
 | GET | `/prompts/:id` | Read a saved prompt in the selected organization |
 | PATCH | `/prompts/:id` | Full prompt configuration, same as creation |
 | POST | `/prompts/:id/run` | Paid collection; `Idempotency-Key` recommended, 8–128 chars |
@@ -33,7 +34,7 @@ Scopes: `read` for GET, `write` for research mutations, `run` for paid execution
 | PATCH | `/schedules/:id` | `{enabled?, local_time?, timezone?}` |
 | DELETE | `/schedules/:id` | Remove schedule, retain history |
 | GET | `/settings` | Defaults, credential configured flags, today's usage |
-| PATCH | `/settings` | Admin: `{resolve_poisoned_results, daily_run_limit}` |
+| PATCH | `/settings` | Admin updates `resolve_poisoned_results` |
 | PUT | `/credentials` | Admin: `{login?, password?, openrouter_key?, openrouter_model?}`; preserve unspecified values |
 | DELETE | `/credentials` | Admin: remove both providers, pause all schedules |
 | GET, POST | `/keys` | Admin: metadata/create `{name, scopes, expires_in_days?}` |
@@ -47,7 +48,11 @@ Scopes: `read` for GET, `write` for research mutations, `run` for paid execution
 | GET | `/audit` | Admin: latest 100 metadata-only events |
 | GET | `/export` | Latest 1,000 organization runs as formula-neutralized CSV |
 
-Errors: JSON `{error}` and status 400/401/403/404/409/410/413/429/500/502/503. Requests are bounded to 32 KB; client-side forms validate additionally.
+Errors return JSON `{error}` and an HTTP status. JSON requests have a 32 KiB body limit. Bulk prompt saves have a larger route-specific limit to accommodate 500 prompts.
+
+The prompt library requires `workspace` and supports `q` for prompt text, `engine`, `schedule=active` or `schedule=inactive`, and `brand`. A prompt is actively scheduled when the prompt and at least one of its schedules are enabled. Brand matching uses the prompt's associated brand or falls back to the workspace's primary brand. Pass the returned `next_cursor` as `before` and `before_id` to load the next page.
+
+Run admission uses the plan's monthly allowance. The settings endpoint still accepts the legacy `daily_run_limit` field for older clients and ignores its value.
 
 Run history sorts by creation timestamp and run ID, newest first. To get the next page, pass both `next_before` as `before` and `next_before_id` as `before_id`, with the same workspace filter. The MCP `list_runs` tool accepts the same cursor fields. Both response fields are null at the end. A numeric `before` alone still filters strictly to older timestamps.
 
@@ -81,7 +86,7 @@ Client-specific syntax may differ; the endpoint uses standard Streamable HTTP wi
 
 ## Customer rate limits and retries
 
-All keys and interactive members of the **same organization share their assigned plan’s API allowance** (Beta and Starter: 120 operations per UTC minute), including MCP tool calls (which wrap the same REST handler). Creating another key does not create another budget. Other organizations have separate budgets. Provider operations (`run`, `refresh`, `analyze`) additionally share the assigned provider rate (Beta/Starter: **10/minute**). Monthly API/run allowances and concurrency are versioned plan entitlements; daily run safety settings remain independent. See [plan catalog and lifecycle](PLANS.md).
+All keys and interactive members of the **same organization share their assigned plan’s API allowance** (Beta and Starter: 120 operations per UTC minute), including MCP tool calls (which wrap the same REST handler). Creating another key does not create another budget. Other organizations have separate budgets. Provider operations (`run`, `refresh`, `analyze`) additionally share the assigned provider rate (Beta/Starter: **10/minute**). Monthly API and run allowances and concurrency are versioned plan entitlements. See [plan catalog and lifecycle](PLANS.md).
 
 MCP also permits the plan’s API-per-minute allowance of authenticated HTTP requests per organization, including initialization and tool discovery. A tool call consumes one MCP transport allowance and one shared API allowance, not two API operations. Account-level organization/invite routes use a separate 120/minute user budget when no organization is selected. Authentication has its own login/signup limits.
 

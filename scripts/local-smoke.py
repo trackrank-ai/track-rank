@@ -53,8 +53,8 @@ assert teammate.post(base+'/api/v1/brands'+suffix,json={'name':'Not allowed','ki
 check(s.delete(base+'/api/v1/members/'+mid+suffix))
 assert teammate.get(base+'/api/v1/workspaces'+suffix).status_code==403
 print('PASS: second-account team join, single-use invitation, organization isolation, viewer restrictions and member removal')
-check(s.patch(base+'/api/v1/settings'+suffix,json={'resolve_poisoned_results':False,'daily_run_limit':10}))
-updated=check(s.get(base+'/api/v1/settings'+suffix));assert updated['daily_run_limit']==10 and updated['resolve_poisoned_results']==0
+check(s.patch(base+'/api/v1/settings'+suffix,json={'resolve_poisoned_results':False}))
+updated=check(s.get(base+'/api/v1/settings'+suffix));assert 'daily_run_limit' not in updated and updated['resolve_poisoned_results']==0
 for path in ('/runs','/members','/invites','/keys','/brands','/prompts','/workspaces','/schedules'):
  check(s.get(base+'/api/v1'+path+suffix))
 print('PASS: app data endpoints and persisted organization settings')
