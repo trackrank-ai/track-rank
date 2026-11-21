@@ -37,6 +37,8 @@ Scopes: `read` for GET, `write` for research mutations, `run` for paid execution
 | GET | `/settings` | Defaults, credential configured flags, today's usage |
 | PATCH | `/settings` | Admin updates `resolve_poisoned_results` |
 | PUT | `/credentials` | Admin: `{login?, password?, openrouter_key?, openrouter_model?}`; preserve unspecified values |
+| DELETE | `/credentials/dataforseo` | Admin removes DataForSEO login and password and pauses organization schedules |
+| DELETE | `/credentials/openrouter` | Admin removes the OpenRouter key and model |
 | DELETE | `/credentials` | Admin: remove both providers, pause all schedules |
 | GET, POST | `/keys` | Admin: metadata/create `{name, scopes, expires_in_days?}` |
 | DELETE | `/keys/:id` | Admin: revoke |
@@ -54,6 +56,8 @@ Errors return JSON `{error}` and an HTTP status. JSON requests have a 32 KiB bod
 The prompt library spans the organization when `workspace` is omitted. It supports `q` for prompt text, `engine`, `schedule=active` or `schedule=inactive`, and `brand`. A prompt is actively scheduled when the prompt and at least one of its schedules are enabled. Brand matching uses the prompt's associated brand or falls back to the workspace's primary brand. Pass the returned `next_cursor` as `before` and `before_id` to load the next page.
 
 Run admission uses the plan's monthly allowance. The settings endpoint still accepts the legacy `daily_run_limit` field for older clients and ignores its value.
+
+Provider-specific deletion preserves the other provider. Credential saves and provider-specific deletions return saved-status flags and the OpenRouter model identifier. TrackRank stores secrets encrypted and provider account controls handle revocation.
 
 Run history and CSV export support `workspace`, `engine`, `prompt_id`, `status`, `q` for prompt text or answer text, and `brand_id` for mentions or citations in eligible collected answers. Use the same filters on every page. CSV exports up to 1,000 matching runs.
 

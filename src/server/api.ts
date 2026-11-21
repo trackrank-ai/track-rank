@@ -12,8 +12,9 @@ import { runUsage, runUsagePeriods } from "./run-admission";
 import { customerLimit, enforceLimit } from "./rate-limit";
 import { z } from "zod";
 import { admin, authenticate, organizations, tenant } from "./auth";
-import { hashToken, seal, token } from "./crypto";
-import { analyzeRun, collectRun, createRun, credentials } from "./provider";
+import { hashToken, token } from "./crypto";
+import { analyzeRun, collectRun, createRun } from "./provider";
+import { credentials, credentialStatus, removeAllCredentials, updateCredentials } from "./provider-credentials";
 import {
   all,
   exec,
@@ -678,19 +679,7 @@ export async function api(
     const o = required(
       await one<Row>(env, "SELECT id,name,created_at,resolve_poisoned_results FROM organizations WHERE id=?", org),
     );
-    let configured = {
-      dataforseo_configured: false,
-      openrouter_configured: false,
-      openrouter_model: "",
-    };
-    if (!p.keyId) {
-      const c = await credentials(env, org);
-      configured = {
-        dataforseo_configured: !!(c.login && c.password),
-        openrouter_configured: !!c.openrouter_key,
-        openrouter_model: c.openrouter_model || "",
-      };
-    }
+    const configured = credentialStatus(p.keyId ? {} : await credentials(env, org));
     const periods = runUsagePeriods(now());
     const plan = await organizationPlan(env, org);
     const [counts, cost, monthly] = await Promise.all([
@@ -737,26 +726,20 @@ export async function api(
         })
         .strict(),
     );
-    const c = { ...(await credentials(env, org)), ...b };
-    if ((c.login && !c.password) || (!c.login && c.password))
-      throw new HttpError(
-        400,
-        "Both DataForSEO login and API password are required",
-      );
-    await exec(
-      env,
-      "INSERT INTO credentials(org_id,ciphertext,updated_at) VALUES(?,?,?) ON CONFLICT(org_id) DO UPDATE SET ciphertext=excluded.ciphertext,updated_at=excluded.updated_at",
-      org,
-      await seal(env, org, c),
-      now(),
-    );
+    const status = await updateCredentials(env, org, b);
     await audit(env, t, "credentials.updated", org);
-    return json({ ok: true });
+    return json({ ok: true, ...status });
+  }
+  if (method === "DELETE" && (path === "/credentials/dataforseo" || path === "/credentials/openrouter")) {
+    admin(t);
+    const provider = path === "/credentials/dataforseo" ? "dataforseo" : "openrouter";
+    const status = await updateCredentials(env, org, provider);
+    await audit(env, t, `credentials.${provider}.removed`, org);
+    return json({ ok: true, ...status });
   }
   if (path === "/credentials" && method === "DELETE") {
     admin(t);
-    await exec(env, "DELETE FROM credentials WHERE org_id=?", org);
-    await exec(env, "UPDATE schedules SET enabled=0 WHERE org_id=?", org);
+    await removeAllCredentials(env, org);
     await audit(env, t, "credentials.removed", org);
     return json({ ok: true });
   }

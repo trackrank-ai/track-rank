@@ -577,6 +577,43 @@ test("credential settings never return stored API passwords", async () => {
   assert.ok(text.includes("dataforseo_configured"));
 });
 
+test("provider removal preserves the other credentials and pauses only DataForSEO schedules", async () => {
+  const { env, sql } = fixture();
+  const a = await setupPrompt(env);
+  const b = await setupPrompt(env, "bob");
+  const addSchedule = sql.prepare(`INSERT INTO schedules(id,org_id,prompt_id,preset,days,local_time,timezone,enabled,created_at)
+    VALUES(?,?,?,'daily','[1]','09:00','UTC',1,0)`);
+  addSchedule.run("a-schedule", a.id, a.promptId);
+  addSchedule.run("b-schedule", b.id, b.promptId);
+  const request = (path: string, method: string, data?: unknown) => call(env, { userId: "alice" }, path, method, data, a.id);
+  const { credentials } = await import("../src/server/provider-credentials");
+  const dataForSeo = { login: "replacement-login", password: "replacement-secret" };
+  const openRouter = { openrouter_key: "test-analysis-secret", openrouter_model: "test/model" };
+  await Promise.all([
+    request("/credentials", "PUT", dataForSeo),
+    request("/credentials", "PUT", openRouter),
+  ]);
+  assert.deepEqual(await credentials(env, a.id), { ...dataForSeo, ...openRouter });
+  const enabled = (schedule: string) => sql.prepare("SELECT enabled FROM schedules WHERE id=?").get(schedule)?.enabled;
+  const removedOpenRouter = await (await request("/credentials/openrouter", "DELETE")).json();
+  assert.deepEqual(removedOpenRouter, { ok: true, dataforseo_configured: true, openrouter_configured: false, openrouter_model: "" });
+  assert.deepEqual(await credentials(env, a.id), dataForSeo);
+  assert.equal(enabled("a-schedule"), 1);
+  await request("/credentials", "PUT", openRouter);
+
+  sql.prepare("INSERT INTO memberships VALUES(?,?,'member',?)").run(a.id, "eve", Date.now());
+  await assert.rejects(call(env, { userId: "eve" }, "/credentials/dataforseo", "DELETE", undefined, a.id), /administrator session/);
+  await assert.rejects(call(env, { userId: "bob" }, "/credentials/dataforseo", "DELETE", undefined, a.id), { status: 403 });
+  const removedDataForSeo = await (await request("/credentials/dataforseo", "DELETE")).json();
+  assert.deepEqual(removedDataForSeo, { ok: true, dataforseo_configured: false, openrouter_configured: true, openrouter_model: "test/model" });
+  assert.equal(enabled("a-schedule"), 0);
+  assert.equal(enabled("b-schedule"), 1);
+  assert.deepEqual(await credentials(env, a.id), openRouter);
+  await request("/credentials/openrouter", "DELETE");
+  assert.equal(sql.prepare("SELECT * FROM credentials WHERE org_id=?").get(a.id), undefined);
+  assert.ok(sql.prepare("SELECT * FROM credentials WHERE org_id=?").get(b.id));
+});
+
 test("workspace brand sets isolate client research and permit local competitor relationships", async () => {
   const { env } = fixture();
   const a = await setupPrompt(env);

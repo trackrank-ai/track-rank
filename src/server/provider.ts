@@ -12,13 +12,9 @@ import {
   type Env,
   type Row,
 } from "./types";
-import { callbackSignature, unseal } from "./crypto";
-export type Credentials = {
-  login?: string;
-  password?: string;
-  openrouter_key?: string;
-  openrouter_model?: string;
-};
+import { callbackSignature } from "./crypto";
+import { credentials } from "./provider-credentials";
+export { credentials } from "./provider-credentials";
 export type Engine = "chatgpt" | "gemini" | "google";
 export type Config = {
   engine: Engine;
@@ -50,17 +46,6 @@ export function providerPayload(text: string, config: Config, id: string) {
         }
       : {}),
   };
-}
-export async function credentials(
-  env: Env,
-  orgId: string,
-): Promise<Credentials> {
-  const row = await one<{ ciphertext: string }>(
-    env,
-    "SELECT ciphertext FROM credentials WHERE org_id=?",
-    orgId,
-  );
-  return row ? unseal<Credentials>(env, orgId, row.ciphertext) : {};
 }
 async function dfs(env: Env, orgId: string, path: string, body?: unknown) {
   const c = await credentials(env, orgId);

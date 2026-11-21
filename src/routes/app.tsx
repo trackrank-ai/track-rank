@@ -3,6 +3,7 @@ import { appLoginPath, parseAppSearch, type AppTab as Tab } from "@/lib/app-loca
 import { Tooltip as HelpTooltip } from "radix-ui";
 import { LegalLinks } from "@/components/legal-layout";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { ProviderCredentialsCard } from "@/components/provider-credentials-card";
 import { RunStatus, WorkspaceRunHistory } from "@/components/workspace-run-history";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
@@ -34,7 +35,6 @@ import {
   Plus,
   RefreshCw,
   Settings2,
-  ShieldCheck,
   Sparkles,
   Users,
 } from "lucide-react";
@@ -537,6 +537,18 @@ function App() {
     setEditPrompt(null);
     setPromptText("");
   }, [workspace]);
+  async function changeCredentials(method: "PUT" | "DELETE", path: string, values?: unknown) {
+    setBusy(true);
+    try {
+      const status = await request(path, method, values);
+      if (activeOrg.current !== org) return;
+      const { dataforseo_configured, openrouter_configured, openrouter_model } = status;
+      setSettings(current => ({ ...current, dataforseo_configured, openrouter_configured, openrouter_model }));
+      await load();
+    } finally {
+      setBusy(false);
+    }
+  }
   async function action(fn: () => Promise<void>) {
     setBusy(true);
     setError("");
@@ -2537,124 +2549,23 @@ function App() {
                   </div>
                   {isAdmin ? (
                     <>
-                      <Card>
-                        <CardContent>
-                          <div className="panel-title">
-                            <h2>DataForSEO credentials</h2>
-                            <Badge variant="outline">
-                              {settings.dataforseo_configured
-                                ? "Connected"
-                                : "Not configured"}
-                            </Badge>
-                          </div>
-                          <p className="data-note">
-                            Stored encrypted using AES-256-GCM with
-                            organization-bound authenticated encryption. Saved
-                            passwords are never returned to the browser.
-                          </p>
-                          <form
-                            className="form-stack"
-                            onSubmit={(e) =>
-                              submit(e, async (f) => {
-                                await request("/credentials", "PUT", {
-                                  login: f.get("login"),
-                                  password: f.get("password"),
-                                });
-                                setNotice(
-                                  "DataForSEO credentials saved securely.",
-                                );
-                                await load();
-                              })
-                            }
-                          >
-                            <div className="form-grid">
-                              <FormField label="API login">
-                                <input
-                                  name="login"
-                                  autoComplete="off"
-                                  required
-                                  maxLength={200}
-                                />
-                              </FormField>
-                              <FormField
-                                label="API password"
-                                hint="Use the API password from DataForSEO API Access."
-                              >
-                                <input
-                                  name="password"
-                                  type="password"
-                                  autoComplete="new-password"
-                                  required
-                                  maxLength={500}
-                                />
-                              </FormField>
-                            </div>
-                            <Button disabled={busy}>
-                              <ShieldCheck size={14} /> Save credentials
-                            </Button>
-                          </form>
-                        </CardContent>
-                      </Card>
-                      <Card>
-                        <CardContent>
-                          <div className="panel-title">
-                            <h2>OpenRouter analysis (optional)</h2>
-                            <Badge variant="outline">
-                              {settings.openrouter_configured
-                                ? "Key saved"
-                                : "Not configured"}
-                            </Badge>
-                          </div>
-                          <p className="data-note">
-                            Collection never uses model calls. OpenRouter is
-                            used only when you explicitly choose Analyze on a
-                            collected run. Its inference charges are separate
-                            from DataForSEO and the run-count guardrail.
-                          </p>
-                          <form
-                            className="form-stack"
-                            onSubmit={(e) =>
-                              submit(e, async (f) => {
-                                await request("/credentials", "PUT", {
-                                  openrouter_key: f.get("openrouter_key"),
-                                  openrouter_model: f.get("openrouter_model"),
-                                });
-                                setNotice(
-                                  "OpenRouter settings saved securely.",
-                                );
-                                await load();
-                              })
-                            }
-                          >
-                            <div className="form-grid">
-                              <FormField label="OpenRouter API key">
-                                <input
-                                  type="password"
-                                  name="openrouter_key"
-                                  autoComplete="new-password"
-                                  required
-                                  maxLength={500}
-                                />
-                              </FormField>
-                              <FormField
-                                label="Model identifier"
-                                hint="Choose a model available in your OpenRouter account."
-                              >
-                                <input
-                                  name="openrouter_model"
-                                  required
-                                  defaultValue={settings.openrouter_model || ""}
-                                  placeholder="provider/model-name"
-                                  maxLength={150}
-                                />
-                              </FormField>
-                            </div>
-                            <Button disabled={busy}>
-                              Save analysis settings
-                            </Button>
-                          </form>
-                        </CardContent>
-                      </Card>
+                      <ProviderCredentialsCard
+                        key={org + ":dataforseo"}
+                        provider="dataforseo"
+                        configured={!!settings.dataforseo_configured}
+                        busy={busy}
+                        onSave={values => changeCredentials("PUT", "/credentials", values)}
+                        onRemove={() => changeCredentials("DELETE", "/credentials/dataforseo")}
+                      />
+                      <ProviderCredentialsCard
+                        key={org + ":openrouter"}
+                        provider="openrouter"
+                        configured={!!settings.openrouter_configured}
+                        model={settings.openrouter_model}
+                        busy={busy}
+                        onSave={values => changeCredentials("PUT", "/credentials", values)}
+                        onRemove={() => changeCredentials("DELETE", "/credentials/openrouter")}
+                      />
                       <Card>
                         <CardContent>
                           <h2>Poisoned-SERP fixer & collection defaults</h2>
@@ -2690,35 +2601,6 @@ function App() {
                             </p>
                             <Button disabled={busy}>Save defaults</Button>
                           </form>
-                        </CardContent>
-                      </Card>
-                      <Card>
-                        <CardContent>
-                          <h2>Remove provider credentials</h2>
-                          <p className="data-note">
-                            Removes both provider configurations and pauses
-                            every schedule. Collected history remains.
-                          </p>
-                          <Button
-                            variant="outline"
-                            disabled={busy}
-                            onClick={() => {
-                              if (
-                                confirm(
-                                  "Remove all provider credentials and pause every schedule?",
-                                )
-                              )
-                                action(async () => {
-                                  await request("/credentials", "DELETE");
-                                  setNotice(
-                                    "Credentials removed; schedules paused.",
-                                  );
-                                  await load();
-                                });
-                            }}
-                          >
-                            Remove credentials & pause schedules
-                          </Button>
                         </CardContent>
                       </Card>
                     </>
