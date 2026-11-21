@@ -3,6 +3,7 @@ import { assertProviderOptions, providerOptions } from "./provider-options";
 import { MAX_PROMPT_BATCH_BYTES, promptBatchSchema, savePromptBatch } from "./prompt-batch";
 import { listSavedPrompts } from "./prompt-library";
 import { historyWhere } from "./run-history";
+import { requireWorkspaceBrand } from "./workspace-brands";
 import { startTrial } from "./trials";
 import { billingRoute } from "./billing";
 import { localAuthEnabled } from "./local-auth";
@@ -244,23 +245,18 @@ export async function api(
     );
     await belongs(env, "brands", org, b.brand_id);
     const wid = uuid();
-    await exec(
-      env,
-      "INSERT INTO workspaces(id,org_id,name,brand_id,created_at) VALUES(?,?,?,?,?)",
+    const workspace = env.DB.prepare("INSERT INTO workspaces(id,org_id,name,brand_id,created_at) VALUES(?,?,?,?,?)").bind(
       wid,
       org,
       b.name,
       b.brand_id || null,
       now(),
     );
-    if (b.brand_id)
-      await exec(
-        env,
+    if (b.brand_id) {
+      await env.DB.batch([workspace, env.DB.prepare(
         "INSERT INTO workspace_brands(org_id,workspace_id,brand_id,kind) SELECT org_id,?,id,kind FROM brands WHERE org_id=? AND id=?",
-        wid,
-        org,
-        b.brand_id,
-      );
+      ).bind(wid, org, b.brand_id)]);
+    } else await workspace.run();
     return json({ id: wid }, 201);
   }
   const workspaceBrand = path.match(
@@ -287,13 +283,12 @@ export async function api(
   }
   if (workspaceBrand?.[2] && method === "DELETE") {
     await belongs(env, "workspaces", org, workspaceBrand[1]);
-    await exec(
-      env,
-      "DELETE FROM workspace_brands WHERE org_id=? AND workspace_id=? AND brand_id=?",
-      org,
-      workspaceBrand[1],
-      workspaceBrand[2],
-    );
+    const values = [org, workspaceBrand[1], workspaceBrand[2]];
+    await env.DB.batch([
+      env.DB.prepare("UPDATE workspaces SET brand_id=NULL WHERE org_id=? AND id=? AND brand_id=?").bind(...values),
+      env.DB.prepare("UPDATE prompts SET brand_id=NULL WHERE org_id=? AND workspace_id=? AND brand_id=?").bind(...values),
+      env.DB.prepare("DELETE FROM workspace_brands WHERE org_id=? AND workspace_id=? AND brand_id=?").bind(...values),
+    ]);
     return json({ ok: true });
   }
   if (path === "/brands" && method === "GET")
@@ -316,13 +311,13 @@ export async function api(
             .max(20)
             .default([]),
           kind: z.enum(["own", "client", "competitor"]).default("own"),
+          workspace_id: id.optional(),
         })
         .strict(),
     );
+    await belongs(env, "workspaces", org, b.workspace_id);
     const bid = uuid();
-    await exec(
-      env,
-      "INSERT INTO brands VALUES(?,?,?,?,?,?,?)",
+    const brand = env.DB.prepare("INSERT INTO brands VALUES(?,?,?,?,?,?,?)").bind(
       bid,
       org,
       b.name,
@@ -331,6 +326,11 @@ export async function api(
       b.kind,
       now(),
     );
+    if (b.workspace_id) {
+      await env.DB.batch([brand, env.DB.prepare(
+        "INSERT INTO workspace_brands(org_id,workspace_id,brand_id,kind) VALUES(?,?,?,?)",
+      ).bind(org, b.workspace_id, bid, b.kind)]);
+    } else await brand.run();
     return json({ id: bid }, 201);
   }
   if (path.startsWith("/brands/") && method === "PATCH") {
@@ -388,8 +388,11 @@ export async function api(
     if (changed.length) {
       const movedAt = now();
       await env.DB.batch(changed.map(p => env.DB.prepare(
-        "UPDATE prompts SET workspace_id=?,updated_at=? WHERE org_id=? AND id=?",
-      ).bind(b.workspace_id, movedAt, org, p.id)));
+        `UPDATE prompts SET workspace_id=?,updated_at=?,
+         brand_id=CASE WHEN EXISTS(SELECT 1 FROM workspace_brands wb
+           WHERE wb.org_id=prompts.org_id AND wb.workspace_id=? AND wb.brand_id=prompts.brand_id)
+         THEN brand_id ELSE NULL END WHERE org_id=? AND id=?`,
+      ).bind(b.workspace_id, movedAt, b.workspace_id, org, p.id)));
     }
     return json({ moved: changed.length });
   }
@@ -397,7 +400,7 @@ export async function api(
     const b = await body(req, promptSchema);
     await assertProviderOptions([b.engine], b.location_name, b.language_code);
     await belongs(env, "workspaces", org, b.workspace_id);
-    await belongs(env, "brands", org, b.brand_id);
+    await requireWorkspaceBrand(env, org, b.workspace_id, b.brand_id);
     const pid = uuid(),
       time = now();
     await exec(
@@ -434,7 +437,7 @@ export async function api(
     await assertProviderOptions([b.engine], b.location_name, b.language_code);
     await belongs(env, "prompts", org, match[1]);
     await belongs(env, "workspaces", org, b.workspace_id);
-    await belongs(env, "brands", org, b.brand_id);
+    await requireWorkspaceBrand(env, org, b.workspace_id, b.brand_id);
     await exec(
       env,
       "UPDATE prompts SET workspace_id=?,brand_id=?,text=?,engine=?,mode=?,location_name=?,language_code=?,enabled=?,updated_at=? WHERE id=? AND org_id=?",
@@ -563,14 +566,20 @@ export async function api(
       return json(await analyzeRun(env, org, String(r.id)));
     }
   }
-  if (path === "/schedules" && method === "GET")
+  if (path === "/schedules" && method === "GET") {
+    const workspace = u.searchParams.get("workspace");
+    if (workspace) await belongs(env, "workspaces", org, workspace);
     return json({
       schedules: await all(
         env,
-        "SELECT * FROM schedules WHERE org_id=? ORDER BY created_at DESC LIMIT 500",
+        `SELECT s.*,p.workspace_id,p.text AS prompt_text FROM schedules s
+         JOIN prompts p ON p.org_id=s.org_id AND p.id=s.prompt_id
+         WHERE s.org_id=?${workspace ? " AND p.workspace_id=?" : ""} ORDER BY s.created_at DESC LIMIT 500`,
         org,
+        ...(workspace ? [workspace] : []),
       ),
     });
+  }
   if (path === "/schedules" && method === "POST") {
     const b = await body(
       req,

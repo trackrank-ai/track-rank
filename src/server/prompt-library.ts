@@ -2,7 +2,7 @@ import { z } from "zod";
 import { all, HttpError, type Env, type Row } from "./types";
 
 const libraryFilters = z.object({
-  workspace: z.string().min(1).max(100),
+  workspace: z.string().min(1).max(100).optional(),
   q: z.string().trim().max(200).default(""),
   engine: z.enum(["chatgpt", "gemini", "google"]).optional(),
   schedule: z.enum(["active", "inactive"]).optional(),
@@ -15,8 +15,12 @@ export async function listSavedPrompts(env: Env, org: string, params: URLSearchP
   const parsed = libraryFilters.safeParse(Object.fromEntries(params));
   if (!parsed.success) throw new HttpError(400, "Invalid saved prompt filters or cursor");
   const filters = parsed.data;
-  const conditions = ["p.org_id=?", "p.workspace_id=?"];
-  const values: unknown[] = [org, filters.workspace];
+  const conditions = ["p.org_id=?"];
+  const values: unknown[] = [org];
+  if (filters.workspace) {
+    conditions.push("p.workspace_id=?");
+    values.push(filters.workspace);
+  }
   if (filters.q) {
     conditions.push("instr(lower(p.text), lower(?))>0");
     values.push(filters.q);

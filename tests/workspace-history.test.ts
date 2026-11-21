@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { api } from "../src/server/api";
 import { seal } from "../src/server/crypto";
 import { createRun } from "../src/server/provider";
+import { createBulkRuns } from "../src/server/bulk";
 import { fixture } from "./helpers/billing-fixture";
 
 function setup() {
@@ -73,4 +74,28 @@ test("a prompt move is tenant-scoped and keeps schedules and past runs in their 
   assert.equal(schedule?.prompt_id, "prompt");
   assert.equal(schedule?.enabled, 1);
   assert.equal(schedule?.last_slot, "2026-11-21");
+});
+
+test("All workspaces spans the organization and collection snapshots use only explicit workspace brands", async () => {
+  const { sql, env, call } = setup();
+  env.CREDENTIALS_KEY = Buffer.alloc(32, 7).toString("base64");
+  sql.prepare("INSERT INTO credentials VALUES('org',?,1,0)").run(await seal(env, "org", { login: "test", password: "fixture" }));
+  sql.exec("INSERT INTO prompts(id,org_id,workspace_id,text,created_at,updated_at) VALUES('target-prompt','org','target','Target prompt',0,0)");
+  const source = await (await call("/brands", { name: "Source client", workspace_id: "source" })).json() as { id: string };
+  const target = await (await call("/brands", { name: "Target client", workspace_id: "target" })).json() as { id: string };
+  await call("/brands", { name: "Catalog only" });
+  await assert.rejects(call("/prompts", { workspace_id: "source", brand_id: target.id, text: "Wrong client" }), { status: 404 });
+  const single = await createRun(env, "org", "prompt", "source-brand-snapshot");
+  const bulk = await createBulkRuns(env, "org", { prompt_ids: ["target-prompt"], batch_key: "target-brand-snapshot" });
+  const ids = (run: Record<string, unknown>) => JSON.parse(String(run.config)).brands.map((brand: { id: string }) => brand.id);
+  assert.deepEqual(ids(single), [source.id]);
+  assert.deepEqual(ids(bulk.runs[0]), [target.id]);
+  sql.prepare("DELETE FROM workspace_brands WHERE workspace_id='target'").run();
+  assert.deepEqual(ids(await createRun(env, "org", "target-prompt", "empty-brand-snapshot")), []);
+
+  const readPrompts = async (suffix = "") => (await (await call("/prompts?view=library" + suffix)).json() as {
+    prompts: { workspace_id: string }[];
+  }).prompts.map(prompt => prompt.workspace_id);
+  assert.deepEqual(new Set(await readPrompts()), new Set(["source", "target"]));
+  assert.deepEqual(await readPrompts("&workspace=target"), ["target"]);
 });

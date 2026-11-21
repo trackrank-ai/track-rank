@@ -45,6 +45,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 export const Route = createFileRoute("/app")({ validateSearch: parseAppSearch, component: App });
 // API JSON has heterogeneous result shapes; keep server secrets out of the client contract.
 type Item = Record<string, any>;
+const ALL_WORKSPACES = "all";
 const nav: { id: Tab; label: string; Icon: typeof BarChart3 }[] = [
   { id: "overview", label: "Overview", Icon: BarChart3 },
   { id: "prompts", label: "Prompts", Icon: MessageSquare },
@@ -175,8 +176,10 @@ function App() {
   const [promptEngineFilter, setPromptEngineFilter] = useState("");
   const [promptScheduleFilter, setPromptScheduleFilter] = useState("");
   const [promptBrandFilter, setPromptBrandFilter] = useState("");
+  const [promptWorkspace, setPromptWorkspace] = useState("");
   const [promptLibrary, setPromptLibrary] = useState<{ key: string; rows: Item[]; next: PromptLibraryCursor | null; error?: string } | null>(null);
   const [loadingMorePrompts, setLoadingMorePrompts] = useState(false);
+  const [workspaceData, setWorkspaceData] = useState<{ key: string; prompts: Item[]; runs: Item[]; schedules: Item[]; cursor: RunHistoryCursor | null } | null>(null);
   const [session, setSession] = useState<Item | null>(null),
     [initializing, setInitializing] = useState(true),
     [orgs, setOrgs] = useState<Item[]>([]),
@@ -212,11 +215,16 @@ function App() {
   const workspaceReady = orgReady && !billingBlocksWorkspace(billing.access_status);
   const linkedPrompt = promptDetail?.id === search.prompt && promptDetail?.org_id === org ? promptDetail : null;
   const selectedRun = runDetail?.id === search.run && runDetail?.org_id === org ? runDetail : null;
-  const workspace = search.workspace ?? linkedPrompt?.workspace_id ?? selectedRun?.workspace_id ??
-    (workspaceReady ? workspaces[0]?.id : undefined) ?? "";
-  const workspaceName = workspaces.find(w => w.id === workspace)?.name || "this workspace";
-  const unavailableWorkspace = workspaceReady && !!search.workspace && !workspaces.some(w => w.id === search.workspace);
-  const libraryQuery = new URLSearchParams({ view: "library", workspace });
+  const workspace = search.workspace ?? linkedPrompt?.workspace_id ?? selectedRun?.workspace_id ?? ALL_WORKSPACES;
+  const allWorkspaces = workspace === ALL_WORKSPACES;
+  const workspaceId = allWorkspaces ? "" : workspace;
+  const workspaceKey = org + ":" + workspaceId;
+  const scoped = workspaceData?.key === workspaceKey ? workspaceData : null;
+  const workspaceNames = Object.fromEntries(workspaces.map(w => [w.id, w.name]));
+  const workspaceName = allWorkspaces ? "All workspaces" : workspaceNames[workspace] || "this workspace";
+  const unavailableWorkspace = workspaceReady && !allWorkspaces && !workspaces.some(w => w.id === workspace);
+  const libraryQuery = new URLSearchParams({ view: "library" });
+  if (workspaceId) libraryQuery.set("workspace", workspaceId);
   if (promptSearch.trim()) libraryQuery.set("q", promptSearch.trim());
   if (promptEngineFilter) libraryQuery.set("engine", promptEngineFilter);
   if (promptScheduleFilter) libraryQuery.set("schedule", promptScheduleFilter);
@@ -226,6 +234,7 @@ function App() {
   const currentLibrary = promptLibrary?.key === libraryKey ? promptLibrary : null;
   const savedPrompts = currentLibrary?.rows ?? [];
   const savedSelection = selectedPromptIds.filter(id => savedPrompts.some(prompt => prompt.id === id));
+  const mixedWorkspaceSelection = new Set(savedPrompts.filter(p => savedSelection.includes(p.id)).map(p => p.workspace_id)).size > 1;
   const filteredPrompts = !!(promptSearch.trim() || promptEngineFilter || promptScheduleFilter || promptBrandFilter);
   const promptInput = useMemo(() => editPrompt
     ? { prompts: promptText.trim() ? [promptText.trim()] : [], error: "" }
@@ -235,7 +244,13 @@ function App() {
   const promptsToRemove = tooManyPromptCombinations
     ? promptInput.prompts.length - Math.floor(MAX_PROMPT_COMBINATIONS / promptEngineChoices.length)
     : 0;
-  const sectionSearch = (nextTab: Tab) => ({ org: org || undefined, workspace: workspace || undefined, tab: nextTab });
+  const savingWorkspace = editPrompt?.workspace_id ?? (workspaceId || promptWorkspace);
+  const brandIds = (id: string): string[] => JSON.parse(workspaces.find(w => w.id === id)?.brand_ids || "[]");
+  const trackedBrandIds = new Set(brandIds(workspaceId));
+  const promptBrandIds = new Set(brandIds(savingWorkspace));
+  const scopeBrands = allWorkspaces ? brands : brands.filter(b => trackedBrandIds.has(b.id));
+  const promptBrands = brands.filter(b => promptBrandIds.has(b.id));
+  const sectionSearch = (nextTab: Tab) => ({ org: org || undefined, workspace, tab: nextTab });
   function setTab(nextTab: Tab) {
     if (nextTab !== tab || search.prompt || search.run) void navigate({ search: sectionSearch(nextTab) });
   }
@@ -376,6 +391,20 @@ function App() {
     }
   }, [org, request]);
   useEffect(() => {
+    if (!workspaceReady || !workspaceId || unavailableWorkspace ||
+      !["overview", "research", "prompts", "schedules"].includes(tab)) return;
+    let canceled = false;
+    const query = "?" + new URLSearchParams({ workspace: workspaceId });
+    Promise.all([request("/prompts" + query), request("/runs" + query), request("/schedules" + query)])
+      .then(([promptPage, runPage, schedulePage]) => {
+        if (!canceled) setWorkspaceData({
+          key: workspaceKey, prompts: promptPage.prompts, runs: runPage.runs, schedules: schedulePage.schedules,
+          cursor: runPage.next_before_id ? { before: runPage.next_before, beforeId: runPage.next_before_id } : null,
+        });
+      }).catch(error => { if (!canceled) setError(error.message); });
+    return () => { canceled = true; };
+  }, [workspaceReady, workspaceId, unavailableWorkspace, workspaceKey, prompts, request, tab]);
+  useEffect(() => {
     if (!workspaceReady || !workspace || unavailableWorkspace || tab !== "prompts") return;
     let canceled = false;
     setPromptLibrary(null);
@@ -393,6 +422,7 @@ function App() {
     setPromptEngineFilter("");
     setPromptScheduleFilter("");
     setPromptBrandFilter("");
+    setPromptWorkspace("");
   }, [org, workspace]);
   useEffect(() => {
     if (initializing || pendingInvite || !org || search.trial || !orgReady) return;
@@ -417,11 +447,11 @@ function App() {
     request("/" + kind + "s/" + encodeURIComponent(detail)).then(data => {
       if (canceled) return;
       const item = data[kind];
-      if (!item || (kind === "run" && search.workspace && item.workspace_id !== search.workspace)) {
+      if (!item || (kind === "run" && search.workspace && search.workspace !== ALL_WORKSPACES && item.workspace_id !== search.workspace)) {
         setDetailError("This " + kind + " is unavailable in the selected workspace.");
       } else if (kind === "prompt") {
         setPromptDetail(item);
-        if (search.workspace && item.workspace_id !== search.workspace)
+        if (search.workspace && search.workspace !== ALL_WORKSPACES && item.workspace_id !== search.workspace)
           void navigate({ search: previous => ({ ...previous, workspace: item.workspace_id }), replace: true });
       } else {
         setSelectedRun({ ...item, org_id: org });
@@ -531,8 +561,10 @@ function App() {
       form.reset();
     });
   }
-  const visiblePrompts = [...new Map([...prompts.filter(p => p.workspace_id === workspace), ...savedPrompts].map(p => [p.id, p])).values()],
-    visibleRuns = runs.filter((r) => r.workspace_id === workspace);
+  const visiblePrompts = [...new Map([...(scoped?.prompts ?? prompts.filter(p => allWorkspaces || p.workspace_id === workspace)), ...savedPrompts].map(p => [p.id, p])).values()],
+    visibleRuns = scoped?.runs ?? runs.filter(r => allWorkspaces || r.workspace_id === workspace);
+  const visibleSchedules = scoped?.schedules ?? schedules.filter(s => allWorkspaces || s.workspace_id === workspace);
+  const analysisCursor = allWorkspaces ? nextRunCursor : scoped?.cursor;
   const [engine, setEngine] = useState("all"),
     [brand, setBrand] = useState(""),
     [range, setRange] = useState("30");
@@ -545,8 +577,8 @@ function App() {
     (r) => r.status === "succeeded" && r.has_answer,
   );
   const selectedBrand =
-    brand || brands.find((b) => b.kind !== "competitor")?.id || "";
-  const brandStats: Item[] = brands.map((b) => {
+    (scopeBrands.some(b => b.id === brand) && brand) || scopeBrands.find(b => b.kind !== "competitor")?.id || scopeBrands[0]?.id || "";
+  const brandStats: Item[] = scopeBrands.map((b) => {
     const sampled = successful.filter((r) =>
       (r.mentions || []).some((m: Item) => m.brand_id === b.id),
     );
@@ -660,18 +692,26 @@ function App() {
     }
   }
   async function moreRuns() {
-    if (!nextRunCursor) return;
+    if (!analysisCursor) return;
     await action(async () => {
       const query = new URLSearchParams({
-        before: String(nextRunCursor.before),
-        before_id: nextRunCursor.beforeId,
+        before: String(analysisCursor.before),
+        before_id: analysisCursor.beforeId,
       });
+      if (workspaceId) query.set("workspace", workspaceId);
       const d = await request("/runs?" + query);
       if (activeOrg.current !== org) return;
-      setRuns((current) => [...current, ...d.runs]);
-      setNextRunCursor(d.next_before_id
+      const cursor = d.next_before_id
         ? { before: d.next_before, beforeId: d.next_before_id }
-        : null);
+        : null;
+      if (workspaceId) {
+        setWorkspaceData(current => current === scoped && current
+          ? { ...current, runs: [...current.runs, ...d.runs], cursor }
+          : current);
+      } else {
+        setRuns(current => [...current, ...d.runs]);
+        setNextRunCursor(cursor);
+      }
     });
   }
   if (initializing)
@@ -732,59 +772,57 @@ function App() {
           trackrank<span className="brand-suffix">.ai</span>
         </Link>
         <label className="org-switcher">
-          <span>ORGANIZATION <HelpTip label="organizations" text="Your team account: members, billing, provider credentials and shared limits live here. An organization can contain multiple workspaces." /></span>
-          <select
-            value={org}
-            disabled={busy}
-            onChange={(e) => {
-              setOrg(e.target.value);
-              setError("");
-              setNotice("");
-            }}
-            aria-label="Organization"
-          >
-            {org && !orgs.some(o => o.id === org) && <option value={org}>Unavailable organization</option>}
-            {orgs.map((o) => (
-              <option key={o.id} value={o.id}>
-                {o.name}
-              </option>
-            ))}
-            {!orgs.length && (
-              <option value="">Create your first organization</option>
-            )}
+          <span>WORKSPACE</span>
+          <select aria-label="Workspace" value={workspace} disabled={!workspaceReady || busy}
+            onChange={e => { setWorkspace(e.target.value); setError(""); setNotice(""); }}>
+            <option value={ALL_WORKSPACES}>All workspaces</option>
+            {unavailableWorkspace && <option value={workspace}>Unavailable workspace</option>}
+            {workspaces.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
           </select>
         </label>
-        <details className="create-org">
-          <summary>
-            <Plus size={12} /> New organization
-          </summary>
-          <form
-            onSubmit={(e) =>
-              submit(e, async (f) => {
-                const d = await request(
-                  "/organizations",
-                  "POST",
-                  { name: f.get("name") },
-                  "",
-                );
-                await reloadOrgs();
-                setOrg(d.id);
-                setNotice("Organization and default workspace created.");
-              })
-            }
-          >
-            <input
-              name="name"
-              required
-              maxLength={100}
-              aria-label="New organization name"
-              placeholder="Organization name"
-            />
-            <Button size="sm" disabled={busy}>
-              Create
-            </Button>
-          </form>
-        </details>
+        {canWrite && (
+            <details className="create-org">
+              <summary>
+                <Plus size={14} /> New workspace
+              </summary>
+              <form
+                onSubmit={(e) => {
+                  const popover = e.currentTarget.closest("details");
+                  return submit(e, async (f) => {
+                    const d = await request("/workspaces", "POST", {
+                      name: f.get("name"),
+                      brand_id: f.get("brand_id") || null,
+                    });
+                    await load();
+                    if (popover) popover.open = false;
+                    setWorkspace(d.id);
+                  });
+                }}
+              >
+                <input
+                  required
+                  name="name"
+                  maxLength={100}
+                  placeholder="Workspace name"
+                  aria-label="Workspace name"
+                />
+                <select name="brand_id" aria-label="Primary brand">
+                  <option value="">No primary brand</option>
+                  {brands.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.name}
+                    </option>
+                  ))}
+                </select>
+                <Button size="sm" disabled={busy}>
+                  Create workspace
+                </Button>
+              </form>
+            </details>
+        )}
+        <Link className="workspace-org-link" to="/app" search={sectionSearch("settings")}>
+          {orgs.find(o => o.id === org)?.name || "Organization settings"}
+        </Link>
         <nav className="app-nav" aria-label="Application">
           {nav.map(({ id, label, Icon }) => (
             <Link
@@ -875,6 +913,66 @@ function App() {
           </div>
         </header>
         <main className="app-content">
+          {tab === "settings" && org && (
+            <Card><CardContent>
+              <h2>Organization</h2>
+              <p className="data-note">Team access, billing, credentials, and usage limits are shared across its workspaces.</p>
+              <label className="org-switcher">
+                <span>Switch organization</span>
+                <select
+                  value={org}
+                  disabled={busy}
+                  onChange={(e) => {
+                    setOrg(e.target.value);
+                    setError("");
+                    setNotice("");
+                  }}
+                  aria-label="Organization"
+                >
+                  {org && !orgs.some(o => o.id === org) && <option value={org}>Unavailable organization</option>}
+                  {orgs.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.name}
+                    </option>
+                  ))}
+                  {!orgs.length && (
+                    <option value="">Create your first organization</option>
+                  )}
+                </select>
+              </label>
+              <details className="create-org">
+                <summary>
+                  <Plus size={12} /> New organization
+                </summary>
+                <form
+                  onSubmit={(e) =>
+                    submit(e, async (f) => {
+                      const d = await request(
+                        "/organizations",
+                        "POST",
+                        { name: f.get("name") },
+                        "",
+                      );
+                      await reloadOrgs();
+                      setOrg(d.id);
+                      setNotice("Organization and default workspace created.");
+                    })
+                  }
+                >
+                  <input
+                    name="name"
+                    required
+                    maxLength={100}
+                    aria-label="New organization name"
+                    placeholder="Organization name"
+                  />
+                  <Button size="sm" disabled={busy}>
+                    Create
+                  </Button>
+                </form>
+              </details>
+            </CardContent></Card>
+          )}
           {orgReady && (billing.enabled || billing.free_trial_enabled) && <Card><CardContent>
             <h2>{billing.access_status === "trial_expired" ? "Your free trial has ended. Choose a plan to continue." : billing.access_status === "free_trial" ? "Your 14-day free trial is active" : "Plan & billing"}</h2>
             {billing.access_status === "free_trial" && <p>Full Starter access until {new Date(billing.free_trial.ends_at).toLocaleString()}. No card is on file for this trial and no automatic charge will happen at expiry.</p>}
@@ -958,7 +1056,7 @@ function App() {
             <Card><CardContent>
               <h2>Workspace unavailable</h2>
               <p>Check the link or ask your team for access.</p>
-              <Link to="/app" search={{ org, tab }}>Open the default workspace</Link>
+              <Link to="/app" search={{ org, tab }}>View all workspaces</Link>
             </CardContent></Card>
           ) : (
             <>
@@ -978,77 +1076,13 @@ function App() {
                     {tab === "overview"
                       ? "Real collected results. No sample data."
                       : tab === "prompts"
-                        ? `New prompts and future runs belong to ${workspaceName}.`
+                        ? allWorkspaces ? "Prompts across your organization. Choose a workspace when saving new prompts." : `New prompts and future runs belong to ${workspaceName}.`
                         : tab === "runs"
-                          ? `Viewing runs in ${workspaceName}. Switch workspaces to see another client’s history.`
+                          ? allWorkspaces ? "Run history across your organization." : `Viewing runs in ${workspaceName}.`
                           : "Organization-scoped research and collaboration."}
                   </p>
                 </div>
-                {[
-                  "overview",
-                  "prompts",
-                  "runs",
-                  "research",
-                  "brands",
-                  "schedules",
-                ].includes(tab) && (
-                  <div className="workspace-control">
-                    <label>
-                      Workspace <HelpTip label="workspaces" text="A research folder inside your organization. Use one per client, brand or campaign. Each workspace can compare multiple brands and competitors; billing and credentials stay shared by the organization." />
-                      <select
-                        value={workspace}
-                        onChange={(e) => setWorkspace(e.target.value)}
-                      >
-                        {workspaces.map((w) => (
-                          <option value={w.id} key={w.id}>
-                            {w.name}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    {canWrite && (
-                      <details>
-                        <summary>
-                          <Plus size={14} /> New workspace
-                        </summary>
-                        <form
-                          className="popover-form"
-                          onSubmit={(e) => {
-                            const popover = e.currentTarget.closest("details");
-                            return submit(e, async (f) => {
-                              const d = await request("/workspaces", "POST", {
-                                name: f.get("name"),
-                                brand_id: f.get("brand_id") || null,
-                              });
-                              await load();
-                              if (popover) popover.open = false;
-                              setWorkspace(d.id);
-                            });
-                          }}
-                        >
-                          <input
-                            required
-                            name="name"
-                            maxLength={100}
-                            placeholder="Workspace name"
-                            aria-label="Workspace name"
-                          />
-                          <select name="brand_id" aria-label="Primary brand">
-                            <option value="">Sandbox / no primary brand</option>
-                            {brands.map((b) => (
-                              <option key={b.id} value={b.id}>
-                                {b.name}
-                              </option>
-                            ))}
-                          </select>
-                          <Button size="sm" disabled={busy}>
-                            Create workspace
-                          </Button>
-                        </form>
-                      </details>
-                    )}
-                  </div>
-                )}
+
               </div>
               {["overview", "research"].includes(tab) && (
                 <div className="app-filters">
@@ -1073,7 +1107,7 @@ function App() {
                       onChange={(e) => setBrand(e.target.value)}
                     >
                       <option value="">No tracked brand</option>
-                      {brands.map((b) => (
+                      {scopeBrands.map((b) => (
                         <option value={b.id} key={b.id}>
                           {b.name}
                         </option>
@@ -1167,7 +1201,7 @@ function App() {
                             Manage <ArrowUpRight size={13} />
                           </Button>
                         </div>
-                        {brands.length ? (
+                        {scopeBrands.length ? (
                           <div className="comparison-list">
                             {brandStats.map((b) => (
                               <div key={b.id}>
@@ -1314,10 +1348,11 @@ function App() {
                               const selected = f.getAll("engines").map(String);
                               const ordered = editPrompt && selected.includes(editPrompt.engine) ? [editPrompt.engine, ...selected.filter(e => e !== editPrompt.engine)] : selected;
                               if (!texts.length || !ordered.length) throw new Error("Enter prompts and select at least one engine.");
+                              if (!savingWorkspace) throw new Error("Choose a workspace.");
                               if (texts.length * ordered.length > MAX_PROMPT_COMBINATIONS)
                                 throw new Error(`Save at most ${MAX_PROMPT_COMBINATIONS} prompt/engine combinations per batch.`);
                               const result = await request("/prompts/bulk", "POST", {
-                                workspace_id: workspace, brand_id: f.get("brand_id") || null,
+                                workspace_id: savingWorkspace, brand_id: f.get("brand_id") || null,
                                 texts, engines: ordered, ...(editPrompt ? { source_id: editPrompt.id } : {}),
                                 mode: f.get("mode"), location_name: f.get("location_name"), language_code: f.get("language_code"), enabled: f.get("enabled") === "on",
                               });
@@ -1331,6 +1366,14 @@ function App() {
                           }
                           key={editPrompt?.id || "new"}
                         >
+                          {allWorkspaces && !editPrompt && (
+                            <FormField label="Save prompts to workspace">
+                              <select value={promptWorkspace} onChange={e => setPromptWorkspace(e.target.value)} required>
+                                <option value="">Choose a workspace</option>
+                                {workspaces.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+                              </select>
+                            </FormField>
+                          )}
                           <FormField label={editPrompt ? "Prompt" : "Prompts — paste your list"} hint={editPrompt ? "Edit this prompt. Select extra engines below to add variants without deleting other saved prompts." : "Paste one prompt per line or separate prompts with commas. Auto uses lines when present, preserving commas inside each line. For a single prompt containing commas, choose One per line."}>
                             <textarea
                               name="text"
@@ -1388,13 +1431,14 @@ function App() {
                             </FormField>
                             <FormField label="Associated brand (optional)">
                               <select
+                                key={savingWorkspace}
                                 name="brand_id"
                                 defaultValue={editPrompt?.brand_id || ""}
                               >
                                 <option value="">
-                                  Workspace research / all tracked brands
+                                  No associated brand
                                 </option>
-                                {brands.map((b) => (
+                                {promptBrands.map((b) => (
                                   <option value={b.id} key={b.id}>
                                     {b.name}
                                   </option>
@@ -1415,7 +1459,7 @@ function App() {
                           </div>
                           <div className="form-actions">
                             <Button disabled={busy || providerChoicesLoading || !providerChoices || !!providerChoices.error ||
-                              !promptEngineChoices.length || !promptInput.prompts.length || !!promptInput.error || tooManyPromptCombinations}>
+                              !savingWorkspace || !promptEngineChoices.length || !promptInput.prompts.length || !!promptInput.error || tooManyPromptCombinations}>
                               <Plus size={14} />
                               {editPrompt ? "Save prompt settings" : "Save prompts for selected engines"}
                             </Button>
@@ -1517,7 +1561,7 @@ function App() {
                         <FormField label="Filter by brand or client" hint="Uses the prompt’s brand or its workspace’s primary brand. Switch client workspaces above.">
                           <select value={promptBrandFilter} onChange={e => { setPromptBrandFilter(e.target.value); setSelectedPromptIds([]); }}>
                             <option value="">All brands</option>
-                            {brands.map(brand => <option key={brand.id} value={brand.id}>{brand.name}</option>)}
+                            {scopeBrands.map(brand => <option key={brand.id} value={brand.id}>{brand.name}</option>)}
                           </select>
                         </FormField>
                       </div>
@@ -1528,7 +1572,7 @@ function App() {
                       )}
                       {savedPrompts.length > 0 && canWrite && <div className="bulk-toolbar">
                         <label className="check-field"><input type="checkbox" aria-label="Select all shown prompts" checked={savedSelection.length===savedPrompts.length} onChange={e=>setSelectedPromptIds(e.target.checked?savedPrompts.map(p=>p.id):[])} /> Select all shown ({savedPrompts.length})</label><span>{savedSelection.length} selected</span>
-                        <Button disabled={busy||!!pendingRun||!savedSelection.length||savedSelection.length*runSamples>100} onClick={()=>queuePromptBatch(savedSelection,runSamples)}>Run selected — {savedSelection.length*runSamples} runs</Button>
+                        <Button disabled={busy||!!pendingRun||!savedSelection.length||mixedWorkspaceSelection||savedSelection.length*runSamples>100} onClick={()=>queuePromptBatch(savedSelection,runSamples)}>Run selected — {savedSelection.length*runSamples} runs</Button>
                         <Button variant="outline" disabled={!savedSelection.length||savedSelection.length>100} onClick={()=>{setSelectedPromptIds(savedSelection);setEditingScheduleSelection(false);setTab("schedules");}}>Schedule selected</Button>
                         <Button variant="outline" disabled={busy||!savedSelection.length||savedSelection.length>100} onClick={()=>action(async()=>{await request("/prompts/bulk-settings","PATCH",{ids:savedSelection,enabled:true});await load();setNotice("Selected prompts enabled.");})}>Enable selected</Button>
                         <Button variant="outline" disabled={busy||!savedSelection.length||savedSelection.length>100} onClick={()=>action(async()=>{await request("/prompts/bulk-settings","PATCH",{ids:savedSelection,enabled:false});await load();setNotice("Selected prompts paused; history retained.");})}>Pause selected</Button>
@@ -1558,6 +1602,7 @@ function App() {
                       {savedSelection.length*runSamples>100 && (
                         <p className="data-note">Choose up to 100 prompts for a bulk action and up to 100 runs per collection batch.</p>
                       )}
+                      {mixedWorkspaceSelection && <p className="data-note">Select prompts from one workspace to run them together.</p>}
                       {!currentLibrary ? <p role="status">Loading saved prompts…</p> :
                         currentLibrary.error ? <p role="alert">{currentLibrary.error}</p> :
                         savedPrompts.length ? (
@@ -1570,6 +1615,7 @@ function App() {
                                   <strong>{p.text}</strong>
                                 </Link>
                                 <small>
+                                  {allWorkspaces && workspaceNames[p.workspace_id] && `${workspaceNames[p.workspace_id]} · `}
                                   {engines[p.engine]} · {p.location_name} ·{" "}
                                   {p.language_code} · {p.mode}{" "}
                                   {!p.enabled ? "· Paused" : p.actively_scheduled ? "· Scheduled" : ""}
@@ -1734,6 +1780,7 @@ function App() {
                                 onClick={() =>
                                   action(async () => {
                                     await request("/brands", "POST", {
+                                ...(workspaceId ? {workspace_id: workspaceId} : {}),
                                       name: n,
                                       kind: "competitor",
                                     });
@@ -1961,11 +2008,12 @@ function App() {
                   <WorkspaceRunHistory
                     key={org + ":" + workspace}
                     org={org}
-                    workspace={workspace}
+                    workspace={workspaceId}
                     workspaceName={workspaceName}
+                    workspaceNames={workspaceNames}
                     runPrompt={search.runPrompt}
                     prompts={visiblePrompts}
-                    brands={brands}
+                    brands={scopeBrands}
                     engines={engines}
                     request={request}
                     refresh={runs}
@@ -1988,6 +2036,7 @@ function App() {
                           onSubmit={(e) =>
                             submit(e, async (f) => {
                               await request("/brands", "POST", {
+                                ...(workspaceId ? {workspace_id: workspaceId} : {}),
                                 name: f.get("name"),
                                 domain: f.get("domain") || "",
                                 kind: f.get("kind"),
@@ -1997,7 +2046,7 @@ function App() {
                                   .filter(Boolean),
                               });
                               setNotice(
-                                "Brand added. Future runs will match it; past snapshots stay unchanged.",
+                                workspaceId ? "Brand added and tracked in this workspace." : "Brand added to the organization. Assign it to a workspace to track it.",
                               );
                               await load();
                             })
@@ -2048,12 +2097,9 @@ function App() {
                   </Card>
                   <Card>
                     <CardContent>
-                      <h2>Workspace brand set <HelpTip label="brands" text="Brands are the businesses you want to measure in answers: your company, clients and competitors. A workspace can track several brands together for comparison." /></h2>
+                      {!allWorkspaces && <><h2>Workspace brand set <HelpTip label="brands" text="Brands are the businesses you want to measure in answers: your company, clients and competitors. A workspace can track several brands together for comparison." /></h2>
                       <p className="data-note">
-                        Choose which brands and competitors belong in this
-                        workspace. With no selections, it acts as a sandbox and
-                        tracks all organization brands. Relationship overrides
-                        apply only to this workspace.
+                        Future runs track the brands assigned here. Add a brand to start tracking mentions and citations.
                       </p>
                       {canWrite && (
                         <form
@@ -2103,40 +2149,10 @@ function App() {
                           </Button>
                         </form>
                       )}
-                      {JSON.parse(
-                        workspaces.find((w) => w.id === workspace)?.brand_ids ||
-                          "[]",
-                      ).map((bid: string) => (
-                        <div className="simple-row" key={bid}>
-                          <span>
-                            {brands.find((b) => b.id === bid)?.name || bid}
-                          </span>
-                          {canWrite && (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              disabled={busy}
-                              onClick={() =>
-                                action(async () => {
-                                  await request(
-                                    "/workspaces/" +
-                                      workspace +
-                                      "/brands/" +
-                                      bid,
-                                    "DELETE",
-                                  );
-                                  await load();
-                                })
-                              }
-                            >
-                              Unlink
-                            </Button>
-                          )}
-                        </div>
-                      ))}
-                      <h2 style={{ marginTop: 25 }}>Organization brands</h2>
-                      {brands.length ? (
-                        brands.map((b) => (
+                      </>}
+                      <h2 style={{ marginTop: 25 }}>{allWorkspaces ? "Organization brands" : "Tracked brands"}</h2>
+                      {scopeBrands.length ? (
+                        scopeBrands.map((b) => (
                           <div className="simple-row" key={b.id}>
                             <span>
                               <strong>{b.name}</strong>
@@ -2147,13 +2163,20 @@ function App() {
                               </small>
                               <code>{b.id}</code>
                             </span>
-                            <Badge variant="outline">{b.kind}</Badge>
+                            <div className="form-actions">
+                              <Badge variant="outline">{b.kind}</Badge>
+                              {!allWorkspaces && canWrite && <Button size="sm" variant="ghost" disabled={busy}
+                                onClick={() => action(async () => {
+                                  await request("/workspaces/" + workspaceId + "/brands/" + b.id, "DELETE");
+                                  await load();
+                                })}>Unlink</Button>}
+                            </div>
                           </div>
                         ))
                       ) : (
                         <Empty
                           title="One home for every brand."
-                          description="Your own company, client brands, and competitors can live in the same organization."
+                          description={allWorkspaces ? "Add brands to reuse across workspaces." : "Add or assign a brand to track it in this workspace."}
                         />
                       )}
                     </CardContent>
@@ -2199,26 +2222,21 @@ function App() {
                   </Card>
                   <Card>
                     <CardContent>
-                      <h2>Workspace schedules</h2>
-                      {canWrite && <div className="bulk-toolbar"><label className="check-field"><input type="checkbox" aria-label="Select all schedules in this workspace" checked={schedules.filter(s=>visiblePrompts.some(p=>p.id===s.prompt_id)).length>0 && schedules.filter(s=>visiblePrompts.some(p=>p.id===s.prompt_id)).every(s=>selectedScheduleIds.includes(s.id))} onChange={e=>setSelectedScheduleIds(e.target.checked?schedules.filter(s=>visiblePrompts.some(p=>p.id===s.prompt_id)).map(s=>s.id):[])} />Select all shown</label><span>{selectedScheduleIds.length} selected</span>
+                      <h2>{allWorkspaces ? "Schedules across workspaces" : "Workspace schedules"}</h2>
+                      {canWrite && <div className="bulk-toolbar"><label className="check-field"><input type="checkbox" aria-label="Select all schedules in this workspace" checked={visibleSchedules.length>0 && visibleSchedules.every(s=>selectedScheduleIds.includes(s.id))} onChange={e=>setSelectedScheduleIds(e.target.checked?visibleSchedules.map(s=>s.id):[])} />Select all shown</label><span>{selectedScheduleIds.length} selected</span>
                         <Button disabled={busy||!selectedScheduleIds.length} onClick={()=>{if(!confirm("Enable these selected schedules? Each scheduled sample uses provider credits and your run allowance."))return;action(async()=>{await request("/schedules/bulk","PATCH",{ids:selectedScheduleIds,enabled:true});await load();setNotice("Selected schedules enabled.");});}}>Enable selected</Button>
                         <Button variant="outline" disabled={busy||!selectedScheduleIds.length} onClick={()=>action(async()=>{await request("/schedules/bulk","PATCH",{ids:selectedScheduleIds,enabled:false});await load();setNotice("Selected schedules paused.");})}>Pause selected</Button>
-                        <Button variant="outline" disabled={!selectedScheduleIds.length} onClick={()=>{const first=schedules.find(s=>selectedScheduleIds.includes(s.id));if(!first)return;setScheduleFrequency(first.preset);setScheduleDays(JSON.parse(first.days));const times=JSON.parse(first.times_json||"[]");setScheduleTimes(times.length?times:[first.local_time]);setScheduleTimezone(first.timezone);setScheduleSamples(first.repetitions||1);setEditingScheduleSelection(true);window.scrollTo({top:0,behavior:"smooth"});}}>Edit selected settings</Button>
+                        <Button variant="outline" disabled={!selectedScheduleIds.length} onClick={()=>{const first=visibleSchedules.find(s=>selectedScheduleIds.includes(s.id));if(!first)return;setScheduleFrequency(first.preset);setScheduleDays(JSON.parse(first.days));const times=JSON.parse(first.times_json||"[]");setScheduleTimes(times.length?times:[first.local_time]);setScheduleTimezone(first.timezone);setScheduleSamples(first.repetitions||1);setEditingScheduleSelection(true);window.scrollTo({top:0,behavior:"smooth"});}}>Edit selected settings</Button>
                       </div>}
-                      {schedules
-                        .filter((s) =>
-                          visiblePrompts.some((p) => p.id === s.prompt_id),
-                        )
-                        .map((s) => (
+                      {visibleSchedules.map((s) => (
                           <div className="schedule-row" key={s.id}>
-                            {canWrite && <input type="checkbox" aria-label={`Select schedule for ${prompts.find(p=>p.id===s.prompt_id)?.text || s.prompt_id}`} checked={selectedScheduleIds.includes(s.id)} onChange={e=>setSelectedScheduleIds(current=>e.target.checked?[...current,s.id]:current.filter(id=>id!==s.id))} />}
+                            {canWrite && <input type="checkbox" aria-label={`Select schedule for ${s.prompt_text || s.prompt_id}`} checked={selectedScheduleIds.includes(s.id)} onChange={e=>setSelectedScheduleIds(current=>e.target.checked?[...current,s.id]:current.filter(id=>id!==s.id))} />}
                             <div>
                               <strong>
-                                {prompts.find((p) => p.id === s.prompt_id)
-                                  ?.text || s.prompt_id}
+                                {s.prompt_text || s.prompt_id}
                               </strong>
                               <small>
-                                {s.batch_name ? s.batch_name + " · " : ""}{s.preset} · {JSON.parse(s.times_json||"[]").length ? JSON.parse(s.times_json).join(", ") : s.local_time} · {s.repetitions||1} sample(s) · {s.timezone} ·
+                                {allWorkspaces && workspaceNames[s.workspace_id] && `${workspaceNames[s.workspace_id]} · `}{s.batch_name ? s.batch_name + " · " : ""}{s.preset} · {JSON.parse(s.times_json||"[]").length ? JSON.parse(s.times_json).join(", ") : s.local_time} · {s.repetitions||1} sample(s) · {s.timezone} ·
                                 days {JSON.parse(s.days).join(", ")}
                               </small>
                               {canWrite && !s.batch_id && (
@@ -2320,11 +2338,9 @@ function App() {
                             )}
                           </div>
                         ))}
-                      {!schedules.some((s) =>
-                        visiblePrompts.some((p) => p.id === s.prompt_id),
-                      ) && (
+                      {!visibleSchedules.length && (
                         <p className="data-note">
-                          No schedules in this workspace.
+                          No schedules in this view.
                         </p>
                       )}
                     </CardContent>
@@ -2930,10 +2946,10 @@ function App() {
               {["overview", "research"].includes(tab) && (
                 <div className="load-history">
                   <p>
-                    {runs.length} organization runs loaded. Charts and research
+                    {visibleRuns.length} runs loaded. Charts and research
                     aggregate only loaded runs in the selected filters.
                   </p>
-                  {nextRunCursor && (
+                  {analysisCursor && (
                     <Button
                       variant="outline"
                       size="sm"

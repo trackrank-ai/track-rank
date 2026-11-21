@@ -2,6 +2,7 @@ import {assertProviderOptions} from "./provider-options";
 import {z} from 'zod';
 import {all, HttpError, now, one, uuid, type Env} from './types';
 import { MAX_PROMPT_COMBINATIONS } from '../lib/prompt-input';
+import { requireWorkspaceBrand } from './workspace-brands';
 
 // JSON escape sequences can expand one character to six bytes.
 export const MAX_PROMPT_BATCH_BYTES = 6 * 700 * MAX_PROMPT_COMBINATIONS + 16_384;
@@ -19,7 +20,7 @@ export async function savePromptBatch(env:Env,org:string,input:unknown){
   throw new HttpError(400, `Detected ${combinations} prompt/engine combinations. Save at most ${MAX_PROMPT_COMBINATIONS} per batch.`);
  if(b.source_id && texts.length!==1)throw new HttpError(400,'Edit one prompt at a time, or cancel editing to paste a batch.');
  if(!await one(env,'SELECT id FROM workspaces WHERE id=? AND org_id=?',b.workspace_id,org))throw new HttpError(404,'Workspace not found');
- if(b.brand_id && !await one(env,'SELECT id FROM brands WHERE id=? AND org_id=?',b.brand_id,org))throw new HttpError(404,'Brand not found');
+ await requireWorkspaceBrand(env,org,b.workspace_id,b.brand_id);
  if(b.source_id && !await one(env,'SELECT id FROM prompts WHERE id=? AND org_id=?',b.source_id,org))throw new HttpError(404,'Prompt not found');
  await assertProviderOptions(engines,b.location_name,b.language_code);
  const statements=[];const t=now();

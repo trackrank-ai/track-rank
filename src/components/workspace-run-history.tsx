@@ -22,10 +22,11 @@ export function RunStatus({ value }: { value: string }) {
   return <Badge variant="outline" className={"run-status status-" + value}>{value}</Badge>;
 }
 
-export function WorkspaceRunHistory({ org, workspace, workspaceName, runPrompt, prompts, brands, engines, request, refresh, onPromptChange }: {
+export function WorkspaceRunHistory({ org, workspace, workspaceName, workspaceNames, runPrompt, prompts, brands, engines, request, refresh, onPromptChange }: {
   org: string;
   workspace: string;
   workspaceName: string;
+  workspaceNames: Record<string, string>;
   runPrompt?: string;
   prompts: Item[];
   brands: Item[];
@@ -40,7 +41,8 @@ export function WorkspaceRunHistory({ org, workspace, workspaceName, runPrompt, 
   const [brand, setBrand] = useState("");
   const [page, setPage] = useState<RunPage | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
-  const query = new URLSearchParams({ workspace });
+  const query = new URLSearchParams();
+  if (workspace) query.set("workspace", workspace);
   if (keyword.trim()) query.set("q", keyword.trim());
   if (engine) query.set("engine", engine);
   if (status) query.set("status", status);
@@ -88,7 +90,7 @@ export function WorkspaceRunHistory({ org, workspace, workspaceName, runPrompt, 
       <div className="panel-title">
         <div>
           <h2>Collection history</h2>
-          <p>Runs recorded in {workspaceName}.</p>
+          <p>{workspace ? `Runs recorded in ${workspaceName}.` : "Runs across all workspaces."}</p>
         </div>
         <a className="small-link" href={"/api/v1/export?" + new URLSearchParams({ ...Object.fromEntries(query), org })}
           title="Export up to 1,000 matching runs">
@@ -133,8 +135,9 @@ export function WorkspaceRunHistory({ org, workspace, workspaceName, runPrompt, 
           : "No runs in this workspace yet. Go to Prompts to start a collection."}</p>
       )}
       {current?.runs.map(run => (
-        <Link key={run.id} className="run-row" to="/app" search={{ org, workspace, tab: "runs", run: run.id, runPrompt }}>
+        <Link key={run.id} className="run-row" to="/app" search={{ org, workspace: workspace || "all", tab: "runs", run: run.id, runPrompt }}>
           <span><strong>{run.prompt_text}</strong><small>
+            {!workspace && workspaceNames[run.workspace_id] && `${workspaceNames[run.workspace_id]} · `}
             {engines[run.config?.engine]} · {new Date(run.created_at).toLocaleString()} · {run.config?.mode}
           </small></span>
           <RunStatus value={run.status} />

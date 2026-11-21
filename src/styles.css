@@ -1645,6 +1645,12 @@ input[type="checkbox"] {
 .create-org input {
   font-size: 10px;
 }
+.workspace-org-link {
+  color: var(--muted-foreground);
+  font-size: 11px;
+  margin-top: 10px;
+  overflow-wrap: anywhere;
+}
 .app-nav {
   display: flex;
   flex-direction: column;
@@ -2611,6 +2617,10 @@ input[type="checkbox"] {
     padding: 7px;
   }
   .create-org {
+    grid-column: 1/3;
+    margin: 0;
+  }
+  .workspace-org-link {
     grid-column: 1/3;
     margin: 0;
   }
