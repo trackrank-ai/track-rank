@@ -1,6 +1,6 @@
 # TrackRank
 
-Independent AI visibility tracking for [trackrank.ai](https://trackrank.ai). Private during development and licensed under [MIT](LICENSE), with a public source release planned.
+Independent AI visibility tracking for [trackrank.ai](https://trackrank.ai). Open source under [MIT](LICENSE). [Browse, fork, report issues or contribute on GitHub](https://github.com/trackrank-ai/track-rank).
 
 ## Product features
 
@@ -44,7 +44,7 @@ npm run setup:local
 npm run dev
 ```
 
-Open **http://localhost:3000**. The repository is private during development, so cloning currently requires access. Sign up using any valid-format test email and a password of at least 12 characters. Local signup immediately opens the app without sending verification email. Existing accounts still need their correct password.
+Open **http://localhost:3000**. Sign up using any valid-format test email and a password of at least 12 characters. Local signup immediately opens the app without sending verification email. Existing accounts still need their correct password.
 
 `setup:local` creates ignored `.dev.vars`, generates independent auth/encryption secrets, and applies local database migrations. It preserves existing real secrets and configuration on rerun. No manual secret generation or remote resource provisioning is required. Do not delete or change `CREDENTIALS_KEY` if you want existing saved provider credentials to remain readable.
 
@@ -102,7 +102,7 @@ The software license is separate from the hosted service’s [Terms of Service](
 
 ## Agent access and customer limits
 
-Owners/admins generate scoped, expiring, revocable keys in **API & agents**. Agents can use REST and MCP on hosted, self-hosted, and local deployments. New and changed UI capabilities ship with corresponding REST and MCP support. All keys share the organization’s assigned [versioned plan allowances](docs/PLANS.md). Starter allows **120 API operations/minute**, **6,000 runs/month**, and separate limits of **10 Standard/Priority batch requests/minute** and **10 Live requests/minute**. Each batch request can contain up to 100 tasks for one engine. See [agent setup, examples, configurable limits, and retry behavior](docs/API.md#customer-rate-limits-and-retries).
+Owners/admins generate scoped, expiring, revocable keys in **API & agents**. Agents can use REST and MCP on hosted, self-hosted, and local deployments. New and changed UI capabilities ship with corresponding REST and MCP support. All keys share the organization’s assigned [versioned plan allowances](docs/PLANS.md). Starter allows **120 API operations/minute**, **10,000 runs/month**, and separate limits of **10 Standard/Priority batch requests/minute** and **10 Live requests/minute**. Each batch request can contain up to 100 tasks for one engine. See [agent setup, examples, configurable limits, and retry behavior](docs/API.md#customer-rate-limits-and-retries).
 
 ## Account identity and team invitations
 
@@ -116,10 +116,20 @@ Google and password methods share a verified same-email user identity. Google-on
 | Agency | $39 | 60,000 | 90 days |
 | Scale | $99 | 250,000 | 180 days |
 
-Apply migration `0021` before deploying these entitlements. Searchable history covers run lists, research and CSV exports, not automatic data deletion. Direct evidence links remain accessible with authorized product access. This prelaunch deployment uses one supported billing-account model. All three live offers are launched through the D1 billing catalog, as authorized by the owner. See [billing operations](docs/BILLING-OPERATIONS.md).
+Apply migration `0021` before deploying these entitlements. Searchable history covers run lists, research and CSV exports, not automatic data deletion. Direct evidence links remain accessible with authorized product access. The hosted service uses one supported billing-account model. All three live offers are launched through the D1 billing catalog, as authorized by the owner. See [billing operations](docs/BILLING-OPERATIONS.md).
 
 ## Team billing
 
 Each organization owns one billing account, Stripe Customer and subscription; workspaces share its allowance without per-seat fees. Owners can bulk grant/revoke billing access under **Settings → Billing administrators**, including when product access is paused. Delegation never changes workspace permissions, and removing membership revokes billing access. Billing admins can select a plan or manage payment details/invoices in the hosted portal. Agent billing tools return verified sign-in handoffs instead of payment-session bearer URLs.
 
 Apply migration `0022` under maintenance before deploying: it replaces the old billing table without a compatibility adapter. Hosted trials use `trial-v2` (10,000 monthly checks, 30-day searchable history). Checkout follows the approved hosted configuration with automatic tax disabled; no tax registrations are changed. Cross-organization invoice consolidation and SSO/SCIM are not implemented. See [remaining Stripe setup](STRIPE_INTEGRATION_TODO.md).
+
+## Public website and trial experience
+
+The website and app default to light mode; the theme toggle remembers an explicit preference. Hosted trial organizations see a persistent accent banner with their Starter trial countdown and a Settings billing link. Billing permissions still apply; the banner does not grant them.
+
+The homepage and `/pricing` use the same live published offer catalog and pricing components. All hosted plans include the same product features and operational rate limits; only monthly prompt runs and searchable history differ. For higher-volume or longer-history custom plans, email **info@trackrank.ai**. A prompt run means one prompt × one engine × one sample. Search windows do not automatically delete evidence.
+
+The calculator estimates a 30-day workload, picks the least expensive published USD monthly plan satisfying both runs and searchable history, and adds an editable provider-cost assumption. It is not a provider quote. Comparisons use dated official competitor sources and do not imply feature/engine/retention equivalence or guaranteed savings. Refresh those sources before updating price claims.
+
+See [contribution guidelines](CONTRIBUTING.md). Public contributions happen in forks and pull requests. The default branch requires CI and an owner code review; direct pushes, force pushes and deletion are blocked, including for administrators.

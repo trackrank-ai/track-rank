@@ -1,3 +1,6 @@
+import { PricingSection, CostCalculator, AlternativesComparison } from "@/components/pricing-section";
+import { REPOSITORY_URL } from "@/lib/pricing-estimate";
+import { getPricingCatalog } from "@/server/site-config";
 import { LegalLinks } from "@/components/legal-layout";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { createFileRoute } from "@tanstack/react-router";
@@ -26,7 +29,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 
-export const Route = createFileRoute("/")({ component: Home });
+export const Route = createFileRoute("/")({ loader: () => getPricingCatalog(), component: Home });
 
 function Mark({ small = false }: { small?: boolean }) {
   return (
@@ -111,7 +114,7 @@ function Dashboard() {
             <p>Connect the answers to the opportunities behind them.</p>
           </div>
           <span>
-            <CircleHelp size={14} /> Product concept · not live data
+            <CircleHelp size={14} /> Example workspace · sample data
           </span>
         </div>
       </aside>
@@ -327,7 +330,7 @@ function Dashboard() {
             </TabsContent>
           </Tabs>
           <p className="dashboard-disclaimer">
-            <CircleHelp size={12} /> Interactive concept preview. All metrics
+            <CircleHelp size={12} /> Interactive product preview. All metrics
             and trends are illustrative.
           </p>
         </div>
@@ -337,6 +340,7 @@ function Dashboard() {
 }
 
 function Home() {
+  const { hosted, offers } = Route.useLoaderData();
   return (
     <div className="site">
       <header className="header shell">
@@ -344,7 +348,9 @@ function Home() {
         <nav aria-label="Main navigation">
           <ThemeToggle />
           <a href="#product">Product</a>
-          <a href="#principles">Why TrackRank</a>
+          <a href="#pricing">Pricing</a>
+          <a href="#compare">Compare</a>
+          <a href={REPOSITORY_URL}>GitHub ↗</a>
           <Button asChild size="sm">
             <a href="/login">
               Sign in <ArrowUpRight size={14} />
@@ -356,7 +362,7 @@ function Home() {
         <section className="hero shell">
           <div className="hero-copy">
             <Badge variant="outline" className="hero-badge">
-              <span className="status-dot" /> A new perspective on AI search{" "}
+              <span className="status-dot" /> Open-source AI visibility tracking{" "}
               <ArrowRight size={12} />
             </Badge>
             <h1>
@@ -381,24 +387,23 @@ function Home() {
               .
             </h1>
             <p className="hero-description">
-              Your next customer is asking AI.
-              <br className="desktop-break" /> See where you show up—and what to
-              do next.
+              Track brand mentions, citations and competitors in AI answers.
+              Open source, with affordable managed hosting—or self-host it yourself.
             </p>
             <div className="hero-actions">
               <Button asChild size="lg">
-                <a href="/app">
-                  Open your workspace <ArrowUpRight size={17} />
+                <a href="/login?trial=start">
+                  Start your free trial <ArrowUpRight size={17} />
                 </a>
               </Button>
               <Button asChild size="lg" variant="ghost">
-                <a href="#principles">
-                  Built for ownership <ArrowRight size={16} />
+                <a href={REPOSITORY_URL}>
+                  Explore the source <ArrowRight size={16} />
                 </a>
               </Button>
             </div>
             <p className="availability">
-              <span className="status-dot" /> Connect your own provider accounts.
+              <span className="status-dot" /> Hosted from $10/month + provider usage. 14 days free, no card.
             </p>
           </div>
           <div className="hero-art" aria-hidden="true">
@@ -491,7 +496,7 @@ function Home() {
                 to “here's the opportunity.”
               </h2>
             </div>
-            <Badge variant="outline">Planned capabilities</Badge>
+            <Badge variant="outline">Included on every plan</Badge>
           </div>
           <div className="feature-grid">
             {[
@@ -547,9 +552,9 @@ function Home() {
             <div className="principles-copy">
               <p>Clarity shouldn't come with a lock-in.</p>
               <p>
-                We're building an independent AI visibility platform with an
-                open-source direction, bring-your-own DataForSEO credentials,
-                and a self-hostable core.
+                TrackRank is an MIT-licensed AI visibility platform. Bring your own
+                DataForSEO account, keep control of collection costs, and choose
+                our hosted service or deploy the same code yourself.
               </p>
               <Separator />
               <ul>
@@ -557,39 +562,38 @@ function Home() {
                   <ShieldCheck size={17} /> Your provider account. Your control.
                 </li>
                 <li>
-                  <Layers3 size={17} /> Self-hostable core. Managed hosting
-                  planned.
+                  <Layers3 size={17} /> Self-host free. Managed hosting is live.
                 </li>
                 <li>
-                  <ExternalLink size={17} /> Built independently. Designed to be
-                  open.
+                  <ExternalLink size={17} /> Inspect, fork and contribute on GitHub.
                 </li>
               </ul>
               <span className="principles-note">
-                Currently in development. Repository private for now.
+                <a href={REPOSITORY_URL}>View source, open an issue or propose a pull request →</a>
               </span>
             </div>
           </div>
         </section>
+        <div className="shell"><PricingSection hosted={hosted} offers={offers} /><AlternativesComparison offers={offers} /><CostCalculator offers={offers} /></div>
         <section className="closing shell">
           <p className="section-eyebrow">KNOW WHERE YOU STAND.</p>
           <h2>
             Own what comes next<span>.</span>
           </h2>
           <Button asChild size="lg">
-            <a href="#preview">
-              Take a closer look <ArrowUpRight size={17} />
+            <a href="/login?trial=start">
+              Start your 14-day free trial <ArrowUpRight size={17} />
             </a>
           </Button>
         </section>
       </main>
       <footer className="footer shell">
         <Brand />
-        <p>Independent thinking. Clearer signals.</p>
+        <p>Open-source AI visibility. Hosting without the lock-in.</p>
         <LegalLinks />
         <span>
           © {new Date().getFullYear()} TrackRank{" "}
-          <span className="footer-dot">·</span> In development
+          <span className="footer-dot">·</span> <a href={REPOSITORY_URL}>MIT licensed · GitHub</a>
         </span>
       </footer>
     </div>
