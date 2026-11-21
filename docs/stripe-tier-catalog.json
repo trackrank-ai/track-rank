@@ -1,7 +1,7 @@
 {
   "account_id": "acct_1Ue3pgG7SA9cWOCT",
   "livemode": true,
-  "offers_published": false,
+  "offer_enablement": "Managed separately in production D1 billing_offers",
   "tiers": [
     {
       "name": "Starter",

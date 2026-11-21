@@ -116,7 +116,7 @@ Google and password methods share a verified same-email user identity. Google-on
 | Agency | $39 | 60,000 | 90 days |
 | Scale | $99 | 250,000 | 180 days |
 
-Apply migration `0021` before deploying these entitlements. Searchable history covers run lists, research and CSV exports, not automatic data deletion. Direct evidence links remain accessible with authorized product access. This prelaunch deployment uses one supported billing-account model. Live prices are prepared but offers remain unpublished until the [billing launch gates](docs/BILLING-OPERATIONS.md) pass.
+Apply migration `0021` before deploying these entitlements. Searchable history covers run lists, research and CSV exports, not automatic data deletion. Direct evidence links remain accessible with authorized product access. This prelaunch deployment uses one supported billing-account model. All three live offers are launched through the D1 billing catalog, as authorized by the owner. See [billing operations](docs/BILLING-OPERATIONS.md).
 
 ## Team billing
 

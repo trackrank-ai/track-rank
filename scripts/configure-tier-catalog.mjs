@@ -31,6 +31,6 @@ for (const tier of tiers) {
   if(!price && apply)price=await stripe.prices.create({product:product.id,unit_amount:tier.cents,currency:'usd',recurring:{interval:'month'},tax_behavior:'exclusive',metadata},{idempotencyKey:`trackrank-${tier.revision}-monthly-price`});
   catalog.push({...tier,product_id:product?.id??null,price_id:price?.id??null});
 }
-const result={account_id:account.id,livemode:true,offers_published:false,tiers:catalog};
+const result={account_id:account.id,livemode:true,offer_enablement:"Managed separately in production D1 billing_offers",tiers:catalog};
 if(apply)fs.writeFileSync('docs/stripe-tier-catalog.json',JSON.stringify(result,null,2)+'\n');
 console.log(JSON.stringify(result,null,2));

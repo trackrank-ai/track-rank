@@ -56,9 +56,10 @@ sharing a Stripe Customer across unrelated organizations is deliberately prohibi
 2. Verify the nonsecret catalog and D1 mappings in
    [stripe-tier-catalog.json](docs/stripe-tier-catalog.json): Starter $10 / 10,000 checks /
    30 days; Agency $39 / 60,000 / 90 days; Scale $99 / 250,000 / 180 days.
-3. Live offers remain unpublished until the remaining real-account acceptance gates
-   in [billing operations](docs/BILLING-OPERATIONS.md) pass. Do not create a live charge
-   as part of this implementation. Tax review is not a pending gate for this change.
+3. The owner explicitly authorized launch. Publish all three live offers after the
+   matching Worker is deployed, then verify public pricing and authenticated billing
+   availability. Do not create a live charge as part of launch. Tax review is complete
+   by owner instruction; automatic tax remains disabled.
 4. Browser interaction verification of the new delegation controls is still pending:
    the environment blocked navigation to the local app. Automated REST/MCP and local
    HTTP verification are recorded separately; do not label them browser acceptance.
