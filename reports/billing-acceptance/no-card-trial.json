@@ -24,5 +24,12 @@
   "unsupported_language_rejected": true,
   "trial_expiration_blocks_product_api": true,
   "expired_billing_management_available": true,
-  "test_upgrade_checkout_created": true
+  "test_upgrade_checkout_created": true,
+  "test_hosted_checkout_browser_completed": true,
+  "test_checkout_amount_paid_usd": 10,
+  "no_second_stripe_trial": true,
+  "signed_webhook_restored_starter_access": true,
+  "browser_showed_active_subscription": true,
+  "test_subscription_cancelled_after_acceptance": true,
+  "live_payments_created": false
 }

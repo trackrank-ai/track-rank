@@ -1,0 +1,26 @@
+{
+  "checked_at": "2026-11-21T03:54:33.146Z",
+  "environment": "production",
+  "worker_version": "47d699ac-120a-446f-9004-10ab39c85643",
+  "checks": [
+    "/pricing HTTP200 and revised content",
+    "/login?trial=start HTTP200 and revised content",
+    "/terms HTTP200 and revised content",
+    "/privacy HTTP200 and revised content",
+    "health HTTP200",
+    "unauthenticated product API HTTP401",
+    "deployed configuration: hosted no-card trials enabled; paid checkout paused"
+  ],
+  "live_payments_created": false,
+  "real_account_provider_acceptance": "not claimed",
+  "operator_readiness_verified": true,
+  "paid_checkout_enabled": false,
+  "tax_reviewed": false,
+  "original_google_and_email_configuration_present": true,
+  "external_monitor_passed": true,
+  "production_browser_pricing_cta_opened_signup_mode": true,
+  "release_pr": "https://github.com/trackrank-ai/track-rank/pull/2",
+  "source_merge_commit": "204691c7dc04d4f6397de6683a38e611915899da",
+  "automated_checks_passed": 62,
+  "optional_checks_skipped": 1
+}
