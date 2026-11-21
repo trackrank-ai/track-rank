@@ -4,7 +4,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { z } from "zod";
 import { api } from "./api";
-import { bulkScheduleSchema, bulkScheduleUpdateSchema } from "./bulk";
+import { bulkRunSchema, bulkScheduleSchema, bulkScheduleUpdateSchema } from "./bulk";
 import { runHistoryFilters } from "./run-history";
 import { authenticate } from "./auth";
 import { HttpError, type Ctx, type Env } from "./types";
@@ -191,6 +191,14 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
         {},
         args.idempotency_key,
       ),
+  );
+  server.registerTool(
+    "run_prompts",
+    {
+      description: "Queue a batch of prompt samples using one stable batch key. Obtain authorization for provider costs first.",
+      inputSchema: bulkRunSchema,
+    },
+    async (args) => invoke("/runs/bulk", "POST", args),
   );
   server.registerTool(
     "list_runs",

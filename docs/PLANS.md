@@ -16,7 +16,7 @@ mapping available for renewals and reconciliation. See [billing operations](BILL
 
 ## Initial revisions
 
-| Revision | State | Price metadata | API/min | Provider ops/min | Runs/month |
+| Revision | State | Price metadata | API/min | Provider requests/min per budget | Runs/month |
 |---|---|---|---:|---:|---:|
 | beta-v1 | active | $0/month | 120 | 10 | 1,000,000 |
 | starter-v1 | active | $10/month | 120 | 10 | 6,000 |
@@ -64,7 +64,7 @@ and proration are separate work.
 
 - API minute budgets are shared across REST, MCP tool calls, keys and organization members. Authorized attempts reaching the handler count, including operations that later fail validation.
 - MCP discovery and initialization have a separate per-minute transport budget. Tool execution also uses the shared API allowance.
-- Provider operations include `run`, `refresh`, and `analyze`. The dispatcher applies the same per-minute rate to provider submissions from manual and scheduled queues. Accepted tasks may remain in flight while new submissions start.
+- Run, refresh, and analyze use the shared API allowance. DataForSEO submissions have two separate request budgets with the same plan rate, one for Standard/Priority and one for Live. Manual and scheduled work share those budgets. A Standard/Priority request can include up to 100 runs for a single engine. A Live request contains one run.
 - Manual and scheduled runs share the UTC monthly allowance. Admission is atomic and its ledger survives result deletion. Replays reuse the original run identity. Each admitted failed or uncertain run counts once.
 - Calendar months are UTC, **not subscription anniversary months**. Usage is organization-scoped, not per plan revision, so changing plans cannot reset it. Account-level routes without a selected organization remain on their separate user-based rate budget.
 - Settings/MCP `get_context` return the assigned revision, allowances and monthly usage. Emergency ceilings can be lower than the displayed contracted allowances; keep them temporary and disclose material restrictions.

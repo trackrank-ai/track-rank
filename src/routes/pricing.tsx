@@ -25,7 +25,7 @@ function Pricing() {
       <p>Before applicable tax.</p>
       <ul>
         <li>{offer.limits.runs_per_month.toLocaleString("en-US")} tracking runs per calendar month</li>
-        <li>{offer.limits.api_per_minute} API operations and {offer.limits.provider_per_minute} provider operations per minute</li>
+        <li>{offer.limits.api_per_minute} API operations and {offer.limits.provider_per_minute} Standard/Priority batch requests per minute and {offer.limits.provider_per_minute} Live requests per minute</li>
       </ul>
     </section>)}
     {offers.length > 0 && <p>Limits are shared across your organization. The run allowance resets at midnight UTC on the first day of each month.</p>}

@@ -13,7 +13,8 @@ import {
   collectRun,
   type Config,
 } from "../src/server/provider";
-import { scheduleDue, localSlot } from "../src/server/scheduler";
+import { nextScheduleSlot, localSlot } from "../src/server/schedule-slots";
+import { sweep } from "../src/server/scheduler";
 import type { Env, Ctx, Principal } from "../src/server/types";
 class Statement {
   constructor(
@@ -72,6 +73,7 @@ function fixture() {
   sql.exec(readFileSync(new URL("../migrations/0016_canonical_schedules.sql", import.meta.url), "utf8"));
   sql.exec(readFileSync(new URL("../migrations/0017_remove_unused_billing_fields.sql", import.meta.url), "utf8"));
   sql.exec(readFileSync(new URL("../migrations/0018_remove_monthly_api_and_concurrency_caps.sql", import.meta.url), "utf8"));
+  sql.exec(readFileSync(new URL("../migrations/0019_durable_dispatch.sql", import.meta.url), "utf8"));
   const db = {
     prepare: (s: string) => new Statement(sql, s),
     batch: async (stmts: Statement[]) => {
@@ -97,7 +99,7 @@ function fixture() {
     BASE_URL: "https://trackrank.ai",
     AUTH_SECRET: "test-auth-secret-that-is-long-enough",
     CREDENTIALS_KEY: Buffer.alloc(32, 7).toString("base64"),
-    RUN_WORKFLOW: { create: async () => ({}) },
+    RUN_WORKFLOW: { createBatch: async ({instances}: {instances: {id:string}[]}) => ({created:instances,errors:[]}) },
   } as unknown as Env;
   return { env, sql, objects };
 }
@@ -289,52 +291,16 @@ test("provider payload uses scraper and clean SERPs defaults, preserving special
   assert.equal(p.depth, 10);
   assert.equal(p.keyword, "C%2B%2B 100%25");
 });
-test("scheduler observes timezone, selected weekdays and same-day idempotency", () => {
-  const s = {
-    timezone: "America/Los_Angeles",
-    times_json: '["09:00"]',
-    days: "[1,3,5]",
-    last_slot: null,
-  };
-  assert.equal(scheduleDue(s, new Date("2026-11-20T17:05:00Z")), "2026-11-20@09:00");
-  assert.equal(
-    scheduleDue(
-      { ...s, last_slot: "2026-11-20@09:00" },
-      new Date("2026-11-20T18:00:00Z"),
-    ),
-    null,
-  );
-  assert.equal(scheduleDue(s, new Date("2026-11-21T19:00:00Z")), null);
-  assert.equal(
-    localSlot(new Date("2026-07-20T16:00:00Z"), "America/Los_Angeles").time,
-    "09:00",
-  );
-});
-
-test("MCP creates and updates paused schedules through the bulk API", async () => {
-  const { env, sql } = fixture();
-  const org = await setupPrompt(env);
-  const response = await call(env, { userId: "alice" }, "/keys", "POST", { name: "Scheduler", scopes: ["write"] }, org.id);
-  const { key } = await response.json() as { key: string };
-  const { mcp } = await import("../src/server/mcp");
-  const invoke = async (name: string, args: object) => {
-    const response = await mcp(new Request(`${env.BASE_URL}/mcp`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
-      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }),
-    }), env, ctx);
-    return (await response.json() as { result: { isError?: boolean } }).result;
-  };
-  const created = await invoke("create_schedules", { prompt_ids: [org.promptId], preset: "daily", days: [0], times: ["09:00", "17:00"], timezone: "UTC" });
-  assert.equal(created.isError, false);
-  const read = () => sql.prepare("SELECT id,enabled,times_json,repetitions FROM schedules WHERE org_id=?").get(org.id)!;
-  const schedule = read();
-  assert.equal(schedule.enabled, 0);
-  assert.equal((await invoke("update_schedules", { ids: [schedule.id], repetitions: 2 })).isError, false);
-  const updated = read();
-  assert.equal(updated.times_json, '["09:00","17:00"]');
-  assert.equal(updated.repetitions, 2);
-  assert.equal(updated.enabled, 0);
+test("scheduled slots use local weekdays and run once in a repeated DST hour", () => {
+  const schedule = { timezone: "America/Los_Angeles", times: ["09:00"], days: [1,3,5] };
+  assert.equal(nextScheduleSlot(schedule, Date.parse("2026-11-20T16:59Z")), Date.parse("2026-11-20T17:00Z"));
+  assert.equal(nextScheduleSlot(schedule, Date.parse("2026-11-20T17:00Z")), Date.parse("2026-11-23T17:00Z"));
+  const autumn = { timezone: schedule.timezone, times: ["01:30"], days: [0] };
+  assert.equal(nextScheduleSlot(autumn, Date.parse("2026-11-01T08:00Z")), Date.parse("2026-11-01T08:30Z"));
+  assert.equal(nextScheduleSlot(autumn, Date.parse("2026-11-01T08:30Z")), Date.parse("2026-11-08T09:30Z"));
+  const spring = { timezone: schedule.timezone, times: ["02:30"], days: [0] };
+  assert.equal(nextScheduleSlot(spring, Date.parse("2026-03-08T08:00Z")), Date.parse("2026-03-15T09:30Z"));
+  assert.equal(localSlot(new Date("2026-07-20T16:00:00Z"), schedule.timezone).time, "09:00");
 });
 test("organizations get a default workspace; cross-tenant IDs fail at API and DB boundaries", async () => {
   const { env, sql } = fixture();
@@ -691,28 +657,77 @@ test("workspace brand sets isolate client research and permit local competitor r
     /Not found/,
   );
 });
-test("provider submission is paced by minute and allows more than three active runs", async (t) => {
-  let time = Date.UTC(2026, 10, 21, 12);
+test("100 queued samples submit in one tagged request; ambiguous acknowledgments cannot be retried", async (t) => {
+  const { env, sql } = fixture();
+  const a = await setupPrompt(env);
+  const runs = await Promise.all(Array.from({ length: 100 }, (_, i) =>
+    createRun(env, a.id, a.promptId, `submission-batch-${i}`),
+  ));
+  const rejected = runs[1].id, missing = runs[2].id;
+  let submissions = 0;
+  t.mock.method(globalThis, "fetch", async (_url: string, init?: RequestInit) => {
+    submissions++;
+    const tasks = JSON.parse(String(init?.body)) as { tag: string }[];
+    assert.equal(tasks.length, 100);
+    return Response.json({ status_code: 20000, tasks: tasks.filter(task => task.tag !== missing).reverse().map(task => ({
+      id: `task-${task.tag}`, data: { tag: task.tag }, status_code: task.tag === rejected ? 40000 : 20100,
+    })) });
+  });
+  await Promise.all([executeRun(env, String(runs[0].id)), executeRun(env, String(runs[3].id))]);
+  await executeRun(env, String(missing));
+  assert.equal(submissions, 1);
+  assert.equal(sql.prepare("SELECT count(*) AS n FROM runs WHERE status='submitted' AND task_id='task-'||id").get()?.n, 98);
+  assert.equal(sql.prepare("SELECT status FROM runs WHERE id=?").get(String(rejected))?.status, "failed");
+  assert.equal(sql.prepare("SELECT status FROM runs WHERE id=?").get(String(missing))?.status, "uncertain");
+});
+
+test("live requests keep a separate submission rate and retry only definite throttling", async (t) => {
+  let time = Date.UTC(2026,10,21,12);
   t.mock.method(Date, "now", () => time);
   const { env, sql } = fixture();
-  env.PROVIDER_REQUESTS_PER_MINUTE = "4";
+  env.PROVIDER_REQUESTS_PER_MINUTE = "1";
   const a = await setupPrompt(env);
-  const runs = await Promise.all(Array.from({ length: 5 }, (_, i) =>
-    createRun(env, a.id, a.promptId, `submission-rate-${i}`),
+  sql.exec("UPDATE prompts SET mode='live'");
+  const runs = await Promise.all([createRun(env,a.id,a.promptId,"live-test-one"),createRun(env,a.id,a.promptId,"live-test-two")]);
+  let calls = 0;
+  t.mock.method(globalThis, "fetch", async () => {
+    calls++;
+    return calls===1 ? new Response(null,{status:429}) : Response.json({ status_code:20000,tasks:[{id:"task-live",status_code:20000,result:[{}]}]});
+  });
+  await executeRun(env,String(runs[0].id));
+  await executeRun(env,String(runs[1].id));
+  assert.equal(calls,1);
+  assert.equal(sql.prepare("SELECT count(*) AS n FROM runs WHERE status='queued'").get()?.n,2);
+  time+=60_000;
+  await executeRun(env,String(runs[0].id));
+  assert.equal(sql.prepare("SELECT status FROM runs WHERE id=?").get(String(runs[0].id))?.status,"succeeded");
+});
+
+test("cron recovers accepted tasks in groups of four without sending another submission", async (t) => {
+  const { env, sql, objects } = fixture();
+  const a = await setupPrompt(env);
+  const runs = await Promise.all(Array.from({ length: 13 }, (_, index) =>
+    createRun(env, a.id, a.promptId, `recover-task-${index}`),
   ));
-  let submissions = 0;
-  t.mock.method(globalThis, "fetch", async () =>
-    Response.json({ status_code: 20000, tasks: [{ id: `external-${++submissions}`, status_code: 20100 }] }),
-  );
-  await Promise.all([...runs.slice(0, 4), runs[0]].map(run => executeRun(env, String(run.id))));
-  await executeRun(env, String(runs[4].id));
-  assert.equal(submissions, 4);
-  assert.equal(sql.prepare("SELECT count(*) AS n FROM runs WHERE status='submitted'").get()?.n, 4);
-  assert.equal(sql.prepare("SELECT status FROM runs WHERE id=?").get(String(runs[4].id))?.status, "queued");
-  time += 60_000;
-  await executeRun(env, String(runs[4].id));
-  assert.equal(submissions, 5);
-  assert.equal(sql.prepare("SELECT count(*) AS n FROM runs WHERE status='submitted'").get()?.n, 5);
+  sql.prepare("UPDATE runs SET status='submitted',task_id='task-'||id,submitted_at=?,workflow_started=1").run(Date.now());
+  const requests: string[] = [];
+  let active = 0, maxActive = 0;
+  t.mock.method(globalThis, "fetch", async (url: string, init?: RequestInit) => {
+    assert.equal(init?.method, "GET");
+    const id = url.split("/").at(-1)!;
+    assert.ok(runs.some(run => id === `task-${run.id}`));
+    requests.push(id);
+    maxActive = Math.max(maxActive, ++active);
+    await new Promise(resolve => setTimeout(resolve, 5));
+    active--;
+    return Response.json({ status_code: 20000, tasks: [{ id, status_code: 20000, result: [{}] }] });
+  });
+  await sweep(env);
+  assert.equal(requests.length, 12);
+  assert.equal(new Set(requests).size, 12);
+  assert.equal(maxActive, 4);
+  assert.equal(objects.size, 12);
+  assert.equal(sql.prepare("SELECT count(*) AS n FROM runs WHERE status='submitted'").get()?.n, 1);
 });
 
 test("customer rate budget is shared across keys, members and MCP while other customers remain isolated", async (t) => {
@@ -755,13 +770,13 @@ test("customer rate budget is shared across keys, members and MCP while other cu
   assert.equal((await call(env, k1, "/workspaces")).status, 200);
 });
 
-test("provider budget rejects costly operations before dispatch and validates deployment overrides", async () => {
+test("provider actions share the general API rate and retain submission overrides", async () => {
   const { env, sql } = fixture();
   const o = await organization(env);
   env.PROVIDER_REQUESTS_PER_MINUTE = "1";
-  // Even missing-resource requests are bounded before resource work.
+  // Missing resources still count against the general API budget.
   await assert.rejects(call(env, { userId: "alice" }, "/prompts/missing/run", "POST", {}, o.id), (e: any) => e.status === 404);
-  await assert.rejects(call(env, { userId: "alice" }, "/runs/missing/refresh", "POST", {}, o.id), (e: any) => e.status === 429);
+  await assert.rejects(call(env, { userId: "alice" }, "/runs/missing/refresh", "POST", {}, o.id), (e: any) => e.status === 404);
   assert.equal((await call(env, { userId: "alice" }, "/workspaces", "GET", undefined, o.id)).status, 200);
   assert.equal(sql.prepare("SELECT COUNT(*) AS n FROM runs").get()!.n, 0);
   const { requestLimit } = await import("../src/server/rate-limit");
@@ -859,7 +874,9 @@ test("monthly provider admission is atomic, includes scheduled runs and does not
   assert.equal((await createRun(env,a.id,a.promptId,String(winner.idempotency_key))).id,winner.id);
   assert.equal(sql.prepare("SELECT COUNT(*) AS n FROM runs WHERE org_id=?").get(a.id)!.n,1);
   const original = globalThis.fetch;
-  globalThis.fetch = (async()=>Response.json({status_code:20000,tasks:[{id:'external',status_code:20100}]})) as typeof fetch;
+  globalThis.fetch = (async(_input: unknown, init?: RequestInit)=>Response.json({status_code:20000,
+    tasks:JSON.parse(String(init?.body)).map((entry: {tag:string})=>({id:'external-'+entry.tag,status_code:20100,data:{tag:entry.tag}})),
+  })) as typeof fetch;
   try {
     // Changing allowance does not alter the immutable version; use a new revision.
     sql.prepare("INSERT INTO plan_versions VALUES('two-v1','test','Two runs',0,'usd','month','active',?,0)").run(limits.replace('"runs_per_month":1','"runs_per_month":2'));

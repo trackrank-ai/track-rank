@@ -1,89 +1,131 @@
-import { all, exec, now, type Env, type Row } from "./types";
-import { collectRun, createRun } from "./provider";
-import { launchRun } from "./dispatch";
-export function localSlot(date: Date, timezone: string) {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: timezone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    weekday: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  }).formatToParts(date);
-  const get = (key: string) => parts.find((p) => p.type === key)?.value || "";
-  return {
-    date: `${get("year")}-${get("month")}-${get("day")}`,
-    time: `${get("hour")}:${get("minute")}`,
-    day: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(
-      get("weekday"),
-    ),
-  };
+import { all, HttpError, now, type Env, type Row } from "./types";
+import { collectRun, credentials } from "./provider";
+import { launchRuns, recoverQueuedWorkflows } from "./dispatch";
+import { localSlot, nextScheduleSlot } from "./schedule-slots";
+import { organizationPlan } from "./plans";
+import { trackedWorkspaceBrands } from "./workspace-brands";
+import { prepareRunAdmission, runUsagePeriods } from "./run-admission";
+
+export { localSlot } from "./schedule-slots";
+
+function slotSettings(row: Row) {
+  return { timezone: String(row.timezone), days: JSON.parse(String(row.days)) as number[], times: JSON.parse(String(row.times_json)) as string[] };
 }
-export function scheduleDue(schedule: Row, date: Date) {
-  const slot = localSlot(date, String(schedule.timezone));
-  const days = JSON.parse(String(schedule.days)) as number[];
-  if (!days.includes(slot.day)) return null;
-  const times = JSON.parse(String(schedule.times_json)) as string[];
-  // Catch up the most recent due time only; never burst all missed historical slots.
-  const due = [...times].sort().filter(time=>time<=slot.time).at(-1);
-  const key = due ? `${slot.date}@${due}` : null;
-  return key && schedule.last_slot !== key ? key : null;
-}
-export async function sweep(env: Env) {
-  const t = now();
-  await exec(
-    env,
-    "UPDATE runs SET status='uncertain',error='Worker stopped during submission. Automatic resubmission disabled to prevent duplicate charges.',updated_at=? WHERE status='submitting' AND updated_at<?",
-    t,
-    t - 10 * 60 * 1000,
-  );
-  await exec(
-    env,
-    "UPDATE runs SET status='failed',error='Provider task exceeded 72 hours; inspect provider task history.',updated_at=? WHERE status='submitted' AND created_at<?",
-    t,
-    t - 72 * 60 * 60 * 1000,
-  );
-  const schedules = await all(
-    env,
-    "SELECT * FROM (SELECT s.*,ROW_NUMBER() OVER(PARTITION BY s.org_id ORDER BY COALESCE(s.last_slot,''),s.created_at) AS tenant_position FROM schedules s JOIN prompts p ON p.org_id=s.org_id AND p.id=s.prompt_id WHERE s.enabled=1 AND p.enabled=1) ORDER BY tenant_position,COALESCE(last_slot,''),created_at LIMIT 100",
-  );
-  let admissions = 0;
-  for (const s of schedules) {
-    if (admissions >= 100) break;
-    const slot = scheduleDue(s, new Date(t));
-    if (!slot) continue;
-    try {
-      const repetitions = Number(s.repetitions);
-      for (let sample=1;sample<=repetitions;sample++) {
-        if (admissions++ >= 100) throw new Error("Continue admissions next cron");
-        await createRun(env, String(s.org_id), String(s.prompt_id), `schedule:${s.id}:${slot}:sample:${sample}`);
-      }
-      await exec(
-        env,
-        "UPDATE schedules SET last_slot=? WHERE id=?",
-        slot,
-        s.id,
-      );
-    } catch {
-      /* Monthly allowance or credentials may block admission. The next sweep reuses the run identity. */
-    }
+
+export async function admitDueSchedules(env: Env, time: number) {
+  const deadline = now() + 25_000;
+  const periods = runUsagePeriods(time);
+  const plans = new Map<string, Awaited<ReturnType<typeof organizationPlan>> | null>();
+  const hasCredentials = new Map<string, boolean>();
+  const brands = new Map<string, Row[]>();
+  const existing = await all(env, `
+    SELECT s.* FROM schedules s JOIN prompts p ON p.org_id=s.org_id AND p.id=s.prompt_id
+    WHERE s.enabled=1 AND p.enabled=1 AND p.archived_at IS NULL AND s.next_due_at IS NULL
+    ORDER BY s.id LIMIT 1600
+  `);
+  if (existing.length) {
+    await env.DB.batch(existing.map(row => {
+      const settings = slotSettings(row);
+      const today = localSlot(new Date(time), settings.timezone).date;
+      const next = nextScheduleSlot(settings, Math.max(Number(row.created_at) - 1, Number(row.eligible_after), time - 26 * 3600_000), row.last_slot as string | null, today);
+      return env.DB.prepare("UPDATE schedules SET next_due_at=? WHERE id=? AND enabled=1 AND next_due_at IS NULL AND days=? AND times_json=? AND timezone=? AND eligible_after=?")
+        .bind(next, row.id, row.days, row.times_json, row.timezone, row.eligible_after);
+    }));
   }
-  for (const r of await all(
-    env,
-    "SELECT id FROM (SELECT id,created_at,ROW_NUMBER() OVER (PARTITION BY org_id ORDER BY created_at) AS tenant_position FROM runs WHERE status='queued' AND workflow_started=0) ORDER BY tenant_position,created_at LIMIT 8",
-  ))
-    await launchRun(env, String(r.id));
-  for (const r of await all(
-    env,
-    "SELECT * FROM runs WHERE status='submitted' AND updated_at<? ORDER BY updated_at LIMIT 12",
-    t - 60 * 1000,
-  ))
-    await collectRun(env, r);
-  await exec(
-    env,
-    "DELETE FROM request_limits WHERE bucket<?",
-    Math.floor(t / 60000) - 120,
-  );
+
+  // Bound total work per invocation, but choose only due cursors. Backlogged slots remain indexed.
+  for (let page = 0; page < 16 && now() < deadline; page++) {
+    const rows = await all(env, `
+      SELECT * FROM (
+        SELECT s.*,p.workspace_id,p.text,p.engine,p.mode,p.location_name,p.language_code,o.resolve_poisoned_results,
+          ROW_NUMBER() OVER(PARTITION BY s.org_id ORDER BY s.next_due_at,s.id) AS tenant_position
+        FROM schedules s JOIN prompts p ON p.org_id=s.org_id AND p.id=s.prompt_id JOIN organizations o ON o.id=s.org_id
+        WHERE s.enabled=1 AND p.enabled=1 AND p.archived_at IS NULL AND s.next_due_at<=? AND s.retry_at<=?
+      ) ORDER BY tenant_position,next_due_at,id LIMIT 100
+    `, time, time);
+    if (!rows.length) break;
+    const writes = [];
+    for (const row of rows) {
+      const settings = slotSettings(row);
+      const due = Number(row.next_due_at);
+      const local = localSlot(new Date(due), settings.timezone);
+      const today = localSlot(new Date(time), settings.timezone).date;
+      const slot = `${local.date}@${local.time}`;
+      const org = String(row.org_id), workspace = String(row.workspace_id);
+      const repetitions = Number(row.repetitions);
+      if (local.date === today) {
+        try {
+          if (!plans.has(org)) {
+            try { plans.set(org, await organizationPlan(env, org)); }
+            catch (error) {
+              if (!(error instanceof HttpError) || error.status !== 402) throw error;
+              plans.set(org, null);
+            }
+          }
+          if (plans.get(org) && !hasCredentials.has(org)) {
+            const saved = await credentials(env, org);
+            hasCredentials.set(org, !!(saved.login && saved.password));
+          }
+          if (hasCredentials.get(org)) {
+            if (!brands.has(workspace)) brands.set(workspace, await trackedWorkspaceBrands(env, org, workspace));
+            const config = {
+              engine: row.engine, mode: row.mode, location_name: row.location_name, language_code: row.language_code,
+              resolve_poisoned_results: !!row.resolve_poisoned_results, brands: brands.get(workspace),
+            };
+            for (let sample = 1; sample <= repetitions; sample++) {
+              writes.push(prepareRunAdmission(env, {
+                org, workspace, prompt: String(row.prompt_id), text: String(row.text), key: `schedule:${row.id}:${slot}:sample:${sample}`,
+                config: { ...config, sample_index: sample, sample_count: repetitions },
+                schedule: { id: String(row.id), due, days: String(row.days), times: String(row.times_json), timezone: settings.timezone, repetitions },
+              }, periods, plans.get(org)!));
+            }
+          }
+        } catch {
+          // Keep this slot eligible after backoff without blocking other tenants.
+          writes.push(env.DB.prepare("UPDATE schedules SET retry_at=? WHERE id=? AND next_due_at=? AND enabled=1")
+            .bind(time + 60_000, row.id, due));
+          continue;
+        }
+      }
+      const next = nextScheduleSlot(settings, local.date === today ? due : time - 26 * 3600_000, slot, today);
+      writes.push(env.DB.prepare(`
+        UPDATE schedules SET next_due_at=?,last_slot=?,retry_at=0
+        WHERE id=? AND enabled=1 AND next_due_at=? AND days=? AND times_json=? AND timezone=? AND repetitions=?
+        AND EXISTS(SELECT 1 FROM prompts p WHERE p.org_id=schedules.org_id AND p.id=schedules.prompt_id AND p.enabled=1 AND p.archived_at IS NULL)
+      `).bind(next, slot, row.id, due, row.days, row.times_json, row.timezone, repetitions));
+    }
+    await env.DB.batch(writes);
+  }
+}
+
+export async function sweep(env: Env) {
+  const time = now();
+  await env.DB.batch([
+    env.DB.prepare("UPDATE runs SET status='uncertain',error='Provider submission outcome uncertain; check your DataForSEO task list before retrying.',updated_at=? WHERE status='submitting' AND updated_at<?").bind(time, time - 10 * 60_000),
+    env.DB.prepare("UPDATE runs SET status='failed',error='Provider task exceeded 72 hours; inspect provider task history.',updated_at=? WHERE status='submitted' AND submitted_at<?").bind(time, time - 72 * 3600_000),
+    env.DB.prepare("DELETE FROM request_limits WHERE bucket<?").bind(Math.floor(time / 60_000) - 120),
+  ]);
+  const sweeps = await Promise.allSettled([dispatchDueRuns(env, time), pollAcceptedRuns(env, time)]);
+  for (const result of sweeps) if (result.status === "rejected") throw result.reason;
+}
+
+async function dispatchDueRuns(env: Env, time: number) {
+  await recoverQueuedWorkflows(env, time);
+  await admitDueSchedules(env, time);
+  for (let batch = 0; batch < 16; batch++) {
+    // A partial launch stays eligible for the next sweep. Full batches are spaced
+    // to respect Cloudflare's per-Workflow instance creation rate.
+    if (await launchRuns(env) < 100) break;
+    if (batch < 15) await new Promise(resolve => setTimeout(resolve, 1000));
+  }
+}
+
+async function pollAcceptedRuns(env: Env, time: number) {
+  const recovery = await all(env, "SELECT * FROM runs WHERE status='submitted' AND poll_after<=? AND poll_lease_until<=? ORDER BY poll_after,id LIMIT 12", time, time);
+  const errors: unknown[] = [];
+  for (let index = 0; index < recovery.length; index += 4) {
+    const results = await Promise.allSettled(recovery.slice(index, index + 4).map(run => collectRun(env, run, 10_000)));
+    for (const result of results) if (result.status === "rejected") errors.push(result.reason);
+  }
+  if (errors.length) throw errors[0];
 }

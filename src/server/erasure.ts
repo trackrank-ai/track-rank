@@ -1,6 +1,7 @@
 // Operator-only erasure, never callable by customer accounts.
 // Requires application-wide maintenance and an independently verified support request.
 import { all, one, HttpError, now, type Env } from './types';
+import { workflowId } from './dispatch';
 export function maintenance(env: Env) { return env.MAINTENANCE_MODE === 'true'; }
 export async function eraseData(env: Env, data: {kind?:string; id?:string; confirm?:string}) {
   if (!maintenance(env) || !env.MAINTENANCE_SINCE || !Number.isFinite(Number(env.MAINTENANCE_SINCE)) || now()-Number(env.MAINTENANCE_SINCE)<10*60*1000 || Number(env.MAINTENANCE_SINCE)>now()) throw new HttpError(409,'Enable maintenance for at least 10 minutes and drain workflows before erasure');
@@ -23,8 +24,8 @@ export async function eraseData(env: Env, data: {kind?:string; id?:string; confi
   if(!await one(env,'SELECT id FROM organizations WHERE id=?',id))throw new HttpError(404,'Organization not found');
   const busy=await one<{n:number}>(env,"SELECT count(*) AS n FROM runs WHERE org_id=? AND status IN ('submitting','submitted','uncertain')",id);
   if(busy?.n)throw new HttpError(409,'Resolve provider tasks and terminate/drain workflows before erasure');
-  for (const run of await all(env,'SELECT id FROM runs WHERE org_id=? AND workflow_started=1',id)) {
-    const instance=await env.RUN_WORKFLOW.get(String(run.id));
+  for (const run of await all(env,'SELECT id,workflow_generation FROM runs WHERE org_id=? AND workflow_started=1',id)) {
+    const instance=await env.RUN_WORKFLOW.get(workflowId(String(run.id), Number(run.workflow_generation)));
     const state=await instance.status();
     if(!['complete','errored','terminated'].includes(state.status))throw new HttpError(409,'Terminate all organization Workflow instances before erasure');
   }

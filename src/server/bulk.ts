@@ -1,6 +1,7 @@
 import {z} from 'zod';import {all,exec,HttpError,now,one,required,uuid,type Env,type Row} from './types';import {organizationPlan} from './plans';import {credentials,type Engine} from './provider';import {assertProviderOptions} from './provider-options';import {hashToken} from './crypto';
 import { prepareRunAdmission, runUsage, runUsagePeriods } from './run-admission';
 import { trackedWorkspaceBrands } from './workspace-brands';
+import { nextScheduleSlot } from './schedule-slots';
 const ids=z.array(z.string().min(1).max(100)).min(1).max(100);
 export const bulkRunSchema=z.object({prompt_ids:ids,repetitions:z.number().int().min(1).max(10).default(1),batch_key:z.string().regex(/^[A-Za-z0-9_-]{8,100}$/)}).strict();
 export const bulkScheduleSchema=z.object({prompt_ids:ids,name:z.string().trim().max(100).default('Scheduled prompts'),preset:z.enum(['daily','weekly','mwf','custom']),days:z.array(z.number().int().min(0).max(6)).min(1).max(7),times:z.array(z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/)).min(1).max(8),timezone:z.string().min(1).max(100),repetitions:z.number().int().min(1).max(10).default(1),enabled:z.boolean().default(false)}).strict();
@@ -14,7 +15,7 @@ export async function createBulkRuns(env:Env,org:string,input:unknown){
  const b=bulkRunSchema.parse(input),selected=[...new Set(b.prompt_ids)].sort();const rows=await selectedRows(env,org,'prompts',selected);
  if(rows.some(p=>!p.enabled))throw new HttpError(409,'Enable all selected prompts before running them');
  const total=selected.length*b.repetitions;if(total>100)throw new HttpError(400,'A batch can queue at most 100 independent runs');
- const plan=await organizationPlan(env,org);if(plan.family==='pending')throw new HttpError(402,'Choose a plan to start tracking');
+ const plan=await organizationPlan(env,org);
  const prefix = `bulk:${b.batch_key}:`;
  const prefixEnd = `bulk:${b.batch_key};`;
  const payloadHash=await hashToken(JSON.stringify({selected,repetitions:b.repetitions}));const prior=await one(env,'SELECT payload_hash FROM run_batches WHERE org_id=? AND batch_key=?',org,b.batch_key);if(prior && prior.payload_hash!==payloadHash)throw new HttpError(409,'This batch key belongs to a different request');
@@ -59,28 +60,24 @@ export async function createBulkSchedules(env:Env,org:string,input:unknown){
  if(rows.length*b.repetitions>100)throw new HttpError(400,'Use at most 100 prompt/sample combinations per scheduled batch');
  try{new Intl.DateTimeFormat('en',{timeZone:b.timezone}).format();}catch{throw new HttpError(400,'Choose a valid timezone');}
  const days=b.preset==='daily'?[0,1,2,3,4,5,6]:b.preset==='mwf'?[1,3,5]:b.preset==='weekly'?[b.days[0]]:[...new Set(b.days)];const times=[...new Set(b.times)].sort(),batch=uuid(),t=now();
- await env.DB.batch(rows.map(p=>env.DB.prepare('INSERT INTO schedules(id,org_id,prompt_id,preset,days,timezone,enabled,created_at,batch_id,batch_name,times_json,repetitions) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)').bind(uuid(),org,p.id,b.preset,JSON.stringify(days),b.timezone,Number(b.enabled),t,batch,b.name,JSON.stringify(times),b.repetitions)));
+ await env.DB.batch(rows.map(p=>env.DB.prepare('INSERT INTO schedules(id,org_id,prompt_id,preset,days,timezone,enabled,created_at,batch_id,batch_name,times_json,repetitions,next_due_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)').bind(uuid(),org,p.id,b.preset,JSON.stringify(days),b.timezone,Number(b.enabled),t,batch,b.name,JSON.stringify(times),b.repetitions,b.enabled?nextScheduleSlot({days,times,timezone:b.timezone},t):null)));
  return {batch_id:batch,prompts:rows.length,runs_per_time:rows.length*b.repetitions,runs_per_scheduled_day:rows.length*b.repetitions*times.length,enabled:b.enabled};
 }
 
 export const bulkScheduleUpdateSchema=z.object({ids,enabled:z.boolean().optional(),preset:z.enum(['daily','weekly','mwf','custom']).optional(),days:z.array(z.number().int().min(0).max(6)).min(1).max(7).optional(),times:z.array(z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/)).min(1).max(8).optional(),timezone:z.string().min(1).max(100).optional(),repetitions:z.number().int().min(1).max(10).optional()}).strict().refine(b=>Object.keys(b).length>1,'Choose settings to update');
 export async function updateBulkSchedules(env:Env,org:string,input:unknown){
  const b=bulkScheduleUpdateSchema.parse(input);const rows=await selectedRows(env,org,'schedules',b.ids);
- if (b.enabled !== undefined && Object.keys(b).length === 2) {
-  await env.DB.batch(rows.map(row =>
-   env.DB.prepare('UPDATE schedules SET enabled=? WHERE org_id=? AND id=?').bind(Number(b.enabled),org,row.id),
-  ));
-  return {updated:rows.length};
- }
  if(b.timezone)try{new Intl.DateTimeFormat('en',{timeZone:b.timezone}).format();}catch{throw new HttpError(400,'Choose a valid timezone');}
- const {localSlot}=await import('./scheduler');
+ const changedTiming = b.times !== undefined || b.timezone !== undefined || b.days !== undefined || b.preset !== undefined;
+ const time = now();
  await env.DB.batch(rows.map(row=>{
-  const timezone=b.timezone||String(row.timezone),preset=b.preset||String(row.preset);
-  const chosenDays=b.days||JSON.parse(String(row.days));const days=preset==='daily'?[0,1,2,3,4,5,6]:preset==='mwf'?[1,3,5]:preset==='weekly'?[chosenDays[0]]:[...new Set(chosenDays)];
+  const timezone=b.timezone??String(row.timezone),preset=b.preset??String(row.preset);
+  const chosenDays=b.days??JSON.parse(String(row.days));const days=preset==='daily'?[0,1,2,3,4,5,6]:preset==='mwf'?[1,3,5]:preset==='weekly'?[chosenDays[0]]:[...new Set<number>(chosenDays)];
   const times=b.times?[...new Set(b.times)].sort():JSON.parse(String(row.times_json)) as string[];
-  const slot=localSlot(new Date(),timezone),due=times.filter(time=>time<=slot.time).at(-1);
-  // Timing edits start with FUTURE slots, never retroactively charging for elapsed times.
-  const last=(b.times||b.timezone) && due?`${slot.date}@${due}`:row.last_slot;
-  return env.DB.prepare('UPDATE schedules SET preset=?,days=?,timezone=?,times_json=?,repetitions=?,enabled=?,last_slot=? WHERE org_id=? AND id=?').bind(preset,JSON.stringify(days),timezone,JSON.stringify(times),b.repetitions??row.repetitions,b.enabled===undefined?row.enabled:Number(b.enabled),last??null,org,row.id);
+  const enabled=b.enabled??!!row.enabled;
+  const next = enabled ? (!row.enabled || changedTiming
+    ? nextScheduleSlot({days,times,timezone},time,changedTiming ? null : row.last_slot as string | null)
+    : row.next_due_at) : null;
+  return env.DB.prepare('UPDATE schedules SET preset=?,days=?,timezone=?,times_json=?,repetitions=?,enabled=?,next_due_at=?,retry_at=0 WHERE org_id=? AND id=?').bind(preset,JSON.stringify(days),timezone,JSON.stringify(times),b.repetitions??row.repetitions,Number(enabled),next,org,row.id);
  }));return {updated:rows.length};
 }

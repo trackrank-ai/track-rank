@@ -53,7 +53,7 @@ Charts/research aggregate the **loaded** paginated run history with visible rang
 - Application API rate limiting uses durable D1 minute buckets; Better Auth's own database rate limits protect authentication.
 - Audit events cover credential/settings/key/team mutations without values. No plaintext secrets are logged.
 - Each organization's plan sets its monthly run allowance. DataForSEO execution and optional OpenRouter analysis incur separate provider costs.
-- Scheduler scans at most 1,000 schedule candidates per dispatch, starts up to eight new workflows, and performs bounded reconciliation. API lists are bounded; production capacity must be measured before promising high-volume/unlimited use.
+- Scheduled dispatch reads indexed due slots in pages of up to 100, rotates across organizations, and stops after 16 pages or its time budget. Cron can launch up to 16 batches of 100 Cloudflare Workflows per sweep. Recovery polls up to 12 due accepted tasks per sweep, four at a time, using their existing provider task IDs. API lists are bounded. Hosted throughput requires staging measurement.
 - Rotation migration/restore, billing lifecycle, production Docker packaging, alerting and representative load testing remain launch gates. Cloudflare D1/R2/Workflow adapters are currently direct; portable infrastructure adapters are future work.
 
 ## Self-hosting and configuration requirement
@@ -80,14 +80,16 @@ A batch queues at most 100 runs under the organization's monthly allowance.
 Admission uses one D1 batch with per-insert quota conditions to handle races. Any
 changed allowance is reported explicitly; returned rows are the only queued work.
 Provider credentials and canonical engine/location/language settings are checked
-before admission. Starter starts up to 10 provider submissions per UTC minute.
+before admission. Starter allows 10 DataForSEO Standard/Priority POSTs and 10
+Live POSTs per UTC minute. Standard/Priority POSTs batch up to 100 runs for
+the same organization and engine. Each Live POST submits one run.
 
 Scheduled batches store one schedule per selected engine-prompt, a shared batch ID,
 up to 8 local times per scheduled day, and 1–10 independent samples per time slot.
 Stable local-date/time/sample keys make cron reruns idempotent. A single-prompt
-schedule uses the same API as a batch. Missed times catch up only the latest due
-slot rather than bursting all historical times; no previous-day backfill. DST's
-repeated local hour runs once. Timing edits take effect for future slots and do not
+schedule uses the same API as a batch. Delayed dispatch catches up each eligible slot
+on the same local day. A repeated DST hour runs once, and nonexistent local times
+are skipped. Slots without access, credentials, or quota are skipped. Timing edits take effect for future slots and do not
 retroactively charge for past times. Dispatch admission is bounded and round-robin
 by organization. Saving creates a paused batch; enabling it is a distinct user action.
 

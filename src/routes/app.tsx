@@ -2335,7 +2335,7 @@ function App() {
                             <Button type="button" variant="outline" disabled={scheduleTimes.length>=8} onClick={()=>setScheduleTimes(current=>[...current,"17:00"])}>Add another daily time</Button>
                           </details>
                           <p aria-live="polite">{editingScheduleSelection?selectedScheduleIds.length:selectedPromptIds.length} prompts × {scheduleSamples} samples × {new Set(scheduleTimes).size} times = <strong>{(editingScheduleSelection?selectedScheduleIds.length:selectedPromptIds.length)*scheduleSamples*new Set(scheduleTimes).size} runs per scheduled day</strong>.</p>
-                          <p className="data-note">Each sample/engine variant consumes its own run and provider charges. The monthly allowance applies. Runs are submitted according to the provider rate limit. Missed slots do not trigger a historical burst. Saving a batch does not run it.</p>
+                          <p className="data-note">Each sample/engine variant consumes its own run and provider charges. The monthly allowance applies. Runs are submitted according to the provider rate limit. Same-day slots can catch up after a delay. Saving a batch does not run it.</p>
                           <Button disabled={busy || !(editingScheduleSelection?selectedScheduleIds.length:selectedPromptIds.length) || !scheduleDays.length}>{editingScheduleSelection?"Save settings for selected schedules":"Create paused batch schedule"}</Button>
                           {editingScheduleSelection && <Button type="button" variant="ghost" onClick={()=>setEditingScheduleSelection(false)}>Cancel bulk edit</Button>}
                         </form>
@@ -2589,7 +2589,7 @@ function App() {
                       <CardContent>
                         <h2>{settings.plan.name}</h2>
                         <p className="data-note">Plan allowances are shared by all organization members and API keys.</p>
-                        <p>{settings.plan.limits.api_per_minute.toLocaleString()} API operations/minute · {settings.plan.limits.provider_per_minute.toLocaleString()} provider operations/minute</p>
+                        <p>{settings.plan.limits.api_per_minute.toLocaleString()} API operations/minute · {settings.plan.limits.provider_per_minute.toLocaleString()} Standard/Priority batch requests/minute · {settings.plan.limits.provider_per_minute.toLocaleString()} Live requests/minute</p>
                         <p>{Number(settings.monthly_usage?.runs || 0).toLocaleString()} / {settings.plan.limits.runs_per_month.toLocaleString()} monthly runs</p>
                         <p className="data-note">The run allowance resets at midnight UTC on the first day of each month.</p>
                       </CardContent>

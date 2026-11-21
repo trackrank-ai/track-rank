@@ -21,7 +21,7 @@ export type Env = {
   API_REQUESTS_PER_MINUTE?: string;
   PROVIDER_REQUESTS_PER_MINUTE?: string;
   DB: D1Database;
-  RUN_WORKFLOW: Workflow<{ runId: string }>;
+  RUN_WORKFLOW: Workflow<{ runId: string; generation?: number }>;
   ANSWERS: R2Bucket;
   AUTH_SECRET: string;
   CREDENTIALS_KEY: string;

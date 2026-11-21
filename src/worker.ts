@@ -1,3 +1,4 @@
+import { workflowId } from "./server/dispatch";
 import { maintenance } from "./server/erasure";
 import { operations } from "./server/operations";
 import { stripeWebhook, reconcileBilling } from "./server/billing";
@@ -61,7 +62,7 @@ const appWorker = {
           throw new HttpError(403, "Invalid callback signature");
         const run = await one<Row>(
           env,
-          "SELECT task_id,status FROM runs WHERE id=?",
+          "SELECT task_id,status,workflow_generation FROM runs WHERE id=?",
           runId,
         );
         if (!run || String(run.task_id) !== u.searchParams.get("task"))
@@ -71,7 +72,7 @@ const appWorker = {
           );
         if (run.status === "submitted") {
           try {
-            const instance = await env.RUN_WORKFLOW.get(runId);
+            const instance = await env.RUN_WORKFLOW.get(workflowId(runId, Number(run.workflow_generation)));
             await instance.sendEvent({
               type: "provider-ready",
               payload: { taskId: run.task_id },

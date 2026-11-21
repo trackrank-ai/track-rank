@@ -66,7 +66,7 @@ The core suite uses an isolated in-memory SQLite D1 test adapter and mocked prov
 
 Infrastructure: Cloudflare Worker `trackrank-ai`, D1 `trackrank-db`, private R2 `trackrank-answers`, Workflow `trackrank-tracking`, and Cron `*/5 * * * *`. Deployment configuration is committed in `wrangler.jsonc`.
 
-Back up the target database and review pending migrations before deploying. Apply pending migrations before running the matching deploy command. Migrations `0016` through `0018` switch to canonical schedules and remove obsolete billing and usage fields. Pause scheduled execution during this cutover and deploy the matching Worker before resuming. See the [billing and release runbook](docs/BILLING-OPERATIONS.md) for backup, recovery, and release checks.
+Back up the target database and review pending migrations before deploying. Apply pending migrations before running the matching deploy command. Migrations `0016` through `0018` switch to canonical schedules and remove obsolete billing and usage fields. Pause scheduled execution during this cutover and deploy the matching Worker before resuming. Migration `0019` is required before deploying durable collection dispatch. See the [billing and release runbook](docs/BILLING-OPERATIONS.md) for backup, recovery, and release checks.
 
 Staging uses its own Cloudflare resources and Stripe test configuration.
 
@@ -100,7 +100,7 @@ The software license is separate from the hosted service’s [Terms of Service](
 
 ## Agent access and customer limits
 
-Owners/admins generate scoped, expiring, revocable keys in **API & agents**. Agents can use REST and MCP on hosted, self-hosted, and local deployments. New and changed UI capabilities ship with corresponding REST and MCP support. All keys share the organization’s assigned [versioned plan allowances](docs/PLANS.md). Starter allows **120 API operations/minute**, **10 provider operations/minute**, and **6,000 runs/month**. See [agent setup, examples, configurable limits, and retry behavior](docs/API.md#customer-rate-limits-and-retries).
+Owners/admins generate scoped, expiring, revocable keys in **API & agents**. Agents can use REST and MCP on hosted, self-hosted, and local deployments. New and changed UI capabilities ship with corresponding REST and MCP support. All keys share the organization’s assigned [versioned plan allowances](docs/PLANS.md). Starter allows **120 API operations/minute**, **6,000 runs/month**, and separate limits of **10 Standard/Priority batch requests/minute** and **10 Live requests/minute**. Each batch request can contain up to 100 tasks for one engine. See [agent setup, examples, configurable limits, and retry behavior](docs/API.md#customer-rate-limits-and-retries).
 
 ## Account identity and team invitations
 

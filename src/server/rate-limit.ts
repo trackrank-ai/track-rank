@@ -32,9 +32,7 @@ export async function enforceLimit(env: Env, key: string, limit: number) {
 export function safetyCeiling(value: string | undefined, allowance: number) {
   return Math.min(allowance, requestLimit(value, allowance));
 }
-export async function customerLimit(env: Env, org: string, expensive = false) {
+export async function customerLimit(env: Env, org: string) {
   const { limits } = await organizationPlan(env, org);
   await enforceLimit(env, `customer:${org}`, safetyCeiling(env.API_REQUESTS_PER_MINUTE, limits.api_per_minute));
-  if (expensive)
-    await enforceLimit(env, `provider:${org}`, safetyCeiling(env.PROVIDER_REQUESTS_PER_MINUTE, limits.provider_per_minute));
 }

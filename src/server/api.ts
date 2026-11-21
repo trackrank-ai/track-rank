@@ -31,7 +31,7 @@ import {
   type Principal,
   type Row,
 } from "./types";
-import { launchRun } from "./dispatch";
+import { launchRuns } from "./dispatch";
 const name = z.string().trim().min(1).max(100);
 const id = z.string().min(1).max(100);
 const domain = z
@@ -159,7 +159,7 @@ export async function api(
   const t = await tenant(env, p, u.searchParams.get("org"), scope),
     org = t.orgId;
   if (path === "/billing" || path.startsWith("/billing/")) return billingRoute(req, env, t, path);
-  await customerLimit(env, org, method === "POST" && (/\/(run|refresh|analyze)$/.test(path) || path === "/runs/bulk"));
+  await customerLimit(env, org);
   if (path === "/provider/options" && method === "GET") return json(await providerOptions((u.searchParams.get("engines") || "chatgpt").split(",") as ("chatgpt"|"gemini"|"google")[], (u.searchParams.get("q") || "").slice(0,100), (u.searchParams.get("selected_location") || "United States").slice(0,200)));
   if (path === "/workspaces" && method === "GET")
     return json({
@@ -432,7 +432,7 @@ export async function api(
     if (ik && (ik.length > 128 || ik.length < 8))
       throw new HttpError(400, "Idempotency-Key must have 8–128 characters");
     const run = await createRun(env, org, match[1], ik || uuid());
-    ctx.waitUntil(launchRun(env, String(run.id)));
+    ctx.waitUntil(launchRuns(env, [String(run.id)]));
     return json({ run: decodeRun(run) }, 202);
   }
   if (path === "/prompt-ideas" && method === "POST") {
@@ -460,7 +460,7 @@ export async function api(
   if (path === "/runs/bulk" && method === "POST") {
     const result=await createBulkRuns(env,org,await body(req,bulkRunSchema));
     // Existing queued runs are recoverable by cron; no uncertain/accepted provider task is resubmitted.
-    ctx.waitUntil(Promise.all(result.runs.filter(r=>r.status==='queued' && !r.workflow_started).slice(0,8).map(r=>launchRun(env,String(r.id)))));
+    ctx.waitUntil(launchRuns(env, result.runs.map(run => String(run.id))));
     return json(result, result.complete?202:207);
   }
   if (path === "/schedules/bulk" && method === "POST") return json(await createBulkSchedules(env,org,await body(req,bulkScheduleSchema)),201);

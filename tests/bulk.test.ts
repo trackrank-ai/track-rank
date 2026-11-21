@@ -1,4 +1,4 @@
-import {test} from 'node:test';import assert from 'node:assert/strict';import {fixture} from './helpers/billing-fixture';import {seal} from '../src/server/crypto';import {createBulkRuns,createBulkSchedules,updateBulkSchedules} from '../src/server/bulk';import {scheduleDue} from '../src/server/scheduler';
+import {test} from 'node:test';import assert from 'node:assert/strict';import {fixture} from './helpers/billing-fixture';import {seal} from '../src/server/crypto';import {createBulkRuns,createBulkSchedules,updateBulkSchedules} from '../src/server/bulk';
 import { createRun } from '../src/server/provider';
 import { readFileSync, readdirSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
@@ -91,10 +91,6 @@ test('single and bulk admissions share quota and neither deletion nor replay reo
 test('batch schedules retain sampling and times through bulk pause/enable; invalid batch does not partially save',async()=>{
  const {env,sql}=await setup();const input={prompt_ids:['p1','p2'],preset:'daily',days:[1],times:['09:00','17:00'],timezone:'UTC',repetitions:5};const made=await createBulkSchedules(env,'org',input);assert.equal(made.runs_per_time,10);assert.equal(made.runs_per_scheduled_day,20);const rows=sql.prepare('SELECT * FROM schedules').all();assert.equal(rows.length,2);assert.ok(rows.every(r=>r.enabled===0));await updateBulkSchedules(env,'org',{ids:rows.map(r=>r.id),enabled:true});const updated=sql.prepare('SELECT * FROM schedules').all();assert.ok(updated.every(r=>r.enabled===1&&r.repetitions===5&&r.times_json==='["09:00","17:00"]'));await assert.rejects(createBulkSchedules(env,'org',{...input,prompt_ids:['p1','foreign']}),/not in this organization/);assert.equal(sql.prepare('SELECT count(*) AS n FROM schedules').get()?.n,2);
 });
-test('multiple daily slots fire once each; missed slots choose latest rather than bursting historical runs',()=>{
- const row={timezone:'UTC',days:'[0,1,2,3,4,5,6]',times_json:'["09:00","17:00"]',last_slot:null};assert.equal(scheduleDue(row,new Date('2026-11-21T08:00Z')),null);assert.equal(scheduleDue(row,new Date('2026-11-21T09:05Z')),'2026-11-21@09:00');assert.equal(scheduleDue({...row,last_slot:'2026-11-21@09:00'},new Date('2026-11-21T09:10Z')),null);assert.equal(scheduleDue({...row,last_slot:'2026-11-21@09:00'},new Date('2026-11-21T17:00Z')),'2026-11-21@17:00');assert.equal(scheduleDue(row,new Date('2026-11-21T18:00Z')),'2026-11-21@17:00');
-});
-
 test('schedule migration recovers admitted daily slots and leaves canonical batches intact', () => {
   const sql = new DatabaseSync(':memory:');
   const migration = '0016_canonical_schedules.sql';
@@ -116,8 +112,6 @@ test('schedule migration recovers admitted daily slots and leaves canonical batc
   assert.equal(unmarked.times_json, '["09:00"]');
   assert.equal(unmarked.batch_id, 'unmarked');
   assert.equal(unmarked.last_slot, '2026-11-21@09:00');
-  assert.equal(scheduleDue(unmarked, new Date('2026-11-21T18:00Z')), null);
-  assert.equal(scheduleDue(unmarked, new Date('2026-11-22T09:00Z')), '2026-11-22@09:00');
   assert.equal(get.get('marked')!.last_slot, '2026-11-21@16:00');
   assert.equal(get.get('marked')!.enabled, 0);
   assert.equal(get.get('batched')!.times_json, '["06:00","17:00"]');
@@ -126,7 +120,8 @@ test('schedule migration recovers admitted daily slots and leaves canonical batc
   sql.close();
 });
 
-test('bulk pause and enable preserve the last collected slot', async () => {
+test('bulk pause and enable preserve the last collected slot', async (t) => {
+  t.mock.method(Date, 'now', () => Date.parse('2026-11-21T18:00Z'));
   const { env, sql } = await setup();
   sql.exec(`INSERT INTO schedules(id,org_id,prompt_id,preset,days,times_json,timezone,enabled,last_slot,created_at,batch_id)
     VALUES('example','org','p1','daily','[0,1,2,3,4,5,6]','["09:00"]','UTC',1,'2026-11-21@09:00',0,'batch')`);
@@ -135,26 +130,27 @@ test('bulk pause and enable preserve the last collected slot', async () => {
   await updateBulkSchedules(env, 'org', { ids: ['example'], enabled: false });
   assert.deepEqual(readSchedule(), { ...original, enabled: 0 });
   await updateBulkSchedules(env, 'org', { ids: ['example'], enabled: true });
-  assert.deepEqual(readSchedule(), original);
-  assert.equal(scheduleDue(readSchedule(), new Date('2026-11-21T18:00Z')), null);
-  assert.equal(scheduleDue(readSchedule(), new Date('2026-11-22T09:00Z')), '2026-11-22@09:00');
+  assert.deepEqual(readSchedule(), { ...original, next_due_at: Date.parse('2026-11-22T09:00Z') });
 });
 
 test('a sweep retries a scheduled time slot with the same identity for each sample', async (t) => {
   const { env, sql } = await setup();
-  t.mock.method(Date, 'now', () => Date.parse('2026-11-21T09:05Z'));
-  env.RUN_WORKFLOW = { create: async () => ({}) } as unknown as typeof env.RUN_WORKFLOW;
+  let time = Date.parse('2026-11-21T08:55Z');
+  t.mock.method(Date, 'now', () => time);
+  env.RUN_WORKFLOW = { createBatch: async ({instances}: {instances: {id:string}[]}) => ({created:instances,errors:[]}) } as unknown as typeof env.RUN_WORKFLOW;
   await createBulkSchedules(env, 'org', {
-    prompt_ids: ['p1'], preset: 'daily', days: [1], times: ['09:00'], timezone: 'UTC', repetitions: 2, enabled: true,
+    prompt_ids: ['p1'], preset: 'daily', days: [1], times: ['09:00','09:01'], timezone: 'UTC', repetitions: 2, enabled: true,
   });
   const schedule = sql.prepare('SELECT id FROM schedules').get()!;
   const ids = () => sql.prepare('SELECT idempotency_key FROM runs ORDER BY idempotency_key').all().map(row => row.idempotency_key);
+  time = Date.parse('2026-11-21T09:05Z');
   await sweep(env);
-  assert.deepEqual(ids(), [1,2].map(sample => `schedule:${schedule.id}:2026-11-21@09:00:sample:${sample}`));
-  sql.exec('UPDATE schedules SET last_slot=NULL');
+  const expected = ['09:00','09:01'].flatMap(slot => [1,2].map(sample => `schedule:${schedule.id}:2026-11-21@${slot}:sample:${sample}`));
+  assert.deepEqual(ids(), expected);
+  sql.prepare('UPDATE schedules SET next_due_at=?').run(Date.parse('2026-11-21T09:00Z'));
   await sweep(env);
-  assert.equal(ids().length, 2);
-  assert.equal(sql.prepare('SELECT last_slot FROM schedules').get()!.last_slot, '2026-11-21@09:00');
+  assert.deepEqual(ids(), expected);
+  assert.equal(sql.prepare('SELECT last_slot FROM schedules').get()!.last_slot, '2026-11-21@09:01');
 });
 
 test('run history requires both cursor values and continues through same-timestamp results', async () => {
@@ -202,4 +198,81 @@ test('bulk prompt settings route is not intercepted by the single-prompt route a
  assert.ok(sql.prepare('SELECT * FROM prompts').all().every(p=>p.enabled===0 && p.mode==='priority'));
  await assert.rejects(call({ids:['p1','foreign'],enabled:true}),/not in this organization/);
  assert.ok(sql.prepare('SELECT * FROM prompts').all().every(p=>p.enabled===0));
+});
+
+test('a busy sweep admits 1500 due slots while 100 earlier non-due schedules remain untouched', async (t) => {
+  const { env, sql } = await setup();
+  const time = Date.parse('2026-11-21T09:05Z');
+  t.mock.method(Date, 'now', () => time);
+  const launches: number[] = [];
+  env.RUN_WORKFLOW = {
+    createBatch: async ({ instances }: { instances: { id: string }[] }) => {
+      launches.push(instances.length);
+      return { created: instances, errors: [] };
+    },
+  } as unknown as typeof env.RUN_WORKFLOW;
+  const insert = sql.prepare(`INSERT INTO schedules(id,org_id,prompt_id,preset,days,times_json,timezone,enabled,created_at,next_due_at)
+    VALUES(?,'org','p1','daily','[0,1,2,3,4,5,6]',?,'UTC',1,0,?)`);
+  for (let i=0;i<100;i++) insert.run(`a-later-${i}`, '["23:00"]', Date.parse('2026-11-21T23:00Z'));
+  for (let i=0;i<1500;i++) insert.run(`z-due-${i}`, '["09:00"]', Date.parse('2026-11-21T09:00Z'));
+  await sweep(env);
+  assert.equal(sql.prepare("SELECT count(*) AS n FROM runs WHERE workflow_started=1").get()?.n, 1500);
+  assert.equal(sql.prepare("SELECT count(*) AS n FROM schedules WHERE last_slot IS NULL").get()?.n, 100);
+  assert.deepEqual(launches, Array(15).fill(100));
+  await sweep(env);
+  assert.equal(sql.prepare("SELECT count(*) AS n FROM runs").get()?.n, 1500);
+});
+
+test('dispatch confirms only created or existing IDs and reclaims queued work with a new generation', async (t) => {
+  const { env, sql } = await setup();
+  const { launchRuns, recoverQueuedWorkflows } = await import('../src/server/dispatch');
+  const { executeRun } = await import('../src/server/provider');
+  const time = Date.parse('2026-11-21T09:05Z');
+  t.mock.method(Date, 'now', () => time);
+  const runs = await Promise.all([1,2,3].map(i => createRun(env, 'org', 'p1', `dispatch-test-${i}`)));
+  const ids = runs.map(run => String(run.id)).sort();
+  let batches = 0;
+  let launched: { id: string; params: { runId: string; generation: number } }[] = [];
+  env.RUN_WORKFLOW = { createBatch: async ({instances}: {instances: typeof launched}) => {
+    launched = instances;
+    batches++;
+    return batches === 1 ? { created: [instances[0]], errors: [{index:1,code:10405},{index:2,code:500}] } : { created:instances, errors:[] };
+  }} as unknown as typeof env.RUN_WORKFLOW;
+  assert.equal(await launchRuns(env, ids), 2);
+  assert.equal(sql.prepare("SELECT count(*) AS n FROM runs WHERE workflow_started=0").get()?.n, 1);
+  sql.prepare("UPDATE runs SET status='submitted',task_id='task',submitted_at=? WHERE id=?").run(time, ids[1]);
+  await recoverQueuedWorkflows(env, time + 16 * 60_000);
+  assert.equal(await launchRuns(env), 2);
+  assert.deepEqual(launched.map(instance => instance.id), [ids[0]+"-1", ids[2]]);
+  assert.equal(sql.prepare("SELECT workflow_generation FROM runs WHERE id=?").get(ids[1])?.workflow_generation, 0);
+  await executeRun(env, ids[0], 0);
+  assert.equal(sql.prepare("SELECT status FROM runs WHERE id=?").get(ids[0])?.status, 'queued');
+});
+
+test('MCP run_prompts shares REST admission and launches the submitted batch', async () => {
+  const { env } = await setup();
+  const { hashToken } = await import('../src/server/crypto');
+  const { mcp } = await import('../src/server/mcp');
+  const db = env.DB;
+  const key = 'trk_dispatch_fixture';
+  await db.prepare("INSERT INTO user VALUES('owner','Owner','owner@example.test',1,NULL,0,0)").run();
+  await db.prepare("INSERT INTO memberships VALUES('org','owner','owner',0)").run();
+  await db.prepare(`INSERT INTO api_keys(id,org_id,user_id,name,prefix,token_hash,scopes,expires_at,created_at)
+    VALUES('dispatch-key','org','owner','Agent','trk',?,'["run"]',?,0)`).bind(await hashToken(key),Date.now()+60_000).run();
+  let started = 0;
+  env.RUN_WORKFLOW = { createBatch: async ({instances}: {instances: {id:string}[]}) => {
+    started += instances.length;
+    return {created:instances,errors:[]};
+  }} as unknown as typeof env.RUN_WORKFLOW;
+  const pending: Promise<unknown>[] = [];
+  const context = {waitUntil: (promise: Promise<unknown>) => pending.push(promise)} as unknown as import('../src/server/types').Ctx;
+  const req = new Request('https://example.test/mcp', {
+    method:'POST', headers:{Authorization:`Bearer ${key}`,'Content-Type':'application/json',Accept:'application/json, text/event-stream'},
+    body:JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/call',params:{name:'run_prompts',arguments:{prompt_ids:['p1','p2'],repetitions:2,batch_key:'agent-batch-test'}}}),
+  });
+  const response = await (await mcp(req,env,context)).json() as {result:{isError:boolean;content:{text:string}[]}};
+  assert.equal(response.result.isError,false);
+  assert.equal(JSON.parse(response.result.content[0].text).runs.length,4);
+  await Promise.all(pending);
+  assert.equal(started,4);
 });

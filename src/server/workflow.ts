@@ -1,73 +1,45 @@
-import {
-  WorkflowEntrypoint,
-  type WorkflowEvent,
-  type WorkflowStep,
-} from "cloudflare:workers";
+import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers";
 import { collectRun, executeRun } from "./provider";
-import { exec, now, one, type Env, type Row } from "./types";
-export class TrackingWorkflow extends WorkflowEntrypoint<
-  Env,
-  { runId: string }
-> {
-  async run(event: WorkflowEvent<{ runId: string }>, step: WorkflowStep) {
-    const id = event.payload.runId;
-    for (let admission = 0; admission < 720; admission++) {
-      const state = await step.do(
-        `admit and submit ${admission}`,
-        { retries: { limit: 0, delay: "1 second" }, timeout: "4 minutes" },
-        async () => {
-          await executeRun(this.env, id);
-          return (
-            await one<Row>(this.env, "SELECT status FROM runs WHERE id=?", id)
-          )?.status as string;
-        },
-      );
-      if (state !== "queued") break;
-      await step.sleep(
-        `wait for organization capacity ${admission}`,
-        "1 minute",
-      );
+import { releaseQueuedWorkflow } from "./dispatch";
+import { now, one, type Env } from "./types";
+
+type Parameters = { runId: string; generation?: number };
+export class TrackingWorkflow extends WorkflowEntrypoint<Env, Parameters> {
+  async run(event: WorkflowEvent<Parameters>, step: WorkflowStep) {
+    const { runId, generation = 0 } = event.payload;
+    const readRun = () => one(this.env, "SELECT * FROM runs WHERE id=? AND workflow_generation=?", runId, generation);
+    let state: unknown;
+    for (let attempt = 0; attempt < 10; attempt++) {
+      state = await step.do(`submit ${attempt}`, { retries: { limit: 0, delay: "1 second" }, timeout: "4 minutes" }, async () => {
+        await executeRun(this.env, runId, generation);
+        return (await readRun())?.status ?? "missing";
+      });
+      if (state !== "queued" && state !== "submitting") break;
+      await step.sleep(`wait for submission ${attempt}`, "1 minute");
     }
-    for (let i = 0; i < 864; i++) {
-      const state = await step.do(
-        `collect result ${i}`,
-        {
-          retries: { limit: 3, delay: "10 seconds", backoff: "exponential" },
-          timeout: "3 minutes",
-        },
-        async () => {
-          const r = await one<Row>(
-            this.env,
-            "SELECT * FROM runs WHERE id=?",
-            id,
-          );
-          if (!r) return "missing";
-          if (r.status === "submitted") await collectRun(this.env, r);
-          return (
-            await one<Row>(this.env, "SELECT status FROM runs WHERE id=?", id)
-          )?.status as string;
-        },
-      );
-      if (state !== "submitted") return { runId: id, status: state };
-      // Signed provider callback wakes us early. A timeout recovers lost callbacks with polling.
+    if (state === "queued") {
+      await step.do("release queued run", async () => {
+        await releaseQueuedWorkflow(this.env, runId, generation);
+      });
+      return { runId, status: "queued" };
+    }
+    // Cron also recovers accepted tasks when this Workflow terminates or misses a callback.
+    let notified = false;
+    for (let poll = 0; poll < 400; poll++) {
+      state = await step.do(`collect ${poll}`, { retries: { limit: 2, delay: "10 seconds", backoff: "exponential" }, timeout: "2 minutes" }, async () => {
+        const run = await readRun();
+        if (run?.status === "submitted" && Number(run.submitted_at) > now() - 72 * 3600_000) await collectRun(this.env, run, 30_000, notified);
+        return (await readRun())?.status ?? "missing";
+      });
+      if (state !== "submitted" && state !== "submitting") return { runId, status: state };
+      notified = false;
       try {
-        await step.waitForEvent(`provider signal ${i}`, {
-          type: "provider-ready",
-          timeout: "5 minutes",
-        });
+        await step.waitForEvent(`provider notification ${poll}`, { type: "provider-ready", timeout: "5 minutes" });
+        notified = true;
       } catch {
-        /* next iteration checks the same external task, never resubmits */
+        // Fall back to polling this task.
       }
     }
-    await step.do("expire uncompleted task", async () => {
-      await exec(
-        this.env,
-        "UPDATE runs SET status='failed',error='Provider task timed out after 72 hours',updated_at=? WHERE id=? AND status='submitted'",
-        now(),
-        id,
-      );
-      return true;
-    });
-    return { runId: id, status: "expired" };
+    return { runId, status: state };
   }
 }

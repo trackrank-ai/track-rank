@@ -5,6 +5,7 @@ import { enforceLimit, safetyCeiling } from "./rate-limit";
 import { prepareRunAdmission, runUsage, runUsagePeriods } from "./run-admission";
 import { trackedWorkspaceBrands } from "./workspace-brands";
 import {
+  all,
   exec,
   HttpError,
   now,
@@ -48,7 +49,14 @@ export function providerPayload(text: string, config: Config, id: string) {
       : {}),
   };
 }
-async function dfs(env: Env, orgId: string, path: string, body?: unknown) {
+class ProviderHttpError extends HttpError {
+  constructor(readonly upstreamStatus: number) { super(502, `DataForSEO returned HTTP ${upstreamStatus}`); }
+}
+class ProviderStatusError extends HttpError {
+  constructor(readonly providerStatus: number) { super(502, `DataForSEO status ${providerStatus}`); }
+}
+const providerRejected = (status: number) => status >= 40000 && status < 50000;
+async function dfs(env: Env, orgId: string, path: string, body?: unknown, timeout = 150_000) {
   const c = await credentials(env, orgId);
   if (!c.login || !c.password)
     throw new HttpError(
@@ -62,12 +70,12 @@ async function dfs(env: Env, orgId: string, path: string, body?: unknown) {
       "Content-Type": "application/json",
     },
     body: body ? JSON.stringify(body) : undefined,
-    signal: AbortSignal.timeout(150000),
+    signal: AbortSignal.timeout(timeout),
   });
-  if (!r.ok) throw new HttpError(502, `DataForSEO returned HTTP ${r.status}`);
+  if (!r.ok) throw new ProviderHttpError(r.status);
   const data = (await r.json()) as { status_code: number; tasks?: Row[] };
-  if (data.status_code !== 20000)
-    throw new HttpError(502, `DataForSEO status ${data.status_code}`);
+  if (data.status_code !== 20000 && !(body && data.tasks?.length))
+    throw new ProviderStatusError(Number(data.status_code));
   return data;
 }
 export async function createRun(
@@ -297,7 +305,7 @@ async function complete(env: Env, run: Row, task: Row) {
   });
   await exec(
     env,
-    "UPDATE runs SET status='succeeded',task_id=?,answer_text=?,citations=?,mentions=?,grounding_queries=?,organic_results=?,discovered_brands=?,has_answer=?,raw_key=?,provider_cost=MAX(provider_cost,?),updated_at=? WHERE id=? AND org_id=?",
+    "UPDATE runs SET status='succeeded',task_id=?,answer_text=?,citations=?,mentions=?,grounding_queries=?,organic_results=?,discovered_brands=?,has_answer=?,raw_key=?,provider_cost=MAX(provider_cost,?),updated_at=? WHERE id=? AND org_id=? AND status IN ('submitting','submitted')",
     task.id || run.task_id || null,
     parsed.text,
     JSON.stringify(parsed.citations),
@@ -313,117 +321,115 @@ async function complete(env: Env, run: Row, task: Row) {
     run.org_id,
   );
 }
-export async function executeRun(env: Env, id: string) {
+const uncertainSubmission = "Submission outcome uncertain; inspect DataForSEO before retrying.";
+export async function executeRun(env: Env, id: string, generation?: number) {
   if (maintenance(env)) return;
-  const run = required(
-    await one<Row>(env, "SELECT * FROM runs WHERE id=?", id),
-  );
-  if (run.status !== "queued") return;
+  const run = await one(env, "SELECT * FROM runs WHERE id=?", id);
+  if (!run || run.status !== "queued" || (generation !== undefined && run.workflow_generation !== generation)) return;
+  const org = String(run.org_id);
   let plan;
-  try { plan = await organizationPlan(env, String(run.org_id)); }
-  catch (error) {
-    if (error instanceof HttpError && error.status === 402) {
-      await exec(env, "UPDATE runs SET status='failed',error='Access expired before submission; choose a paid plan to continue',updated_at=? WHERE id=? AND status='queued'", now(), id);
-      return;
-    }
-    throw error;
-  }
-  const lease = await exec(
-    env,
-    "UPDATE runs SET status='submitting',updated_at=? WHERE id=? AND status='queued'",
-    now(),
-    id,
-  );
-  if (!lease.meta.changes) return;
   try {
-    await enforceLimit(env, `provider-submit:${run.org_id}`, safetyCeiling(env.PROVIDER_REQUESTS_PER_MINUTE, plan.limits.provider_per_minute));
+    plan = await organizationPlan(env, org);
   } catch (error) {
-    // The provider has not been contacted. The workflow can retry this queued run.
-    await exec(env, "UPDATE runs SET status='queued',updated_at=? WHERE id=? AND status='submitting'", now(), id);
+    if (!(error instanceof HttpError) || error.status !== 402) throw error;
+    await exec(env, "UPDATE runs SET status='failed',error='Access expired before submission; choose a paid plan to continue',updated_at=? WHERE id=? AND status='queued'", now(), id);
+    return;
+  }
+  const config = JSON.parse(String(run.config)) as Config;
+  const live = config.mode === "live";
+  const claimed = await all(env, `
+    WITH candidates AS MATERIALIZED (
+      SELECT id FROM runs WHERE org_id=? AND status='queued'
+      AND EXISTS(SELECT 1 FROM runs seed WHERE seed.id=? AND seed.status='queued' AND seed.workflow_generation=?)
+      ${live ? "AND id=?" : "AND json_extract(config,'$.engine')=? AND json_extract(config,'$.mode') IN ('standard','priority')"}
+      ORDER BY id=? DESC,created_at,id LIMIT ?
+    )
+    UPDATE runs SET status='submitting',updated_at=?
+    WHERE id IN (SELECT id FROM candidates) AND status='queued' RETURNING *
+  `, org, id, generation ?? Number(run.workflow_generation), live ? id : config.engine, id, live ? 1 : 100, now());
+  if (!claimed.length) return;
+  const ids = JSON.stringify(claimed.map(row => row.id));
+  const release = () => exec(env, `UPDATE runs SET status='queued',updated_at=?
+      WHERE id IN (SELECT value FROM json_each(?)) AND status='submitting'`, now(), ids);
+  try {
+    await enforceLimit(env, `${live ? "provider-live" : "provider-submit"}:${org}`, safetyCeiling(env.PROVIDER_REQUESTS_PER_MINUTE, plan.limits.provider_per_minute));
+  } catch (error) {
+    await release();
     if (error instanceof HttpError && error.status === 429) return;
     throw error;
   }
-  const config = JSON.parse(String(run.config)) as Config;
+
   try {
-    const data = await dfs(
-      env,
-      String(run.org_id),
-      providerBase(config.engine) +
-        (config.mode === "live" ? "/live/advanced" : "/task_post"),
-      [
-        {
-          ...providerPayload(String(run.prompt_text), config, id),
-          ...(config.mode !== "live"
-            ? {
-                pingback_url: `${env.BASE_URL}/api/provider-callback/${id}?signature=${await callbackSignature(env, id)}&task=$id`,
-              }
-            : {}),
-        },
-      ],
-    );
-    const task = data.tasks?.[0];
-    if (!task) throw new Error("No provider task returned");
-    if (config.mode === "live") {
-      if (task.status_code !== 20000)
-        throw new HttpError(
-          502,
-          `Provider task status ${task.status_code}: ${String(task.status_message || "").slice(0, 200)}`,
-        );
-      await complete(env, run, task);
+    const payload = await Promise.all(claimed.map(async row => {
+      const runId = String(row.id);
+      return {
+        ...providerPayload(String(row.prompt_text), JSON.parse(String(row.config)) as Config, runId),
+        ...(live ? {} : { pingback_url: `${env.BASE_URL}/api/provider-callback/${runId}?signature=${await callbackSignature(env, runId)}&task=$id` }),
+      };
+    }));
+    const { tasks = [] } = await dfs(env, org, providerBase(config.engine) + (live ? "/live/advanced" : "/task_post"), payload);
+    if (live) {
+      const task = tasks[0];
+      if (!task) throw Error("No provider task was returned");
+      if (task.status_code !== 20000) throw new ProviderStatusError(Number(task.status_code));
+      await complete(env, claimed[0], task);
     } else {
-      if (![20000, 20100].includes(Number(task.status_code)) || !task.id)
-        throw new HttpError(
-          502,
-          `Provider rejected task: ${task.status_code} ${String(task.status_message || "").slice(0, 200)}`,
-        );
-      await exec(
-        env,
-        "UPDATE runs SET status='submitted',task_id=?,provider_cost=?,updated_at=? WHERE id=?",
-        task.id,
-        Number(task.cost || 0),
-        now(),
-        id,
-      );
+      const byTag = new Map<string, Row[]>();
+      const taskIds = new Map<string, number>();
+      for (const task of tasks) {
+        const tag = (task.data as Row | undefined)?.tag ?? (claimed.length === 1 && tasks.length === 1 ? claimed[0].id : undefined);
+        if (typeof tag === "string") byTag.set(tag, [...(byTag.get(tag) ?? []), task]);
+        if (typeof task.id === "string") taskIds.set(task.id, (taskIds.get(task.id) ?? 0) + 1);
+      }
+      const time = now();
+      await env.DB.batch(claimed.map(row => {
+        const matches = byTag.get(String(row.id));
+        const task = matches?.length === 1 ? matches[0] : null;
+        const accepted = task && [20000, 20100].includes(Number(task.status_code));
+        if (accepted && typeof task.id === "string" && taskIds.get(task.id) === 1) {
+          return env.DB.prepare(`UPDATE runs SET status='submitted',task_id=?,provider_cost=?,submitted_at=?,updated_at=?,poll_after=?
+            WHERE id=? AND status='submitting'`).bind(task.id, Number(task.cost || 0), time, time, time, row.id);
+        }
+        const rejected = !!task && providerRejected(Number(task.status_code));
+        return env.DB.prepare("UPDATE runs SET status=?,error=?,updated_at=? WHERE id=? AND status='submitting'")
+          .bind(rejected ? "failed" : "uncertain", rejected ? `Provider rejected task: ${task!.status_code}` : uncertainSubmission, time, row.id);
+      }));
     }
-  } catch (e) {
-    const definite = e instanceof HttpError;
-    await exec(
-      env,
-      "UPDATE runs SET status=?,error=?,updated_at=? WHERE id=?",
-      definite ? "failed" : "uncertain",
-      definite
-        ? e.message
-        : "Submission outcome uncertain; not retried to avoid duplicate charges. Check your DataForSEO task list.",
-      now(),
-      id,
-    );
+  } catch (error) {
+    if (error instanceof ProviderHttpError && error.upstreamStatus === 429) {
+      await release();
+      return;
+    }
+    const rejected = error instanceof ProviderStatusError ? providerRejected(error.providerStatus)
+      : error instanceof ProviderHttpError ? error.upstreamStatus < 500 && error.upstreamStatus !== 408
+      : error instanceof HttpError && error.status === 409;
+    await exec(env, `UPDATE runs SET status=?,error=?,updated_at=?
+      WHERE id IN (SELECT value FROM json_each(?)) AND status='submitting'`,
+      rejected ? "failed" : "uncertain", rejected && error instanceof Error ? error.message : uncertainSubmission, now(), ids);
   }
 }
-export async function collectRun(env: Env, run: Row) {
-  if (maintenance(env)) return;
-  if (run.status !== "submitted") return;
+export async function collectRun(env: Env, run: Row, timeout = 150_000, notified = false) {
+  if (maintenance(env) || run.status !== "submitted") return;
+  const time = now();
+  const leaseUntil = time + timeout + 30_000;
+  const claim = await exec(env, `UPDATE runs SET poll_lease_until=? WHERE id=? AND status='submitted' AND task_id=?
+    AND poll_lease_until<=? AND (poll_after<=? OR ?=1)`,
+    leaseUntil, run.id, run.task_id, time, time, Number(notified));
+  if (!claim.meta.changes) return;
   try {
     const config = JSON.parse(String(run.config)) as Config;
-    const d = await dfs(
-      env,
-      String(run.org_id),
-      `${providerBase(config.engine)}/task_get/advanced/${encodeURIComponent(String(run.task_id))}`,
-    );
-    const t = d.tasks?.[0];
-    if (!t) return;
-    if (t.status_code === 20000) await complete(env, run, t);
-    else if (![20100, 40601, 40602].includes(Number(t.status_code)))
-      await exec(
-        env,
-        "UPDATE runs SET status='failed',error=?,updated_at=? WHERE id=?",
-        `Provider task status ${t.status_code}: ${String(t.status_message || "").slice(0, 200)}`,
-        now(),
-        run.id,
-      );
-    else
-      await exec(env, "UPDATE runs SET updated_at=? WHERE id=?", now(), run.id);
+    const d = await dfs(env, String(run.org_id), `${providerBase(config.engine)}/task_get/advanced/${encodeURIComponent(String(run.task_id))}`, undefined, timeout);
+    const task = d.tasks?.[0];
+    if (!task || (task.id && task.id !== run.task_id)) return;
+    if (task.status_code === 20000) await complete(env, run, task);
+    else if (![20100, 40601, 40602].includes(Number(task.status_code)))
+      await exec(env, "UPDATE runs SET status='failed',error=?,updated_at=? WHERE id=? AND status='submitted' AND task_id=?",
+        `Provider task status ${task.status_code}: ${String(task.status_message || "").slice(0, 200)}`, now(), run.id, run.task_id);
   } catch {
-    await exec(env, "UPDATE runs SET updated_at=? WHERE id=?", now(), run.id);
+    // The next poll uses the same accepted task ID.
+  } finally {
+    await exec(env, "UPDATE runs SET poll_after=?,poll_lease_until=0 WHERE id=? AND status='submitted' AND task_id=? AND poll_lease_until=?",
+      now() + 60_000, run.id, run.task_id, leaseUntil);
   }
 }
 export async function analyzeRun(env: Env, orgId: string, runId: string) {
