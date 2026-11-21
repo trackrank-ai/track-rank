@@ -3,7 +3,7 @@
 ## Plan and provenance
 
 TrackRank is a direct SaaS merchant, not a Connect marketplace. Initial scope:
-14-day card-required trial, then USD10/month Starter per organization, not per seat. Use Stripe-hosted Checkout
+14-day no-card application-managed trial; explicit paid upgrade to USD10/month Starter per organization, not per seat. Use Stripe-hosted Checkout
 (Payments + Billing), recurring subscription invoices and the customer portal
 (Invoicing). No standalone invoice editor is needed for this launch. Keep
 Stripe Tax configurable only after verified setup. Self-hosted deployment needs
@@ -104,3 +104,5 @@ retain all billing tables/mappings/events and secrets; do not restore old code
 that grants paid access from a plan assignment alone. Pause new checkout while
 keeping webhook/portal recovery available. Do not delete encrypted customer
 credentials or rotate their encryption key as part of billing rollback.
+
+The later no-card revision supersedes historical card-required TEST evidence below. See BILLING-OPERATIONS.md and no-card-trial.json for the revised flow.

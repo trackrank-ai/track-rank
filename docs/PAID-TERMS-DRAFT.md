@@ -4,7 +4,7 @@ Commercial choices confirmed by Edwin. Technical production activation still req
 
 - Starter: USD $10 per month per organization, not per seat.
 - Price presentation: $10 before applicable taxes, with the final total shown in Checkout. Automatic tax remains disabled until tax settings, code and actual registrations are confirmed.
-- A 14-day free trial requires a payment card at signup. Unless canceled before trial expiry, the first monthly charge is collected automatically when the trial ends. One introductory trial per organization; canceling and resubscribing does not restart it.
+- A 14-day application-managed free trial requires a verified account, not a payment card. No automatic charge occurs. At expiry, product access pauses until an explicit paid upgrade succeeds. One introductory trial per account; creating another organization does not restart it. Existing Stripe agreements are unchanged.
 - Renews monthly until canceled. The owner can cancel through Manage billing; cancellation takes effect at the current period end. No further subscription renewal after cancellation takes effect.
 - Refund policy: full refund requested within 7 days of the first paid subscription charge; subsequent charges handled case by case, subject to mandatory rights. A free trial itself has no charge to refund.
 - Plan revision starter-v1 includes 200,000 API operations/month and 6,000 tracking runs/month, 120 API operations/minute, 10 provider operations/minute and 3 concurrent runs. Monthly allowances reset on the first UTC, not the subscription anniversary. Unused allowances do not roll over. Safety ceilings and the organization's daily run guardrail may be lower.

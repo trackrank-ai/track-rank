@@ -1,3 +1,4 @@
+import {assertProviderOptions} from "./provider-options";
 import { maintenance } from "./erasure";
 import { calendarMonth, organizationPlan } from "./plans";
 import {
@@ -113,6 +114,7 @@ export async function createRun(
     ),
     "Enabled prompt not found",
   );
+  await assertProviderOptions([p.engine as Engine], String(p.location_name), String(p.language_code));
   const c = await credentials(env, orgId);
   if (!c.login || !c.password)
     throw new HttpError(
@@ -351,7 +353,15 @@ export async function executeRun(env: Env, id: string) {
     await one<Row>(env, "SELECT * FROM runs WHERE id=?", id),
   );
   if (run.status !== "queued") return;
-  const plan = await organizationPlan(env, String(run.org_id));
+  let plan;
+  try { plan = await organizationPlan(env, String(run.org_id)); }
+  catch (error) {
+    if (error instanceof HttpError && error.status === 402) {
+      await exec(env, "UPDATE runs SET status='failed',error='Access expired before submission; choose a paid plan to continue',updated_at=? WHERE id=? AND status='queued'", now(), id);
+      return;
+    }
+    throw error;
+  }
   const lease = await exec(
     env,
     "UPDATE runs SET status='submitting',updated_at=? WHERE id=? AND status='queued' AND (SELECT COUNT(*) FROM runs active WHERE active.org_id=runs.org_id AND active.status IN ('submitting','submitted'))<?",

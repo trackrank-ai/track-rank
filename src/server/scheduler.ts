@@ -24,11 +24,13 @@ export function localSlot(date: Date, timezone: string) {
 export function scheduleDue(schedule: Row, date: Date) {
   const slot = localSlot(date, String(schedule.timezone));
   const days = JSON.parse(String(schedule.days)) as number[];
-  return days.includes(slot.day) &&
-    slot.time >= String(schedule.local_time) &&
-    schedule.last_slot !== slot.date
-    ? slot.date
-    : null;
+  if (!days.includes(slot.day)) return null;
+  const times = schedule.times_json ? JSON.parse(String(schedule.times_json)) as string[] : [];
+  if (!times.length) return slot.time >= String(schedule.local_time) && schedule.last_slot !== slot.date ? slot.date : null;
+  // Catch up the most recent due time only; never burst all missed historical slots.
+  const due = [...times].sort().filter(time=>time<=slot.time).at(-1);
+  const key = due ? `${slot.date}@${due}` : null;
+  return key && schedule.last_slot !== key ? key : null;
 }
 export async function sweep(env: Env) {
   const t = now();
@@ -46,18 +48,19 @@ export async function sweep(env: Env) {
   );
   const schedules = await all(
     env,
-    "SELECT s.* FROM schedules s JOIN prompts p ON p.org_id=s.org_id AND p.id=s.prompt_id WHERE s.enabled=1 AND p.enabled=1 ORDER BY COALESCE(s.last_slot,''),s.created_at LIMIT 1000",
+    "SELECT * FROM (SELECT s.*,ROW_NUMBER() OVER(PARTITION BY s.org_id ORDER BY COALESCE(s.last_slot,''),s.created_at) AS tenant_position FROM schedules s JOIN prompts p ON p.org_id=s.org_id AND p.id=s.prompt_id WHERE s.enabled=1 AND p.enabled=1) ORDER BY tenant_position,COALESCE(last_slot,''),created_at LIMIT 100",
   );
+  let admissions = 0;
   for (const s of schedules) {
+    if (admissions >= 100) break;
     const slot = scheduleDue(s, new Date(t));
     if (!slot) continue;
     try {
-      await createRun(
-        env,
-        String(s.org_id),
-        String(s.prompt_id),
-        `schedule:${s.id}:${slot}`,
-      );
+      const repetitions = Math.max(1,Math.min(10,Number(s.repetitions)||1));
+      for (let sample=1;sample<=repetitions;sample++) {
+        if (admissions++ >= 100) throw new Error("Continue admissions next cron");
+        await createRun(env, String(s.org_id), String(s.prompt_id), `schedule:${s.id}:${slot}${JSON.parse(String(s.times_json||'[]')).length || repetitions>1?`:sample:${sample}`:''}`);
+      }
       await exec(
         env,
         "UPDATE schedules SET last_slot=? WHERE id=?",

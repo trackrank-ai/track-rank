@@ -15,7 +15,7 @@ check('Price is USD10/month',price.unit_amount===1000&&price.currency==='usd'&&p
 const test=!price.livemode;
 check('Price matches key environment',price.livemode===expectedLive);
 check('Price active',price.active);
-check('Checkout trial policy configured in source',true,'14 days, card required, once per organization; terms consent required');
+check('Checkout trial policy configured in source',true,'14-day application-managed trial, no card/automatic charge; paid Checkout has no additional trial; terms consent required');
 const portal=await stripe.billingPortal.configurations.retrieve(config.vars.STRIPE_PORTAL_CONFIGURATION);
 check('Portal active and cancellation/invoices/payment updates enabled',portal.active&&portal.features.subscription_cancel.enabled&&portal.features.invoice_history.enabled&&portal.features.payment_method_update.enabled);
 const endpoints=await stripe.webhookEndpoints.list({limit:100});

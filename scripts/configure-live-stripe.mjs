@@ -10,7 +10,7 @@ async function stripe(path,method='GET',data,idempotency){
 }
 const account=await stripe('/account');
 if(account.business_profile?.name!=='trackrank.ai'||!account.charges_enabled)throw Error('Merchant identity or charges eligibility mismatch');
-const product=await stripe('/products','POST',{name:'TrackRank Starter',description:'14-day card-required trial, then $10/month before tax per organization','metadata[plan_version]':'starter-v1'},'trackrank-live-starter-v1-product');
+const product=await stripe('/products','POST',{name:'TrackRank Starter',description:'Paid Starter subscription: $10/month before tax per organization','metadata[plan_version]':'starter-v1'},'trackrank-live-starter-v1-product');
 const price=await stripe('/prices','POST',{product:product.id,currency:'usd',unit_amount:'1000','recurring[interval]':'month',tax_behavior:'exclusive','metadata[plan_version]':'starter-v1'},'trackrank-live-starter-v1-price');
 if(!product.livemode||!price.livemode)throw Error('Expected LIVE catalog');
 const portal=await stripe('/billing_portal/configurations','POST',{'business_profile[headline]':'Manage your TrackRank subscription','business_profile[privacy_policy_url]':'https://trackrank.ai/privacy','business_profile[terms_of_service_url]':'https://trackrank.ai/terms','features[invoice_history][enabled]':'true','features[payment_method_update][enabled]':'true','features[subscription_cancel][enabled]':'true','features[subscription_cancel][mode]':'at_period_end'},'trackrank-live-starter-v1-portal');

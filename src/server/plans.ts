@@ -14,6 +14,10 @@ export async function organizationPlan(env: Env, org: string) {
     `SELECT p.* FROM organization_plans a JOIN plan_versions p ON p.id=a.plan_version_id WHERE a.org_id=?`, org);
   // Retired versions continue serving assigned customers. Missing/corrupt plans fail closed.
   if (!row) throw new HttpError(503, "Organization plan is not configured");
+  if (row.family === "trial") {
+    const trial = await one<Row>(env, "SELECT ends_at FROM organization_trials WHERE org_id=?", org);
+    if (!trial || Number(trial.ends_at) <= now()) throw new HttpError(402, "Your 14-day free trial has ended. Choose a plan and pay to continue; your data is retained.");
+  }
   if (Number(row.price_cents) > 0) {
     // Paid catalog assignments never grant access by themselves, even if billing is disabled.
     const billing = await one<Row>(env, "SELECT status,price_id,risk_hold,updated_at FROM billing_customers WHERE org_id=?", org);

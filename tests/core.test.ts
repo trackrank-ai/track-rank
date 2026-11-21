@@ -263,6 +263,7 @@ test("provider payload uses scraper and clean SERPs defaults, preserving special
   assert.equal(p.priority, 2);
   assert.equal(p.resolve_poisoned_results, true);
   assert.equal(p.load_async_ai_overview, true);
+  assert.equal(p.depth, 10);
   assert.equal(p.keyword, "C%2B%2B 100%25");
 });
 test("scheduler observes timezone, selected weekdays and same-day idempotency", () => {

@@ -1,0 +1,28 @@
+{
+  "checked_at": "2026-11-21T03:28:41.876Z",
+  "environment": "staging",
+  "verified_login": true,
+  "idempotent_trial_onboarding": true,
+  "no_stripe_customer_or_card": true,
+  "full_starter_limits": {
+    "api_per_minute": 120,
+    "api_per_month": 200000,
+    "provider_per_minute": 10,
+    "runs_per_month": 6000,
+    "concurrent_runs": 3
+  },
+  "trial_duration_ms": 1209600000,
+  "poison_fixer_default_on": true,
+  "bulk_saved_prompt_engine_combinations": 6,
+  "provider_runs_created": 0,
+  "bulk_schedule_prompts": 2,
+  "bulk_schedule_samples_per_prompt": 5,
+  "bulk_schedule_daily_times": 2,
+  "bulk_schedule_total_runs_per_day": 20,
+  "bulk_schedule_saved_paused": true,
+  "canonical_city_selector_verified": true,
+  "unsupported_language_rejected": true,
+  "trial_expiration_blocks_product_api": true,
+  "expired_billing_management_available": true,
+  "test_upgrade_checkout_created": true
+}
