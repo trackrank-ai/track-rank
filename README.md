@@ -107,3 +107,13 @@ Owners/admins generate scoped, expiring, revocable keys in **API & agents**. Age
 ## Account identity and team invitations
 
 Google and password methods share a verified same-email user identity. Google-only users can add a password through mailbox-verified reset; duplicate signup never installs a password. Invitations are recipient-email-bound and require explicit acceptance, without merging existing accounts or organizations. See [authentication behavior and release checks](docs/AUTHENTICATION.md). Migration `0005` expires old unclaimed bearer invitations; regenerate named links after upgrading.
+
+## Hosted subscription tiers
+
+| Plan | USD/month before tax | Checks/month | Searchable history |
+|---|---:|---:|---:|
+| Starter | $10 | 10,000 | 30 days |
+| Agency | $39 | 60,000 | 90 days |
+| Scale | $99 | 250,000 | 180 days |
+
+Apply migration `0021` before deploying these entitlements. Searchable history covers run lists, research and CSV exports, not automatic data deletion. Direct evidence links remain accessible with authorized product access. Existing subscriptions retain their revision. Live prices are prepared but offers remain unpublished until the [billing launch gates](docs/BILLING-OPERATIONS.md) pass.

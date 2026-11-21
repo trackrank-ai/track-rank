@@ -72,3 +72,7 @@ and proration are separate work.
 ## Deliberately not implemented
 
 An operator web console, customer-scheduled plan changes, automatic result expiry, and provider spending guarantees are separate work. Apply migration `0011` before deploying the admission ledger. It seeds this month's usage and preserves existing replay keys. Future expiry must keep these keys and counters until organization erasure or an explicit accounting-retention change. Once automatic expiry is enabled, roll back only to code that reads the durable counters.
+
+## Three-tier revisions
+
+Migration `0021` adds Starter `starter-v2` ($10, 10,000 checks, 30-day searchable history), Agency `agency-v1` ($39, 60,000 checks, 90 days), and Scale `scale-v1` ($99, 250,000 checks, 180 days). All retain 120 API operations/minute and 10 provider requests/minute per budget. Check allowances reset by UTC calendar month. `searchable_history_days` is optional for legacy/self-hosted revisions; absence preserves unrestricted history. Windows use run creation time, are enforced server-side for lists/research/CSV across REST and MCP, and do not delete stored evidence or change direct run access. Existing trial and paid assignments are unchanged. Stripe mappings are immutable; Starter v2 therefore uses a new $10 Price under the existing Starter Product. See `stripe-tier-catalog.json` for live identifiers.

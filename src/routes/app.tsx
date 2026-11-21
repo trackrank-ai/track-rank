@@ -2644,6 +2644,7 @@ function App() {
                         <p className="data-note">Plan allowances are shared by all organization members and API keys.</p>
                         <p>{settings.plan.limits.api_per_minute.toLocaleString()} API operations/minute · {settings.plan.limits.provider_per_minute.toLocaleString()} Standard/Priority batch requests/minute · {settings.plan.limits.provider_per_minute.toLocaleString()} Live requests/minute</p>
                         <p>{Number(settings.monthly_usage?.runs || 0).toLocaleString()} / {settings.plan.limits.runs_per_month.toLocaleString()} monthly runs</p>
+                        {settings.plan.limits.searchable_history_days && <p>{settings.plan.limits.searchable_history_days} days of searchable history</p>}
                         <p className="data-note">The run allowance resets at midnight UTC on the first day of each month.</p>
                       </CardContent>
                     </Card>

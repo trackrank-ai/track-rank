@@ -5,6 +5,7 @@ export const planLimits = z.object({
   api_per_minute: z.number().int().min(1).max(10000),
   provider_per_minute: z.number().int().min(1).max(10000),
   runs_per_month: z.number().int().min(1).max(1000000),
+  searchable_history_days: z.number().int().min(1).max(3650).optional(),
 }).strict();
 export type PlanLimits = z.infer<typeof planLimits>;
 export async function organizationPlan(env: Env, org: string) {

@@ -1,0 +1,34 @@
+{
+  "account_id": "acct_1Ue3pgG7SA9cWOCT",
+  "livemode": true,
+  "offers_published": false,
+  "tiers": [
+    {
+      "name": "Starter",
+      "revision": "starter-v2",
+      "cents": 1000,
+      "checks": 10000,
+      "history": 30,
+      "product_id": "prod_VfPG7ms3BH9ksN",
+      "price_id": "price_1UeMpuG7SA9cWOCTi5KqPSnu"
+    },
+    {
+      "name": "Agency",
+      "revision": "agency-v1",
+      "cents": 3900,
+      "checks": 60000,
+      "history": 90,
+      "product_id": "prod_VfiGSzGTQpkLSe",
+      "price_id": "price_1UeMpvG7SA9cWOCTrV9EysZ8"
+    },
+    {
+      "name": "Scale",
+      "revision": "scale-v1",
+      "cents": 9900,
+      "checks": 250000,
+      "history": 180,
+      "product_id": "prod_VfiGUihajuNMAd",
+      "price_id": "price_1UeMpwG7SA9cWOCTVSKa0bpW"
+    }
+  ]
+}

@@ -138,3 +138,7 @@ curl --fail-with-body "$TRACKRANK_URL/api/v1/workspaces" \
 No Google credentials are needed by agents. DataForSEO credentials are only needed for real collection and are configured separately in organization Settings. MCP and REST enforce the same scopes and customer limits.
 
 See [authentication and invitations](AUTHENTICATION.md) for Google/password reconciliation, recipient verification, and explicit acceptance. Invitation creation does not send email automatically.
+
+### Searchable history entitlement
+
+Plan `limits.searchable_history_days`, when present, restricts `GET /runs` (including research filters), `GET /export`, and equivalent MCP tools to runs created within the rolling window. Direct run/evidence endpoints remain available under normal tenant and entitlement checks; no automatic deletion occurs. Settings and MCP context expose the assigned limit. Legacy revisions without this field retain unrestricted history.

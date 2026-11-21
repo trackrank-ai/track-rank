@@ -98,3 +98,7 @@ npm run typecheck
 - Explain Organization (team/billing/credentials) → Workspaces (client/brand/campaign folders) → Prompts, with multiple tracked brands per workspace. Use the sidebar workspace selector for scope across the app. `All workspaces` covers the organization. `Default workspace` is a regular workspace.
 - Default poisoned-SERP fixing on for Google. Preserve organic blue links separately from AI Overview evidence.
 - Trial onboarding: 14 days, no card or automatic charge. Payment is requested explicitly afterward. Existing Stripe subscriptions keep their agreed schedule. Hosted checkout remains paused until the documented live gates are cleared.
+
+## Hosted three-tier catalog
+
+Apply migration `0021` before deploying tier history limits. Paid revisions Starter v2, Agency v1 and Scale v1 have 10,000/60,000/250,000 monthly checks and 30/90/180 days of searchable history. Search windows constrain run lists, research filters and CSV export through the shared REST/MCP path; they do not delete evidence, invalidate direct run links or reset admission ledgers. Legacy revisions retain their terms. `scripts/configure-tier-catalog.mjs` prepares the live Stripe catalog idempotently; it never publishes offers. Publish only after the existing launch gates pass.

@@ -4,7 +4,7 @@ import { bulkRunSchema, bulkScheduleSchema, bulkToggleSchema, updateBulkSchedule
 import { assertProviderOptions, providerOptions } from "./provider-options";
 import { MAX_PROMPT_BATCH_BYTES, promptBatchSchema, savePromptBatch } from "./prompt-batch";
 import { listSavedPrompts } from "./prompt-library";
-import { historyWhere } from "./run-history";
+import { searchableHistoryWhere } from "./run-history";
 import { requireWorkspaceBrand } from "./workspace-brands";
 import { archivePrompts, archiveWorkspace, deleteBrand } from "./resource-archive";
 import { createOrganization } from "./organization-create";
@@ -481,7 +481,7 @@ export async function api(
       throw new HttpError(400, "Invalid run history cursor");
     }
     if (w) await belongs(env, "workspaces", org, w, true);
-    const { conditions, bindings } = historyWhere(org, u.searchParams);
+    const { conditions, bindings } = await searchableHistoryWhere(env, org, u.searchParams);
     if (timestamp !== null) {
       conditions.push("(created_at,id)<(?,?)");
       bindings.push(before, beforeId);
@@ -807,7 +807,7 @@ export async function api(
   if (path === "/export" && method === "GET") {
     const workspace = u.searchParams.get("workspace");
     if (workspace) await belongs(env, "workspaces", org, workspace, true);
-    const { conditions, bindings } = historyWhere(org, u.searchParams);
+    const { conditions, bindings } = await searchableHistoryWhere(env, org, u.searchParams);
     const rows = await all<Row>(
       env,
       "SELECT id,prompt_text,status,config,mentions,citations,grounding_queries,provider_cost,created_at FROM runs WHERE " +

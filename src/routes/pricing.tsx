@@ -25,6 +25,7 @@ function Pricing() {
       <p>Before applicable tax.</p>
       <ul>
         <li>{offer.limits.runs_per_month.toLocaleString("en-US")} tracking runs per calendar month</li>
+        {offer.limits.searchable_history_days && <li>{offer.limits.searchable_history_days} days of searchable history</li>}
         <li>{offer.limits.api_per_minute} API operations and {offer.limits.provider_per_minute} Standard/Priority batch requests per minute and {offer.limits.provider_per_minute} Live requests per minute</li>
       </ul>
     </section>)}

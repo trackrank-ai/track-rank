@@ -243,3 +243,7 @@ catalogs contain public supported values, never credentials, and are deduplicate
 compressed server-side. Google/Gemini support city-level searches; multi-engine
 selectors use their intersection (ChatGPT's location list is country-level).
 The API validates canonical values rather than trusting dropdowns.
+
+## Three-tier catalog preparation
+
+Apply migration `0021_three_tier_plans.sql` before deployment. Run `node scripts/configure-tier-catalog.mjs` on the Gateway for a read-only preview; `--apply` creates missing Products/Prices using deterministic idempotency keys and writes nonsecret `docs/stripe-tier-catalog.json`. It checks the merchant identity, reuses one Product per tier, preserves old Prices and takes the existing account tax classification without changing Tax Settings or registrations. Map each resulting live Price to its exact revision using `npm run plans -- price-map ... --apply --remote --config wrangler.jsonc`. Do not publish offers until preflight and the existing launch gates pass. Catalog setup does not create Customers, subscriptions, Checkout Sessions or charges.
