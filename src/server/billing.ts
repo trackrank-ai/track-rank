@@ -9,6 +9,13 @@ export function stripeClient(env: Env) {
   return new Stripe(env.STRIPE_SECRET_KEY, { httpClient: Stripe.createFetchHttpClient(), maxNetworkRetries: 2, timeout: 15000 });
 }
 export function paidStatus(status: string) { return status === "active" || status === "trialing"; }
+function checkoutEnabled(env: Env) {
+  return env.BILLING_ENABLED === "true" &&
+    env.BILLING_CHECKOUT_ENABLED === "true" &&
+    !!env.STRIPE_SECRET_KEY &&
+    (env.STRIPE_SECRET_KEY.includes("_test_") || env.BILLING_TAX_REVIEWED === "true") &&
+    (env.STRIPE_AUTOMATIC_TAX !== "true" || env.STRIPE_TAX_READY === "true");
+}
 export async function billingRoute(req: Request, env: Env, p: Principal, path: string) {
   if (p.keyId) throw new HttpError(403, "Sign in to manage billing");
   const org = p.orgId!;
@@ -19,7 +26,7 @@ export async function billingRoute(req: Request, env: Env, p: Principal, path: s
     const assignment = await one<Row>(env, "SELECT p.family FROM organization_plans a JOIN plan_versions p ON p.id=a.plan_version_id WHERE a.org_id=?", org);
     const freeTrial = assignment?.family === "trial";
     const claimed = await one(env, "SELECT user_id FROM account_trial_claims WHERE user_id=?", p.userId);
-    return json({ enabled: env.BILLING_ENABLED === "true", checkout_enabled: env.BILLING_CHECKOUT_ENABLED === "true", ...state, has_billing_account: !!state, free_trial: trial, free_trial_enabled: env.HOSTED_FREE_TRIAL_ENABLED === "true", trial_eligible: !claimed && !state?.trial_used && assignment?.family === "pending", access_status: freeTrial ? Number(trial?.ends_at) > now() ? "free_trial" : "trial_expired" : assignment?.family === "pending" ? "choose_plan" : "assigned", owner: p.role === "owner" });
+    return json({ enabled: env.BILLING_ENABLED === "true", checkout_enabled: checkoutEnabled(env), ...state, has_billing_account: !!state, free_trial: trial, free_trial_enabled: env.HOSTED_FREE_TRIAL_ENABLED === "true", trial_eligible: !claimed && !state?.trial_used && assignment?.family === "pending", access_status: freeTrial ? Number(trial?.ends_at) > now() ? "free_trial" : "trial_expired" : assignment?.family === "pending" ? "choose_plan" : "assigned", owner: p.role === "owner" });
   }
   if (p.role !== "owner") throw new HttpError(403, "Only the organization owner can manage billing");
   if (req.method === "GET" && path === "/billing/alerts") return json({ alerts: await all(env, "SELECT id,kind,summary,created_at FROM billing_alerts WHERE org_id=? AND resolved_at IS NULL ORDER BY created_at DESC LIMIT 50", org) });
@@ -35,7 +42,7 @@ export async function billingRoute(req: Request, env: Env, p: Principal, path: s
     return json({ url: session.url });
   }
   if (path !== "/billing/checkout") throw new HttpError(404, "Not found");
-  if (env.BILLING_CHECKOUT_ENABLED !== "true") throw new HttpError(503, "New subscriptions are temporarily paused; existing billing management remains available");
+  if (!checkoutEnabled(env)) throw new HttpError(503, "New subscriptions are temporarily paused; existing billing management remains available");
   const priceId = env.STRIPE_STARTER_PRICE_ID;
   const mapping = priceId && await one<Row>(env, `SELECT p.* FROM billing_prices b JOIN plan_versions p ON p.id=b.plan_version_id WHERE b.price_id=? AND b.livemode=? AND p.status='active'`, priceId, Number(!env.STRIPE_SECRET_KEY?.includes('_test_')));
   if (!mapping || mapping.id !== "starter-v1") throw new HttpError(503, "Starter billing price is not configured");
@@ -47,7 +54,7 @@ export async function billingRoute(req: Request, env: Env, p: Principal, path: s
     const settings = await stripe.tax.settings.retrieve();
     const registrations = await stripe.tax.registrations.list({ status: "active", limit: 1 });
     const product = typeof price.product === "string" ? await stripe.products.retrieve(price.product) : price.product;
-    if (env.STRIPE_TAX_READY !== "true" || settings.status !== "active" || !registrations.data.length || price.tax_behavior !== "exclusive" || "deleted" in product || !product.tax_code)
+    if (settings.status !== "active" || !registrations.data.length || price.tax_behavior !== "exclusive" || "deleted" in product || !product.tax_code)
       throw new HttpError(503, "Tax configuration requires verified registrations, tax-exclusive pricing and a product tax code");
   }
   const lockToken = crypto.randomUUID();
@@ -67,7 +74,7 @@ export async function billingRoute(req: Request, env: Env, p: Principal, path: s
     throw new HttpError(409, "An existing subscription requires attention; use Manage billing");
   const open = await stripe.checkout.sessions.list({ customer: customerId, status: "open", limit: 100 });
   if (open.has_more) throw new HttpError(409, "Too many open checkouts; operator review required");
-  const compatible = open.data.find(s => s.metadata?.trackrank_checkout_revision === "paid-after-trial-v3");
+  const compatible = open.data.find(s => s.metadata?.trackrank_checkout_revision === "paid-after-trial-v3" && s.automatic_tax?.enabled === automaticTax);
   if (compatible?.url) return json({ url: compatible.url });
   for (const stale of open.data) await stripe.checkout.sessions.expire(stale.id);
   // One session per organization/window prevents parallel duplicate subscriptions.
@@ -83,7 +90,7 @@ export async function billingRoute(req: Request, env: Env, p: Principal, path: s
     integration_identifier: "trackrank_hosted_qxkpmvnr",
     consent_collection: { terms_of_service: "required" },
     expires_at: Math.floor(Date.now() / 1000 / 1800) * 1800 + 3600,
-  }, { idempotencyKey: `trackrank-checkout:paid-after-trial-v3:${org}:${priceId}:${Math.floor(Date.now() / 1800000)}` });
+  }, { idempotencyKey: `trackrank-checkout:paid-after-trial-v3:${org}:${priceId}:${automaticTax ? 'automatic-tax:' : ''}${Math.floor(Date.now() / 1800000)}` });
   return json({ url: session.url });
   } finally {
     await exec(env, "DELETE FROM billing_checkout_locks WHERE org_id=? AND token=?", org, lockToken);

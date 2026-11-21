@@ -27,8 +27,7 @@ function Setup() {
           </li>
           <li>
             Configure branding as TrackRank, an External audience, and the
-            support/developer email. If in Testing, add your email and your beta
-            users as test users.
+            support/developer email. If in Testing, add your email and the users who need test access.
           </li>
           <li>
             Create an OAuth client with application type{" "}
@@ -107,11 +106,11 @@ function Setup() {
         </p>
       </section>
       <section>
-        <h2>Before public launch</h2>
+        <h2>Verify your deployment</h2>
         <p>
-          Complete real Google, email verification/reset, team invitation, and
-          capped provider-run tests. Billing, Docker packaging, a restore drill,
-          and sustained load testing are not part of this beta yet.
+          Test Google sign-in, email verification and password reset, team invitations,
+          and a capped provider run. For questions about hosted subscriptions, see
+          the <Link to="/pricing">pricing page</Link>.
         </p>
       </section>
       <Button asChild>

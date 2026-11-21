@@ -398,8 +398,7 @@ function Home() {
               </Button>
             </div>
             <p className="availability">
-              <span className="status-dot" /> Early beta. Connect your own
-              provider accounts.
+              <span className="status-dot" /> Connect your own provider accounts.
             </p>
           </div>
           <div className="hero-art" aria-hidden="true">

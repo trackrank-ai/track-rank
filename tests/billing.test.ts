@@ -121,6 +121,27 @@ test('paused checkout leaves portal and recovery status available',async()=>{
  assert.equal((await billingRoute(new Request('https://example.test'),env,{userId:'alice',orgId:'org',role:'owner'},'/billing')).status,200);
 });
 
+test('live checkout requires tax review and automatic-tax readiness when configured', async () => {
+ const { env } = fixture();
+ env.STRIPE_SECRET_KEY = 'sk_live_fixture';
+ const principal = { userId: 'alice', orgId: 'org', role: 'owner' };
+ const getState = async () => (await billingRoute(new Request('https://example.test'), env, principal, '/billing')).json() as Promise<{ checkout_enabled: boolean }>;
+ const checkout = () => billingRoute(new Request('https://example.test', { method: 'POST' }), env, principal, '/billing/checkout');
+
+ assert.equal((await getState()).checkout_enabled, false);
+ await assert.rejects(checkout(), /temporarily paused/);
+
+ env.BILLING_TAX_REVIEWED = 'true';
+ assert.equal((await getState()).checkout_enabled, true);
+ env.STRIPE_AUTOMATIC_TAX = 'true';
+ assert.equal((await getState()).checkout_enabled, false);
+ await assert.rejects(checkout(), /temporarily paused/);
+
+ env.STRIPE_TAX_READY = 'true';
+ assert.equal((await getState()).checkout_enabled, true);
+ await assert.rejects(checkout(), /Starter billing price is not configured/);
+});
+
 test('expired sync lease cannot commit status, entitlement or event marker',async()=>{
  const {env,sql}=fixture();
  sql.prepare('INSERT INTO billing_sync_locks VALUES(?,?,?)').run('cus_test','expired',0);

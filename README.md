@@ -2,7 +2,7 @@
 
 Independent AI visibility tracking for [trackrank.ai](https://trackrank.ai). Original standalone codebase, not an OpenSEO fork. Private during development; licensed under [MIT](LICENSE), with an eventual public source release planned.
 
-## Working beta
+## Product features
 
 - TanStack Start / React with shadcn/ui, Tailwind v4, self-hosted Geist typography and TrackRank branding.
 - Better Auth email/password, required email verification, password reset, and Google OAuth. Resend sends transactional email.
@@ -15,11 +15,11 @@ Independent AI visibility tracking for [trackrank.ai](https://trackrank.ai). Ori
 - Optional explicit OpenRouter opportunity analysis with organization-supplied key and model. Separate inference costs apply.
 - Filterable run history and CSV export. Shareable research views show the answers, cited pages, and brand mentions for a domain, page, or grounding query.
 
-This is a beta, not a finished paid SaaS. See [launch status](docs/LAUNCH.md), [operations and support](docs/OPERATIONS.md), [architecture](docs/ARCHITECTURE.md), [API/MCP reference](docs/API.md), and [design system](docs/DESIGN.md).
+See [launch status](docs/LAUNCH.md), [operations and support](docs/OPERATIONS.md), [architecture](docs/ARCHITECTURE.md), [API/MCP reference](docs/API.md), and [design system](docs/DESIGN.md).
 
 ## Three ways to run TrackRank
 
-- **Hosted:** [trackrank.ai](https://trackrank.ai), operated by Track Rank Ai. It is a beta; [paid-launch gates](docs/LAUNCH.md) are still outstanding.
+- **Hosted:** [trackrank.ai](https://trackrank.ai), operated by Track Rank Ai. New verified accounts can start a 14-day trial. See the [paid-launch status](docs/LAUNCH.md).
 - **Self-hosted:** deploy to your own Cloudflare account using the [self-hosting guide](docs/SELF_HOSTING.md). No TrackRank subscription is required. Cloudflare/provider usage may incur costs. Standalone Docker/VPS hosting is not implemented yet.
 - **Local:** follow the commands below. No Cloudflare login, Google, Resend, PostHog or paid provider key is needed to sign up and explore the app.
 
@@ -88,7 +88,7 @@ Configure app-level Google/Resend/auth/encryption values as described at [/setup
 
 DataForSEO/OpenRouter credentials belong in **organization Settings**, not Worker bindings. Never use a shared platform-funded provider key as the default for customer workloads.
 
-Hosted billing management is implemented and paid checkout is paused pending the [launch gates](docs/LAUNCH.md).
+Hosted billing management is implemented. Paid checkout stays paused until the documented pre-enable checks pass. Verify the first controlled live upgrade separately using the [billing and release runbook](docs/BILLING-OPERATIONS.md).
 
 ## License
 
@@ -100,7 +100,7 @@ The software license is separate from the hosted service’s [Terms of Service](
 
 ## Agent access and customer limits
 
-Owners/admins generate scoped, expiring, revocable keys in **API & agents**. Agents can use REST or the MCP wrapper on hosted, self-hosted, and local deployments. All keys share the organization’s assigned [versioned plan allowances](docs/PLANS.md). Beta/Starter allow **120 API operations/minute** and **10 provider operations/minute**; Starter’s draft includes **200,000 API operations and 6,000 runs/month**. Existing organizations stay on Beta; paid billing is not enabled. See [agent setup, examples, configurable limits, and retry behavior](docs/API.md#customer-rate-limits-and-retries).
+Owners/admins generate scoped, expiring, revocable keys in **API & agents**. Agents can use REST or the MCP wrapper on hosted, self-hosted, and local deployments. All keys share the organization’s assigned [versioned plan allowances](docs/PLANS.md). Starter allows **120 API operations/minute**, **10 provider operations/minute**, **200,000 API operations/month**, and **6,000 runs/month**. Existing free organizations keep their assigned plan. See [agent setup, examples, configurable limits, and retry behavior](docs/API.md#customer-rate-limits-and-retries).
 
 ## Account identity and team invitations
 

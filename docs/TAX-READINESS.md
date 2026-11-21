@@ -41,5 +41,5 @@ Primary sources checked:
    STRIPE_TAX_READY=true and STRIPE_AUTOMATIC_TAX=true. Keep the $10 base price
    exclusive of tax. Do not make up a tax code, registration date or exemption.
 5. Complete the real-account production acceptance gates, then enable checkout
-   for a controlled real-card trial. The first paid charge is 14 days later unless
-   canceled, not at signup; no live charge has been made by this setup.
+   for a controlled real-card Starter upgrade. Payment is due at checkout. The
+   preceding 14-day TrackRank trial requires no card and ends without a charge.

@@ -27,11 +27,11 @@ confirmed. No invented registrations, head-office address or product tax code.
 1. Run typecheck/tests/build and read the acceptance evidence.
 2. Export/back up production D1 and preserve the existing encryption/auth secrets
    through the deployment-owner vault. Never replace CREDENTIALS_KEY to set up billing.
-3. Apply migrations through 0010. The new pending plan does not affect existing
-   tenants. `BILLING_ENFORCE_NEW_ORGS=true` only controls NEW hosted organizations.
+3. Apply pending D1 migrations for the release using the explicit production
+   configuration. `BILLING_ENFORCE_NEW_ORGS=true` only controls new hosted organizations.
 4. Obtain live restricted credentials via the deployment's secret store; confirm
    Stripe account charges/payouts eligibility and required business details.
-5. Create live Product/Price (USD1000 monthly, tax-exclusive) and portal (invoices,
+5. Create live Product/Price (USD 10 monthly, tax-exclusive) and portal (invoices,
    payment update and at-period-end cancellation). Confirm configured tax code
    and real registrations before enabling automatic tax. Set BILLING_TAX_REVIEWED=true
    only after reviewing actual obligations; if automatic tax is disabled, record
@@ -48,12 +48,18 @@ confirmed. No invented registrations, head-office address or product tax code.
    a benign billing alert. Do not send customer content, payment data or secrets.
 10. Publish/verify pricing, terms and privacy. Checkout requires terms consent and
     links to this deployment's terms/privacy. Confirm support inbox receipt.
-11. Run `node scripts/billing-preflight.mjs <live-config.json>` with secret injected
-    by the deployment owner. It is read-only and reports blockers; test keys
-    cannot pass live mode. Review actual tax obligations, not just API flags.
+11. Run `npm run billing:preflight -- wrangler.jsonc` with the live key injected
+    by the deployment owner. It checks the candidate configuration before checkout
+    is enabled. Confirm the production journey in `production-journey.json`.
+    Checkout also requires `BILLING_TAX_REVIEWED=true` with a live key. To use
+    automatic tax, configure and verify Stripe first, then set both
+    `STRIPE_AUTOMATIC_TAX=true` and `STRIPE_TAX_READY=true`.
 12. Once the live gates are cleared, enable paid checkouts and perform an explicitly
     authorized real-card purchase. Paid upgrade charges immediately: no second
     Stripe trial. Verify signed-webhook entitlements, invoice and cancellation.
+    Record the result in `production-journey.json` and run
+    `npm run billing:preflight -- wrangler.jsonc --post-payment` to verify the
+    recorded payment acceptance.
 
 ## State recovery, concurrency and missed webhooks
 
