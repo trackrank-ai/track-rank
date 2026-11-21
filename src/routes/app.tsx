@@ -154,6 +154,9 @@ function CopyValue({
   );
 }
 type RunHistoryCursor = { before: number; beforeId: string };
+const billingBlocksWorkspace = (status: unknown) =>
+  status === "trial_expired" || status === "choose_plan" || status === "payment_required";
+
 type PendingRunBatch = {
   prompt_ids: string[];
   repetitions: number;
@@ -198,6 +201,7 @@ function App() {
     [notice, setNotice] = useState(""),
     [busy, setBusy] = useState(false),
     [loading, setLoading] = useState(false),
+    [loadedOrg, setLoadedOrg] = useState(""),
     [invite, setInvite] = useState(""),
     [pendingInvite, setPendingInvite] = useState<Item | null>(null),
     [newKey, setNewKey] = useState(""),
@@ -211,6 +215,7 @@ function App() {
   const batchScope = org && session ? `trackrank:pending-run:${session.user.id}:${org}` : "";
   const pendingRun = pendingBatch?.scope === batchScope ? pendingBatch.batch : null;
   const activeOrg = useRef(org);
+  const latestLoad = useRef(0);
   activeOrg.current = org;
   useEffect(() => {
     if (!batchScope) return;
@@ -221,8 +226,10 @@ function App() {
       setPendingBatch(null);
     }
   }, [batchScope]);
-  const isAdmin = ["owner", "admin"].includes(settings.role),
-    canWrite = settings.role !== "viewer";
+  const orgReady = !!org && loadedOrg === org;
+  const workspaceReady = orgReady && !billingBlocksWorkspace(billing.access_status);
+  const isAdmin = workspaceReady && ["owner", "admin"].includes(settings.role),
+    canWrite = workspaceReady && ["owner", "admin", "member"].includes(settings.role);
   const request = useCallback(
     async (
       path: string,
@@ -299,13 +306,18 @@ function App() {
     };
   }, []);
   const load = useCallback(async () => {
-    if (!org) return;
+    if (!org || activeOrg.current !== org) return;
+    const loadId = ++latestLoad.current;
+    const isCurrent = () => activeOrg.current === org && latestLoad.current === loadId;
     setLoading(true);
     try {
       const billingState = await request("/billing");
-      if (activeOrg.current !== org) return;
-      setBilling(billingState);
-      if (["trial_expired", "choose_plan", "payment_required"].includes(billingState.access_status)) return;
+      if (!isCurrent()) return;
+      if (billingBlocksWorkspace(billingState.access_status)) {
+        setBilling(billingState);
+        setLoadedOrg(org);
+        return;
+      }
       const results = await Promise.all([
         request("/workspaces"),
         request("/brands"),
@@ -314,7 +326,8 @@ function App() {
         request("/schedules"),
         request("/settings"),
       ]);
-      if (activeOrg.current !== org) return;
+      if (!isCurrent()) return;
+      setBilling(billingState);
       setWorkspaces(results[0].workspaces);
       setBrands(results[1].brands);
       setPrompts(results[2].prompts);
@@ -329,10 +342,11 @@ function App() {
           ? current
           : results[0].workspaces[0]?.id || "",
       );
+      setLoadedOrg(org);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Unable to load workspace");
+      if (isCurrent()) setError(e instanceof Error ? e.message : "Unable to load workspace");
     } finally {
-      setLoading(false);
+      if (isCurrent()) setLoading(false);
     }
   }, [org, request]);
   useEffect(() => { setSelectedPromptIds([]); setSelectedScheduleIds([]); setEditingScheduleSelection(false); }, [org,workspace]);
@@ -343,7 +357,7 @@ function App() {
     setLocationQuery("");
   }, [editPrompt?.id]);
   useEffect(() => {
-    if (!org || tab !== "prompts" || !promptEngineChoices.length || ["trial_expired", "choose_plan", "payment_required"].includes(billing.access_status)) return;
+    if (!workspaceReady || tab !== "prompts" || !promptEngineChoices.length) return;
     let canceled = false;
     setProviderChoicesLoading(true);
     const timer = window.setTimeout(() => {
@@ -355,25 +369,34 @@ function App() {
       }).catch(() => { if (!canceled) setProviderChoices({ error: "Supported locations and languages could not load. Retry or refresh before saving." }); }).finally(() => { if (!canceled) setProviderChoicesLoading(false); });
     }, 250);
     return () => { canceled = true; window.clearTimeout(timer); };
-  }, [org, tab, promptEngineChoices, locationQuery, promptLocation, promptLanguage, billing.access_status, request]);
+  }, [workspaceReady, tab, promptEngineChoices, locationQuery, promptLocation, promptLanguage, request]);
   useEffect(() => {
-    if (billing.access_status !== "free_trial" || !billing.free_trial?.ends_at) return;
+    if (!orgReady || billing.access_status !== "free_trial" || !billing.free_trial?.ends_at) return;
     const delay = Math.max(0, Number(billing.free_trial.ends_at) - Date.now());
     const timer = window.setTimeout(() => { load(); }, Math.min(delay + 50, 2147483647));
     return () => window.clearTimeout(timer);
-  }, [billing.access_status, billing.free_trial?.ends_at, load]);
+  }, [orgReady, billing.access_status, billing.free_trial?.ends_at, load]);
   useEffect(() => {
+    setLoadedOrg("");
+    setMembers([]);
+    setInvites([]);
+    setKeys([]);
+    setIdeas([]);
+    setProviderChoices(null);
     setSelectedPromptIds([]);
     setSelectedScheduleIds([]);
     setEditingScheduleSelection(false);
     setSelectedRun(null);
+    setEditPrompt(null);
+    setPromptText("");
     setBrand("");
     setNewKey("");
     setInvite("");
-    load();
+    if (org) void load();
+    else setLoading(false);
   }, [org, load]);
   useEffect(() => {
-    if (!org || !["team", "agents"].includes(tab)) return;
+    if (!workspaceReady || !["team", "agents"].includes(tab)) return;
     let canceled = false;
     (async () => {
       try {
@@ -397,7 +420,7 @@ function App() {
     return () => {
       canceled = true;
     };
-  }, [tab, org, isAdmin, request]);
+  }, [tab, workspaceReady, isAdmin, request]);
   useEffect(() => {
     setEditPrompt(null);
     setPromptText("");
@@ -624,9 +647,11 @@ function App() {
           <span>ORGANIZATION <HelpTip label="organizations" text="Your team account: members, billing, provider credentials and shared limits live here. An organization can contain multiple workspaces." /></span>
           <select
             value={org}
+            disabled={busy}
             onChange={(e) => {
               setOrg(e.target.value);
               setError("");
+              setNotice("");
             }}
             aria-label="Organization"
           >
@@ -746,7 +771,10 @@ function App() {
           <Button
             size="sm"
             variant="outline"
-            onClick={load}
+            onClick={() => {
+              setError("");
+              void load();
+            }}
             disabled={loading || !org}
           >
             {loading ? (
@@ -759,7 +787,7 @@ function App() {
           </div>
         </header>
         <main className="app-content">
-          {(billing.enabled || billing.free_trial_enabled) && <Card><CardContent>
+          {orgReady && (billing.enabled || billing.free_trial_enabled) && <Card><CardContent>
             <h2>{billing.access_status === "trial_expired" ? "Your free trial has ended. Choose a plan to continue." : billing.access_status === "free_trial" ? "Your 14-day free trial is active" : "Plan & billing"}</h2>
             {billing.access_status === "free_trial" && <p>Full Starter access until {new Date(billing.free_trial.ends_at).toLocaleString()}. No card is on file for this trial and no automatic charge will happen at expiry.</p>}
             <p>Starter: $10 USD/month before applicable tax. Full product allowances, billed per organization. Your first paid charge is refundable within 7 days. Provider usage is billed separately.</p>
@@ -828,7 +856,11 @@ function App() {
                 </form>
               </CardContent>
             </Card>
-          ) : ["trial_expired", "choose_plan", "payment_required"].includes(billing.access_status) ? (
+          ) : !orgReady ? (
+            <Card><CardContent>
+              {error ? <p>Use Refresh to try loading this organization again.</p> : <p role="status">Loading organization…</p>}
+            </CardContent></Card>
+          ) : billingBlocksWorkspace(billing.access_status) ? (
             <Card><CardContent><h2>Choose your plan</h2><p>Starter includes 6,000 tracking runs and 200,000 API operations per calendar month, 3 concurrent runs, and team/API access. Complete payment above to continue. Existing data stays in your organization.</p></CardContent></Card>
           ) : (
             <>
