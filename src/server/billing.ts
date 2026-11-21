@@ -1,4 +1,5 @@
 import Stripe from "stripe";
+import {startTrial} from "./trials";
 import { enforceLimit } from "./rate-limit";
 import { HttpError, all, exec, json, now, one, type Env, type Principal, type Row } from "./types";
 
@@ -13,13 +14,18 @@ export async function billingRoute(req: Request, env: Env, p: Principal, path: s
   const org = p.orgId!;
   if (req.method === "GET" && path === "/billing") {
     await enforceLimit(env, `billing-read:${org}`, 60);
-    const state = await one<Row>(env, "SELECT status,current_period_end,cancel_at_period_end,risk_hold FROM billing_customers WHERE org_id=?", org);
-    return json({ enabled: env.BILLING_ENABLED === "true", ...state });
+    const state = await one<Row>(env, "SELECT status,current_period_end,cancel_at_period_end,risk_hold,trial_used FROM billing_customers WHERE org_id=?", org);
+    const trial = await one<Row>(env, "SELECT started_at,ends_at FROM organization_trials WHERE org_id=?", org);
+    const assignment = await one<Row>(env, "SELECT p.family FROM organization_plans a JOIN plan_versions p ON p.id=a.plan_version_id WHERE a.org_id=?", org);
+    const freeTrial = assignment?.family === "trial";
+    const claimed = await one(env, "SELECT user_id FROM account_trial_claims WHERE user_id=?", p.userId);
+    return json({ enabled: env.BILLING_ENABLED === "true", checkout_enabled: env.BILLING_CHECKOUT_ENABLED === "true", ...state, has_billing_account: !!state, free_trial: trial, free_trial_enabled: env.HOSTED_FREE_TRIAL_ENABLED === "true", trial_eligible: !claimed && !state?.trial_used && assignment?.family === "pending", access_status: freeTrial ? Number(trial?.ends_at) > now() ? "free_trial" : "trial_expired" : assignment?.family === "pending" ? "choose_plan" : "assigned", owner: p.role === "owner" });
   }
   if (p.role !== "owner") throw new HttpError(403, "Only the organization owner can manage billing");
   if (req.method === "GET" && path === "/billing/alerts") return json({ alerts: await all(env, "SELECT id,kind,summary,created_at FROM billing_alerts WHERE org_id=? AND resolved_at IS NULL ORDER BY created_at DESC LIMIT 50", org) });
   if (req.method !== "POST") throw new HttpError(405, "Method not allowed");
   await enforceLimit(env, `billing:${org}`, 10);
+  if (path === "/billing/trial") return json(await startTrial(env, p.userId, org));
   const stripe = stripeClient(env);
   let customer = await one<Row>(env, "SELECT * FROM billing_customers WHERE org_id=?", org);
   if (path === "/billing/portal") {
@@ -61,7 +67,7 @@ export async function billingRoute(req: Request, env: Env, p: Principal, path: s
     throw new HttpError(409, "An existing subscription requires attention; use Manage billing");
   const open = await stripe.checkout.sessions.list({ customer: customerId, status: "open", limit: 100 });
   if (open.has_more) throw new HttpError(409, "Too many open checkouts; operator review required");
-  const compatible = open.data.find(s => s.metadata?.trackrank_checkout_revision === "trial14-v2");
+  const compatible = open.data.find(s => s.metadata?.trackrank_checkout_revision === "paid-after-trial-v3");
   if (compatible?.url) return json({ url: compatible.url });
   for (const stale of open.data) await stripe.checkout.sessions.expire(stale.id);
   // One session per organization/window prevents parallel duplicate subscriptions.
@@ -70,17 +76,14 @@ export async function billingRoute(req: Request, env: Env, p: Principal, path: s
     automatic_tax: { enabled: automaticTax },
     tax_id_collection: { enabled: automaticTax },
     payment_method_collection: "always",
-    subscription_data: !customer!.trial_used && existing.data.length === 0 ? {
-      trial_period_days: 14, trial_settings: { end_behavior: { missing_payment_method: "cancel" } },
-    } : undefined,
     billing_address_collection: "required", customer_update: { address: "auto", name: "auto" },
     success_url: `${env.BASE_URL}/app?billing=processing`, cancel_url: `${env.BASE_URL}/app?billing=canceled`,
-    metadata: { trackrank_checkout_revision: "trial14-v2" },
+    metadata: { trackrank_checkout_revision: "paid-after-trial-v3" },
     custom_text: { terms_of_service_acceptance: { message: `I agree to the [Terms](${env.BASE_URL}/terms) and have read the [Privacy Policy](${env.BASE_URL}/privacy).` } },
     integration_identifier: "trackrank_hosted_qxkpmvnr",
     consent_collection: { terms_of_service: "required" },
     expires_at: Math.floor(Date.now() / 1000 / 1800) * 1800 + 3600,
-  }, { idempotencyKey: `trackrank-checkout:trial14-v2:${org}:${priceId}:${Math.floor(Date.now() / 1800000)}` });
+  }, { idempotencyKey: `trackrank-checkout:paid-after-trial-v3:${org}:${priceId}:${Math.floor(Date.now() / 1800000)}` });
   return json({ url: session.url });
   } finally {
     await exec(env, "DELETE FROM billing_checkout_locks WHERE org_id=? AND token=?", org, lockToken);

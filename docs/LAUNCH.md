@@ -78,3 +78,19 @@ cost attribution from actual usage. No live enrollment or charge was made.
 
 Support forwarding and operator-alert inbox receipt were subsequently verified in Gmail.
 Recovery files were backed up to owner-only Drive and downloaded/hash-verified.
+
+
+## Superseding no-card onboarding and bulk-first release
+
+New verified accounts receive 14 days of full Starter access without a card.
+At expiry product access pauses; billing management remains available and an
+explicit successful paid upgrade restores access, with no second Stripe trial.
+Production paid checkout remains paused pending the existing live gates.
+
+Prompts accept newline/CSV batches and engine checkboxes. Saved prompts and
+schedules support selection, shared settings, enable/pause and batch actions.
+Repeated sampling (1–10) and up to eight daily times use independent run IDs,
+idempotent retries and the existing daily/monthly/concurrency safeguards.
+Supported location/language selectors are under Advanced. Google organic
+results remain separate from AI Overview evidence. See AGENTS.md for the
+bulk-by-default product principle.

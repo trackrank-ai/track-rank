@@ -2,8 +2,9 @@
 
 ## Confirmed commercial policy (Edwin, 2026-11-21)
 
-USD10/month BEFORE tax per organization. One 14-day introductory trial per
-organization; card required. Cancel before trial expiry to avoid first charge.
+USD10/month BEFORE tax per organization. One 14-day introductory application trial
+per verified account; no card required and no automatic charge. At expiry, access
+pauses until an explicit paid upgrade succeeds. Existing agreements are unchanged.
 First PAID charge refundable on request within 7 days. Later refunds case by
 case, preserving mandatory rights. DataForSEO/OpenRouter charges are separate.
 Live automatic tax cannot be enabled before actual registration details are
@@ -26,7 +27,7 @@ confirmed. No invented registrations, head-office address or product tax code.
 1. Run typecheck/tests/build and read the acceptance evidence.
 2. Export/back up production D1 and preserve the existing encryption/auth secrets
    through the deployment-owner vault. Never replace CREDENTIALS_KEY to set up billing.
-3. Apply migrations through 0007. The new pending plan does not affect existing
+3. Apply migrations through 0010. The new pending plan does not affect existing
    tenants. `BILLING_ENFORCE_NEW_ORGS=true` only controls NEW hosted organizations.
 4. Obtain live restricted credentials via the deployment's secret store; confirm
    Stripe account charges/payouts eligibility and required business details.
@@ -50,11 +51,9 @@ confirmed. No invented registrations, head-office address or product tax code.
 11. Run `node scripts/billing-preflight.mjs <live-config.json>` with secret injected
     by the deployment owner. It is read-only and reports blockers; test keys
     cannot pass live mode. Review actual tax obligations, not just API flags.
-12. Enable new checkouts, perform an explicitly authorized real-card trial signup,
-    verify card collection and signed webhook entitlements. A 14-day trial has no
-    initial charge. Validate the first real paid invoice later; do not claim it
-    occurred at trial signup. Cancel test enrollment before charging unless a
-    real payment was explicitly authorized for verification.
+12. Once the live gates are cleared, enable paid checkouts and perform an explicitly
+    authorized real-card purchase. Paid upgrade charges immediately: no second
+    Stripe trial. Verify signed-webhook entitlements, invoice and cancellation.
 
 ## State recovery, concurrency and missed webhooks
 
@@ -153,7 +152,7 @@ Live catalog IDs are recorded in `stripe-live.json`. The protected live key and
 signing secret are configured in the Worker. Charges/payouts are enabled on the
 merchant account; no live subscription or payment was created by setup.
 `BILLING_ENABLED=true` keeps billing management and reconciliation online;
-**`BILLING_CHECKOUT_ENABLED=false` keeps new purchases/trials paused**.
+**`BILLING_CHECKOUT_ENABLED=false` keeps paid purchases paused**; the independent hosted free-trial flag controls no-card enrollment.
 
 Backups: the production database export was independently restored into SQLite
 with integrity checks. Original authentication/encryption secrets were exported
@@ -189,3 +188,28 @@ configured but not certified by the email drill; these are different routes.
 The agent automation-history tool reported a visibility limit for this CLI-created
 command job; inspect it in the authenticated Automations page for run history.
 See TAX-READINESS.md for the actual outstanding Washington/entity review.
+
+## Superseding onboarding policy — no-card trial
+
+The November 21 flow revision replaces new card-required trial enrollment:
+Pricing → Start 14-day free trial → verified Google or email/password signup →
+application-managed full Starter trial → expiry paywall → choose Starter and pay.
+Starting or ending this trial creates no Stripe customer, card requirement,
+subscription or automatic charge. Checkout creates an immediate paid subscription,
+with NO second Stripe trial. Existing Stripe subscriptions/trials are not altered.
+The $10-before-tax price and 7-day first-paid-charge refund remain unchanged.
+Paid checkout remains paused for the previously documented external launch gates;
+free trial enrollment is independent through HOSTED_FREE_TRIAL_ENABLED.
+
+Migrations 0009 and 0010 are additive. Trial dates are organization-bound and an
+account claim prevents new organizations from restarting a trial. Existing beta
+plans remain unchanged. Expiry is enforced in APIs, MCP and queued submissions;
+billing recovery stays accessible and workspace history is retained. The browser
+refreshes the entitlement view at expiry, but server checks are authoritative.
+
+Provider selection catalogs are refreshed from six FREE DataForSEO metadata GETs
+using `scripts/refresh-provider-options.mjs` with environment credentials. Committed
+catalogs contain public supported values, never credentials, and are deduplicated/
+compressed server-side. Google/Gemini support city-level searches; multi-engine
+selectors use their intersection (ChatGPT's location list is country-level).
+The API validates canonical values rather than trusting dropdowns.

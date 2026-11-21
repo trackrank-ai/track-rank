@@ -32,6 +32,7 @@ function Login() {
       .then(setConfig)
       .catch(() => setError("Unable to load login settings"));
     const q = new URLSearchParams(location.search);
+    if (q.get("trial") === "start") setMode("signup");
     if (q.get("token")) {
       setMode("reset");
       setResetToken(q.get("token") || "");
@@ -88,7 +89,7 @@ function Login() {
           email,
           password,
           name: String(f.get("name")),
-          callbackURL: location.origin + "/app" + location.hash,
+          callbackURL: location.origin + "/app" + (new URLSearchParams(location.search).get("trial") === "start" ? "?trial=start" : "") + location.hash,
         });
         if (config?.local_auth) location.assign("/app" + location.hash);
         else setStatus("If this is a new account, check your inbox to verify your email. Already registered? Continue with Google or use Set / reset password; signing up again does not change your password.");
@@ -96,7 +97,7 @@ function Login() {
         await authRequest("sign-in/email", {
           email,
           password,
-          callbackURL: location.origin + "/app" + location.hash,
+          callbackURL: location.origin + "/app" + (new URLSearchParams(location.search).get("trial") === "start" ? "?trial=start" : "") + location.hash,
         });
         location.assign("/app" + location.hash);
       }
@@ -112,7 +113,7 @@ function Login() {
     try {
       const d = await authRequest("sign-in/social", {
         provider: "google",
-        callbackURL: location.origin + "/app" + location.hash,
+        callbackURL: location.origin + "/app" + (new URLSearchParams(location.search).get("trial") === "start" ? "?trial=start" : "") + location.hash,
       });
       if (d.url) location.assign(d.url);
     } catch (e) {
@@ -150,7 +151,7 @@ function Login() {
           </h1>
           <p className="auth-intro">
             {mode === "signup"
-              ? "Create organizations, collaborate with your team, and track your visibility."
+              ? "Start your 14-day free trial. No card required. Verify your email to get full Starter access; choose a paid plan only when you are ready."
               : "Use Google or your TrackRank password. Signed up with Google? Set a password using the link below—not your Google password."}
           </p>
           {config?.local_auth && (

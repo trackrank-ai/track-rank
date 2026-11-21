@@ -63,3 +63,35 @@ Self-hosting is a product requirement, not just an optional idea. The current su
 For the pending PostHog integration, use optional per-deployment runtime configuration (`POSTHOG_PROJECT_KEY` and `POSTHOG_HOST` proposed names), disabled when absent. The browser may receive only the public project ingestion key and validated ingestion host through a small public runtime-config endpoint. Never expose personal/admin API keys or provider/auth/encryption secrets. Do not hardcode the hosted operator's PostHog project, enable telemetry for self-hosters by default, or require source edits/rebuilding just to switch analytics projects. Runtime configuration should map to Cloudflare Variables/Secrets today and environment/config adapters on other future hosts. Vite-prefixed browser variables are build-time configuration and are not interchangeable with Worker runtime variables. This is the agreed configuration design, not an implemented PostHog integration.
 
 Local development now uses isolated `wrangler.local.jsonc`; `setup:local` generates stable local secrets and applies local migrations. Self-host builds use explicit `TRACKRANK_CONFIG` through the checked `*:selfhost` helpers and owner-supplied `wrangler.selfhost.json`. Public legal operator/contact data is loaded from a whitelisted server function using `PUBLIC_OPERATOR_NAME` / `PUBLIC_SUPPORT_EMAIL`; it never returns the full environment.
+
+## Bulk-first collection and scheduling
+
+Bulk is the primary interaction; one item is a batch of one. Prompt paste accepts
+lines or comma-delimited input, including quoted commas. Auto prefers lines, so
+commas within a multi-line prompt list are preserved. Each engine selection saves
+an independent prompt variant; saving does not submit a provider job. Batches are
+validated before transactional writes, with tenant-scoped source IDs and a maximum
+of 100 prompt/engine combinations. Exact existing matches are reused.
+
+Bulk run requests carry a stable batch key and requested-payload hash. Replays
+reuse run identities; changed-payload key reuse is refused. Each sample has its own
+run/config/snapshot; retries do not resubmit uncertain/accepted external jobs.
+A batch queues at most 100 runs under the organization's actual daily/monthly limits.
+Admission uses one D1 batch with per-insert quota conditions to handle races. Any
+changed allowance is reported explicitly; returned rows are the only queued work.
+Provider credentials and canonical engine/location/language settings are checked
+before admission. Provider concurrency remains unchanged (Starter: 3).
+
+Scheduled batches store one schedule per selected engine-prompt, a shared batch ID,
+up to 8 local times per scheduled day, and 1–10 independent samples per time slot.
+Stable local-date/time/sample keys make cron reruns idempotent. Legacy single-time
+schedules preserve their existing keys. Missed times catch up ONLY the latest due
+slot rather than bursting all historical times; no previous-day backfill. DST's
+repeated local hour runs once. Timing edits take effect for future slots and do not
+retroactively charge for past times. Dispatch admission is bounded and round-robin
+by organization. Saving creates a paused batch; enabling it is a distinct user action.
+
+Google scraper payloads retain depth=10, async AI Overview loading and the optional
+poisoned-SERP fixer (on by default). Organic results (rank/title/URL/domain/snippet)
+remain separate from AI answer/citation evidence; absent AI Overviews are not
+fabricated and organic-only results do not count as AI brand mentions.

@@ -1,3 +1,5 @@
+import { parsePromptInput } from "@/lib/prompt-input";
+import { Tooltip as HelpTooltip } from "radix-ui";
 import { LegalLinks } from "@/components/legal-layout";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { createFileRoute, Link } from "@tanstack/react-router";
@@ -68,6 +70,15 @@ const engines: Record<string, string> = {
   google: "Google + AI Overviews",
 };
 const date = (t: number) => new Date(t).toLocaleString();
+function PromptBatchPicker({prompts,selected,onChange}:{prompts:Item[];selected:string[];onChange:(ids:string[])=>void}) {
+  const [filter,setFilter]=useState("");
+  const filtered=prompts.filter(p=>(p.text+" "+engines[p.engine]).toLowerCase().includes(filter.toLowerCase()));
+  const all=filtered.length>0 && filtered.every(p=>selected.includes(p.id));
+  return <fieldset className="batch-picker"><legend>Select prompts ({selected.length} selected)</legend><input aria-label="Filter prompts to select" placeholder="Filter prompts or engines…" value={filter} onChange={e=>setFilter(e.target.value)} /><label className="check-field"><input type="checkbox" checked={all} onChange={e=>onChange(e.target.checked?[...new Set([...selected,...filtered.map(p=>p.id)])]:selected.filter(id=>!filtered.some(p=>p.id===id)))} /> Select all {filter?"matching":"shown"} ({filtered.length})</label><div className="batch-picker-list">{filtered.map(p=><label className="check-field" key={p.id}><input type="checkbox" checked={selected.includes(p.id)} onChange={e=>onChange(e.target.checked?[...selected,p.id]:selected.filter(id=>id!==p.id))} /><span>{p.text}<small>{engines[p.engine]}{!p.enabled?" · prompt paused":""}</small></span></label>)}</div></fieldset>;
+}
+function HelpTip({label,text}:{label:string;text:string}) {
+  return <HelpTooltip.Provider delayDuration={150}><HelpTooltip.Root><HelpTooltip.Trigger asChild><span className="help-tip" tabIndex={0} role="button" aria-label={"About " + label}>ⓘ</span></HelpTooltip.Trigger><HelpTooltip.Portal><HelpTooltip.Content className="help-tip-content" sideOffset={6}>{text}<HelpTooltip.Arrow /></HelpTooltip.Content></HelpTooltip.Portal></HelpTooltip.Root></HelpTooltip.Provider>;
+}
 function FormField({
   label,
   children,
@@ -79,7 +90,7 @@ function FormField({
 }) {
   return (
     <label className="app-field">
-      <span>{label}</span>
+      <span>{label} {hint && <HelpTip label={label} text={hint} />}</span>
       {children}
       {hint && <small>{hint}</small>}
     </label>
@@ -143,6 +154,22 @@ function CopyValue({
   );
 }
 function App() {
+  const [selectedPromptIds,setSelectedPromptIds]=useState<string[]>([]);
+  const [selectedScheduleIds,setSelectedScheduleIds]=useState<string[]>([]);
+  const [runSamples,setRunSamples]=useState(1);
+  const [scheduleSamples,setScheduleSamples]=useState(1);
+  const [scheduleTimes,setScheduleTimes]=useState<string[]>(["09:00"]);
+  const [scheduleFrequency,setScheduleFrequency]=useState("daily");
+  const [scheduleDays,setScheduleDays]=useState<number[]>([1]);
+  const [scheduleTimezone,setScheduleTimezone]=useState(()=>Intl.DateTimeFormat().resolvedOptions().timeZone||"UTC");
+  const [editingScheduleSelection,setEditingScheduleSelection]=useState(false);
+  const [promptEngineChoices, setPromptEngineChoices] = useState<string[]>(["chatgpt"]);
+  const [promptLocation, setPromptLocation] = useState("United States");
+  const [promptLanguage, setPromptLanguage] = useState("en");
+  const [locationQuery, setLocationQuery] = useState("");
+  const [providerChoices, setProviderChoices] = useState<Item | null>(null);
+  const [providerChoicesLoading, setProviderChoicesLoading] = useState(false);
+  const [promptSeparator, setPromptSeparator] = useState("auto");
   const [session, setSession] = useState<Item | null>(null),
     [initializing, setInitializing] = useState(true),
     [orgs, setOrgs] = useState<Item[]>([]),
@@ -198,7 +225,7 @@ function App() {
       const d = (await r.json()) as Item;
       if (!r.ok) {
         if (r.status === 401) {
-          location.assign("/login" + location.hash);
+          location.assign("/login" + (new URLSearchParams(location.search).get("trial") === "start" ? "?trial=start" : "") + location.hash);
           throw new Error("Please sign in");
         }
         throw new Error(d.error || "Request failed");
@@ -221,7 +248,7 @@ function App() {
         const r = await fetch("/api/auth/get-session"),
           s = (await r.json()) as Item;
         if (!s?.user) {
-          location.assign("/login" + location.hash);
+          location.assign("/login" + (new URLSearchParams(location.search).get("trial") === "start" ? "?trial=start" : "") + location.hash);
           return;
         }
         if (!mounted) return;
@@ -230,6 +257,11 @@ function App() {
         if (i) {
           const details = await request("/invites/preview", "POST", { token: i }, "");
           setPendingInvite({ ...details, token: i });
+        }
+        if (new URLSearchParams(location.search).get("trial") === "start" && !i) {
+          const organizations = await request("/organizations", "GET", undefined, "");
+          if (!organizations.organizations.length) await request("/onboarding/trial", "POST", {}, "");
+          history.replaceState(null, "", "/app");
         }
         await reloadOrgs();
       } catch (e) {
@@ -252,6 +284,7 @@ function App() {
       const billingState = await request("/billing");
       if (activeOrg.current !== org) return;
       setBilling(billingState);
+      if (["trial_expired", "choose_plan", "payment_required"].includes(billingState.access_status)) return;
       const results = await Promise.all([
         request("/workspaces"),
         request("/brands"),
@@ -279,7 +312,37 @@ function App() {
       setLoading(false);
     }
   }, [org, request]);
+  useEffect(() => { setSelectedPromptIds([]); setSelectedScheduleIds([]); setEditingScheduleSelection(false); }, [org,workspace]);
   useEffect(() => {
+    setPromptEngineChoices([editPrompt?.engine || "chatgpt"]);
+    setPromptLocation(editPrompt?.location_name || "United States");
+    setPromptLanguage(editPrompt?.language_code || "en");
+    setLocationQuery("");
+  }, [editPrompt?.id]);
+  useEffect(() => {
+    if (!org || tab !== "prompts" || !promptEngineChoices.length || ["trial_expired", "choose_plan", "payment_required"].includes(billing.access_status)) return;
+    let canceled = false;
+    setProviderChoicesLoading(true);
+    const timer = window.setTimeout(() => {
+      request("/provider/options?engines=" + promptEngineChoices.join(",") + "&q=" + encodeURIComponent(locationQuery) + "&selected_location=" + encodeURIComponent(promptLocation)).then(data => {
+        if (canceled) return;
+        setProviderChoices(data);
+        if (!data.selected_location_supported) setPromptLocation(data.default_location || "");
+        if (!data.languages.some((l:Item) => l.code === promptLanguage)) setPromptLanguage(data.default_language || "");
+      }).catch(() => { if (!canceled) setProviderChoices({ error: "Supported locations and languages could not load. Retry or refresh before saving." }); }).finally(() => { if (!canceled) setProviderChoicesLoading(false); });
+    }, 250);
+    return () => { canceled = true; window.clearTimeout(timer); };
+  }, [org, tab, promptEngineChoices, locationQuery, promptLocation, promptLanguage, billing.access_status, request]);
+  useEffect(() => {
+    if (billing.access_status !== "free_trial" || !billing.free_trial?.ends_at) return;
+    const delay = Math.max(0, Number(billing.free_trial.ends_at) - Date.now());
+    const timer = window.setTimeout(() => { load(); }, Math.min(delay + 50, 2147483647));
+    return () => window.clearTimeout(timer);
+  }, [billing.access_status, billing.free_trial?.ends_at, load]);
+  useEffect(() => {
+    setSelectedPromptIds([]);
+    setSelectedScheduleIds([]);
+    setEditingScheduleSelection(false);
     setSelectedRun(null);
     setBrand("");
     setNewKey("");
@@ -416,22 +479,16 @@ function App() {
       setTab("runs");
     });
   }
-  async function runPrompt(p: Item) {
-    if (
-      !confirm(
-        `Run this prompt using your DataForSEO account? Mode: ${p.mode}. Provider charges apply.`,
-      )
-    )
-      return;
+  async function queuePromptBatch(ids:string[],samples:number) {
+    if (!ids.length || !confirm(`Queue ${ids.length * samples} independent provider runs (${ids.length} saved prompts × ${samples} samples)? Each engine variant and sample consumes its own run and DataForSEO charges.`)) return;
     await action(async () => {
-      await request("/prompts/" + p.id + "/run", "POST", {});
-      setNotice(
-        "Run queued. Durable processing continues in the background. Refresh to see results.",
-      );
-      await load();
-      setTab("runs");
+      const result=await request("/runs/bulk","POST",{prompt_ids:ids,repetitions:samples,batch_key:crypto.randomUUID()});
+      setNotice(`${result.runs.length} of ${result.requested} runs queued. Existing concurrency and spending guardrails apply.`);
+      if(result.error)setError(result.error);
+      await load();if(result.runs.length)setTab("runs");
     });
   }
+  async function runPrompt(p: Item) { await queuePromptBatch([p.id],1); }
   async function moreRuns() {
     await action(async () => {
       const d = await request("/runs?before=" + nextBefore);
@@ -467,7 +524,7 @@ function App() {
         <Button variant="outline" disabled={busy} onClick={() => action(async () => {
           const r = await fetch("/api/auth/sign-out", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
           if (!r.ok) throw new Error("Unable to sign out. Please try again.");
-          location.assign("/login" + location.hash);
+          location.assign("/login" + (new URLSearchParams(location.search).get("trial") === "start" ? "?trial=start" : "") + location.hash);
         })}>Switch account</Button>
         <Button variant="ghost" disabled={busy} onClick={() => { history.replaceState(null, "", "/app"); setPendingInvite(null); }}>Not now</Button>
       </CardContent></Card>
@@ -498,7 +555,7 @@ function App() {
           trackrank<span className="brand-suffix">.ai</span>
         </Link>
         <label className="org-switcher">
-          <span>ORGANIZATION</span>
+          <span>ORGANIZATION <HelpTip label="organizations" text="Your team account: members, billing, provider credentials and shared limits live here. An organization can contain multiple workspaces." /></span>
           <select
             value={org}
             onChange={(e) => {
@@ -636,16 +693,21 @@ function App() {
           </div>
         </header>
         <main className="app-content">
-          {billing.enabled && <Card><CardContent>
-            <h2>Hosted subscription</h2>
-            <p>Status: {billing.status || "No subscription"}. Starter includes a 14-day free trial with a card required, then $10 USD/month before tax per organization. Cancel before the trial ends to avoid the first charge. First paid charge refundable within 7 days. Payment confirmation can take a moment; refresh after checkout.</p>
-            {billing.risk_hold ? <p role="alert">Paid access is paused for billing review. Contact support; billing management remains available.</p> : null}
-            {billing.cancel_at_period_end ? <p>Cancels at the end of the current billing period.</p> : null}
-            <Button disabled={busy} onClick={() => { setBusy(true); request("/billing/checkout", "POST").then(r => window.location.assign(r.url)).catch(e => setError(e.message)).finally(() => setBusy(false)); }}>Start 14-day trial / subscribe</Button>{" "}
-            <Button variant="outline" disabled={busy} onClick={() => { setBusy(true); request("/billing/portal", "POST").then(r => window.location.assign(r.url)).catch(e => setError(e.message)).finally(() => setBusy(false)); }}>Manage billing & invoices</Button>
-            <p className="data-note">Billing changes require the organization owner. Other members can view status.</p>
+          {(billing.enabled || billing.free_trial_enabled) && <Card><CardContent>
+            <h2>{billing.access_status === "trial_expired" ? "Your free trial has ended. Choose a plan to continue." : billing.access_status === "free_trial" ? "Your 14-day free trial is active" : "Plan & billing"}</h2>
+            {billing.access_status === "free_trial" && <p>Full Starter access until {new Date(billing.free_trial.ends_at).toLocaleString()}. No card is on file for this trial and no automatic charge will happen at expiry.</p>}
+            <p>Starter: $10 USD/month before applicable tax. Full product allowances, billed per organization. Your first paid charge is refundable within 7 days. Provider usage is billed separately.</p>
+            {billing.access_status === "trial_expired" && <p>Your workspace data is retained. Choose Starter and complete payment to restore access.</p>}
+            {billing.status && <p>Subscription: {billing.status}{billing.cancel_at_period_end ? ". Cancels at the end of the current period." : "."}</p>}
+            {billing.risk_hold ? <p role="alert">Paid access is paused for billing review. Contact support.</p> : null}
+            {billing.owner && billing.trial_eligible && billing.free_trial_enabled && <Button disabled={busy} onClick={() => action(async () => { await request("/billing/trial", "POST"); await load(); })}>Start 14-day free trial</Button>}
+            {billing.owner && !["active","trialing"].includes(billing.status) && <Button disabled={busy || !billing.checkout_enabled} onClick={() => { setBusy(true); request("/billing/checkout", "POST").then(r => window.location.assign(r.url)).catch(e => setError(e.message)).finally(() => setBusy(false)); }}>Choose Starter — $10/month</Button>}{" "}
+            {billing.owner && billing.has_billing_account && <Button variant="outline" disabled={busy} onClick={() => { setBusy(true); request("/billing/portal", "POST").then(r => window.location.assign(r.url)).catch(e => setError(e.message)).finally(() => setBusy(false)); }}>Manage billing & invoices</Button>}
+            {!billing.checkout_enabled && <p>Paid subscriptions are not open yet. Free trials are available; you will not be charged when your trial ends.</p>}
+            {!billing.owner && <p>Ask your organization owner to choose a plan or manage billing.</p>}
           </CardContent></Card>}
 
+          <details className="app-structure-guide"><summary>How organizations, workspaces and brands fit together</summary><p><strong>Organization:</strong> your team account, billing, provider credentials and shared limits. <strong>Workspace:</strong> a folder for a client, brand or campaign inside that organization. <strong>Brands:</strong> the businesses you compare in its answers.</p><p>Example: an agency can have one organization, a workspace for each client, and the client plus several competitors as brands inside each workspace. You can also keep multiple related brands in one workspace.</p></details>
           {error && (
             <div className="app-message error" role="alert">
               {error}
@@ -700,6 +762,8 @@ function App() {
                 </form>
               </CardContent>
             </Card>
+          ) : ["trial_expired", "choose_plan", "payment_required"].includes(billing.access_status) ? (
+            <Card><CardContent><h2>Choose your plan</h2><p>Starter includes 6,000 tracking runs and 200,000 API operations per calendar month, 3 concurrent runs, and team/API access. Complete payment above to continue. Existing data stays in your organization.</p></CardContent></Card>
           ) : (
             <>
               <div className="app-page-heading">
@@ -730,7 +794,7 @@ function App() {
                 ].includes(tab) && (
                   <div className="workspace-control">
                     <label>
-                      Workspace
+                      Workspace <HelpTip label="workspaces" text="A research folder inside your organization. Use one per client, brand or campaign. Each workspace can compare multiple brands and competitors; billing and credentials stay shared by the organization." />
                       <select
                         value={workspace}
                         onChange={(e) => setWorkspace(e.target.value)}
@@ -992,39 +1056,32 @@ function App() {
                           className="form-stack"
                           onSubmit={(e) =>
                             submit(e, async (f) => {
-                              const data = {
-                                workspace_id: workspace,
-                                brand_id: f.get("brand_id") || null,
-                                text: promptText,
-                                engine: f.get("engine"),
-                                mode: f.get("mode"),
-                                location_name: f.get("location_name"),
-                                language_code: f.get("language_code"),
-                                enabled: f.get("enabled") === "on",
-                              };
-                              await request(
-                                editPrompt
-                                  ? "/prompts/" + editPrompt.id
-                                  : "/prompts",
-                                editPrompt ? "PATCH" : "POST",
-                                data,
-                              );
+                              const texts = editPrompt ? [promptText.trim()] : parsePromptInput(promptText, promptSeparator);
+                              const selected = f.getAll("engines").map(String);
+                              const ordered = editPrompt && selected.includes(editPrompt.engine) ? [editPrompt.engine, ...selected.filter(e => e !== editPrompt.engine)] : selected;
+                              if (!texts.length || !ordered.length) throw new Error("Enter prompts and select at least one engine.");
+                              if (texts.length * ordered.length > 100) throw new Error("Save at most 100 prompt/engine combinations per batch.");
+                              const result = await request("/prompts/bulk", "POST", {
+                                workspace_id: workspace, brand_id: f.get("brand_id") || null,
+                                texts, engines: ordered, ...(editPrompt ? { source_id: editPrompt.id } : {}),
+                                mode: f.get("mode"), location_name: f.get("location_name"), language_code: f.get("language_code"), enabled: f.get("enabled") === "on",
+                              });
                               setPromptText("");
                               setEditPrompt(null);
                               setNotice(
-                                "Prompt saved. No provider request has been made.",
+                                `${result.saved_combinations} prompt/engine combinations saved (existing matches reused). No provider requests were made.`,
                               );
                               await load();
                             })
                           }
                           key={editPrompt?.id || "new"}
                         >
-                          <FormField label="Prompt">
+                          <FormField label={editPrompt ? "Prompt" : "Prompts — paste your list"} hint={editPrompt ? "Edit this prompt. Select extra engines below to add variants without deleting other saved prompts." : "Paste one prompt per line or separate prompts with commas. Auto uses lines when present, preserving commas inside each line. For a single prompt containing commas, choose One per line."}>
                             <textarea
                               name="text"
                               required
                               minLength={3}
-                              maxLength={700}
+                              maxLength={editPrompt ? 700 : 30000}
                               value={promptText}
                               onChange={(e) => setPromptText(e.target.value)}
                               placeholder="Who are the best house cleaning services in Seattle?"
@@ -1032,18 +1089,11 @@ function App() {
                             />
                           </FormField>
                           <div className="form-grid">
-                            <FormField label="Engine">
-                              <select
-                                name="engine"
-                                defaultValue={editPrompt?.engine || "chatgpt"}
-                              >
-                                {Object.entries(engines).map(([v, l]) => (
-                                  <option key={v} value={v}>
-                                    {l}
-                                  </option>
-                                ))}
-                              </select>
-                            </FormField>
+                            <fieldset className="form-stack"><legend>Engines <HelpTip label="engines" text="Select one or more engines. Each prompt/engine pair is saved separately and consumes its own run when executed. Saving never runs a collection." /></legend>
+                              {Object.entries(engines).map(([value,label]) => <label className="check-field" key={value}><input type="checkbox" name="engines" value={value} checked={promptEngineChoices.includes(value)} onChange={e => setPromptEngineChoices(current => e.target.checked ? [...current,value] : current.filter(x => x !== value))} /> {label}</label>)}
+                            </fieldset>
+                            {!editPrompt && <FormField label="Paste format"><select value={promptSeparator} onChange={e => setPromptSeparator(e.target.value)}><option value="auto">Auto — lines first, otherwise commas</option><option value="lines">One per line — keep commas in prompts</option><option value="commas">Comma-separated — quote prompts containing commas</option></select></FormField>}
+                            <details className="advanced-settings"><summary>Advanced settings · location, language & execution</summary><div className="form-grid">
                             <FormField
                               label="Queue / execution"
                               hint="Priority and live can cost more. Standard is the default."
@@ -1057,26 +1107,17 @@ function App() {
                                 <option value="live">Live</option>
                               </select>
                             </FormField>
-                            <FormField
-                              label="Location"
-                              hint="Use a supported DataForSEO location name."
-                            >
-                              <input
-                                name="location_name"
-                                required
-                                defaultValue={
-                                  editPrompt?.location_name || "United States"
-                                }
-                                maxLength={200}
-                              />
+                            <FormField label="Location" hint="Search DataForSEO's supported locations, then choose a match. With several engines checked, only shared locations are offered. Search a city when using Google or Gemini.">
+                              <input type="search" aria-label="Search supported locations" placeholder="Search country or city…" value={locationQuery} onChange={e => setLocationQuery(e.target.value)} maxLength={100} />
+                              <select aria-label="Selected location" name="location_name" required value={promptLocation} disabled={providerChoicesLoading || !!providerChoices?.error} onChange={e => setPromptLocation(e.target.value)}>
+                                {(providerChoices?.locations || [promptLocation]).filter(Boolean).map((name:string) => <option key={name} value={name}>{name}</option>)}
+                              </select>
+                              <small>{providerChoicesLoading ? "Loading supported choices…" : providerChoices?.error || "Select a listed value. Narrow the search for more locations."}</small>
                             </FormField>
-                            <FormField label="Language code">
-                              <input
-                                name="language_code"
-                                required
-                                defaultValue={editPrompt?.language_code || "en"}
-                                pattern="[a-z]{2}(-[A-Z]{2})?"
-                              />
+                            <FormField label="Language" hint="Languages supported by every selected engine. Provider codes are shown next to the names; arbitrary codes are rejected.">
+                              <select aria-label="Language" name="language_code" required value={promptLanguage} disabled={providerChoicesLoading || !!providerChoices?.error} onChange={e => setPromptLanguage(e.target.value)}>
+                                {(providerChoices?.languages || [{code:"en",name:"English"}]).map((language:Item) => <option key={language.code} value={language.code}>{language.name} ({language.code})</option>)}
+                              </select>
                             </FormField>
                             <FormField label="Associated brand (optional)">
                               <select
@@ -1093,6 +1134,7 @@ function App() {
                                 ))}
                               </select>
                             </FormField>
+                            </div></details>
                             <label className="check-field">
                               <input
                                 type="checkbox"
@@ -1101,13 +1143,13 @@ function App() {
                                   editPrompt ? !!editPrompt.enabled : true
                                 }
                               />{" "}
-                              Enabled for runs
+                              Allow manual & scheduled runs <HelpTip label="allow runs" text="When checked, this prompt can be run manually or by an enabled schedule. Unchecking pauses future runs without deleting the prompt or its history. This does not start a run or create a schedule." />
                             </label>
                           </div>
                           <div className="form-actions">
-                            <Button disabled={busy}>
+                            <Button disabled={busy || providerChoicesLoading || !providerChoices || !!providerChoices.error || !promptEngineChoices.length}>
                               <Plus size={14} />
-                              {editPrompt ? "Save changes" : "Save prompt"}
+                              {editPrompt ? "Save prompt settings" : "Save prompts for selected engines"}
                             </Button>
                             {editPrompt && (
                               <Button
@@ -1186,10 +1228,19 @@ function App() {
                       <div className="panel-title">
                         <h2>{visiblePrompts.length} saved prompts</h2>
                       </div>
+                      {visiblePrompts.length>0 && canWrite && <div className="bulk-toolbar">
+                        <label className="check-field"><input type="checkbox" aria-label="Select all saved prompts in this workspace" checked={selectedPromptIds.length>0 && visiblePrompts.every(p=>selectedPromptIds.includes(p.id))} onChange={e=>setSelectedPromptIds(e.target.checked?visiblePrompts.map(p=>p.id):[])} /> Select all shown ({visiblePrompts.length})</label><span>{selectedPromptIds.length} selected</span>
+                        <Button disabled={busy||!selectedPromptIds.length} onClick={()=>queuePromptBatch(selectedPromptIds,runSamples)}>Run selected — {selectedPromptIds.length*runSamples} runs</Button>
+                        <Button variant="outline" disabled={!selectedPromptIds.length} onClick={()=>{setEditingScheduleSelection(false);setTab("schedules");}}>Schedule selected</Button>
+                        <Button variant="outline" disabled={busy||!selectedPromptIds.length} onClick={()=>action(async()=>{await request("/prompts/bulk-settings","PATCH",{ids:selectedPromptIds,enabled:true});await load();setNotice("Selected prompts enabled.");})}>Enable selected</Button>
+                        <Button variant="outline" disabled={busy||!selectedPromptIds.length} onClick={()=>action(async()=>{await request("/prompts/bulk-settings","PATCH",{ids:selectedPromptIds,enabled:false});await load();setNotice("Selected prompts paused; history retained.");})}>Pause selected</Button>
+                        <details><summary>Advanced · sampling & bulk settings</summary><form className="app-inline-form" onSubmit={e=>submit(e,async f=>{await request("/prompts/bulk-settings","PATCH",{ids:selectedPromptIds,mode:f.get("bulk_mode")});await load();setNotice("Execution mode updated for selected prompts. No provider request was made.");})}><FormField label="Execution mode for selected prompts" hint="Priority and live may cost more on future runs. This only changes saved settings."><select name="bulk_mode"><option value="standard">Standard queue</option><option value="priority">Priority queue</option><option value="live">Live</option></select></FormField><Button disabled={busy||!selectedPromptIds.length}>Apply mode to selected</Button></form><FormField label="Samples per prompt" hint="Independent back-to-back samples, queued under the normal concurrency limit. Each sample is a separate provider charge and run."><input type="number" min={1} max={10} value={runSamples} onChange={e=>setRunSamples(Math.max(1,Math.min(10,Number(e.target.value)||1)))} /></FormField></details>
+                      </div>}
                       {visiblePrompts.length ? (
                         <div className="prompt-table">
                           {visiblePrompts.map((p) => (
                             <div className="saved-prompt" key={p.id}>
+                              {canWrite && <input type="checkbox" aria-label={`Select ${p.text} — ${engines[p.engine]}`} checked={selectedPromptIds.includes(p.id)} onChange={e=>setSelectedPromptIds(current=>e.target.checked?[...current,p.id]:current.filter(id=>id!==p.id))} />}
                               <div>
                                 <strong>{p.text}</strong>
                                 <small>
@@ -1689,7 +1740,7 @@ function App() {
                   </Card>
                   <Card>
                     <CardContent>
-                      <h2>Workspace brand set</h2>
+                      <h2>Workspace brand set <HelpTip label="brands" text="Brands are the businesses you want to measure in answers: your company, clients and competitors. A workspace can track several brands together for comparison." /></h2>
                       <p className="data-note">
                         Choose which brands and competitors belong in this
                         workspace. With no selections, it acts as a sandbox and
@@ -1806,94 +1857,32 @@ function App() {
                   <Card>
                     <CardContent>
                       <div className="panel-title">
-                        <h2>Schedule a prompt</h2>
-                        <Badge variant="outline">
-                          Every-five-minute dispatcher
-                        </Badge>
+                        <h2>{editingScheduleSelection ? `Edit ${selectedScheduleIds.length} selected schedules` : "Schedule a batch of prompts"}</h2>
+                        <Badge variant="outline">Batch scheduling</Badge>
                       </div>
                       {canWrite ? (
-                        <form
-                          className="form-stack"
-                          onSubmit={(e) =>
-                            submit(e, async (f) => {
-                              await request("/schedules", "POST", {
-                                prompt_id: f.get("prompt_id"),
-                                preset: f.get("preset"),
-                                days: String(f.get("days") || "1")
-                                  .split(",")
-                                  .map(Number),
-                                local_time: f.get("local_time"),
-                                timezone: f.get("timezone"),
-                                enabled: false,
-                              });
-                              setNotice(
-                                "Schedule created paused. Enable it when you are ready for recurring provider charges.",
-                              );
-                              await load();
-                            })
-                          }
-                        >
+                        <form className="form-stack" onSubmit={e=>submit(e,async f=>{
+                          const data={preset:scheduleFrequency,days:scheduleDays,times:scheduleTimes,timezone:scheduleTimezone,repetitions:scheduleSamples};
+                          if(editingScheduleSelection){await request("/schedules/bulk","PATCH",{ids:selectedScheduleIds,...data});setNotice("Selected schedules updated. Timing edits apply to future slots, not past times.");setEditingScheduleSelection(false);}
+                          else {const result=await request("/schedules/bulk","POST",{prompt_ids:selectedPromptIds,name:f.get("batch_name")||"Scheduled prompts",...data,enabled:false});setNotice(`Paused batch created: ${result.prompts} prompts, ${result.runs_per_time} runs per time slot, ${result.runs_per_scheduled_day} runs per scheduled day. Enable selected schedules when ready.`);}
+                          await load();
+                        })}>
+                          {!editingScheduleSelection && <><PromptBatchPicker prompts={visiblePrompts} selected={selectedPromptIds} onChange={setSelectedPromptIds} /><FormField label="Batch name (optional)"><input name="batch_name" maxLength={100} placeholder="Daily brand checks" /></FormField></>}
                           <div className="form-grid">
-                            <FormField label="Prompt">
-                              <select name="prompt_id" required>
-                                <option value="">Select a saved prompt</option>
-                                {visiblePrompts.map((p) => (
-                                  <option key={p.id} value={p.id}>
-                                    {p.text}
-                                  </option>
-                                ))}
-                              </select>
-                            </FormField>
-                            <FormField label="Frequency">
-                              <select name="preset">
-                                <option value="daily">Every day</option>
-                                <option value="weekly">Once a week</option>
-                                <option value="mwf">
-                                  Monday, Wednesday, Friday
-                                </option>
-                                <option value="custom">Custom weekdays</option>
-                              </select>
-                            </FormField>
-                            <FormField label="Local time">
-                              <input
-                                name="local_time"
-                                type="time"
-                                defaultValue="09:00"
-                                required
-                              />
-                            </FormField>
-                            <FormField label="Timezone">
-                              <input
-                                name="timezone"
-                                defaultValue={
-                                  Intl.DateTimeFormat().resolvedOptions()
-                                    .timeZone || "America/Los_Angeles"
-                                }
-                                required
-                                maxLength={100}
-                              />
-                            </FormField>
-                            <FormField
-                              label="Weekdays (weekly/custom)"
-                              hint="0=Sunday, 1=Monday … 6=Saturday. Weekly uses the first day."
-                            >
-                              <input
-                                name="days"
-                                defaultValue="1"
-                                pattern="[0-6](,[0-6])*"
-                                required
-                              />
-                            </FormField>
+                            <FormField label="Frequency"><select value={scheduleFrequency} onChange={e=>setScheduleFrequency(e.target.value)}><option value="daily">Every day</option><option value="weekly">Once a week</option><option value="mwf">Monday, Wednesday, Friday</option><option value="custom">Custom weekdays</option></select></FormField>
+                            <FormField label="Local time"><input type="time" required value={scheduleTimes[0]} onChange={e=>setScheduleTimes(current=>[e.target.value,...current.slice(1)])} /></FormField>
+                            <FormField label="Timezone"><select value={scheduleTimezone} onChange={e=>setScheduleTimezone(e.target.value)}>{[...new Set([scheduleTimezone,"UTC",...Intl.supportedValuesOf("timeZone")])].sort().map(tz=><option key={tz} value={tz}>{tz}</option>)}</select></FormField>
                           </div>
-                          <Button disabled={busy || !visiblePrompts.length}>
-                            <CalendarClock size={14} /> Create paused schedule
-                          </Button>
-                          <p className="data-note">
-                            Runs on selected local days at or shortly after the
-                            local time. Timezone-aware, including DST. Missed
-                            dispatcher slots catch up later the same day; no
-                            historical-day backfill.
-                          </p>
+                          {["weekly","custom"].includes(scheduleFrequency) && <fieldset><legend>Weekdays</legend>{["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map((day,index)=><label className="check-field" key={day}><input type="checkbox" checked={scheduleDays.includes(index)} onChange={e=>setScheduleDays(current=>scheduleFrequency==='weekly'?[index]:e.target.checked?[...current,index]:current.filter(d=>d!==index))} />{day}</label>)}</fieldset>}
+                          <details className="advanced-settings"><summary>Advanced · repeated samples & extra daily times</summary>
+                            <FormField label="Samples per prompt per time slot" hint="For example: 4 saved prompts × 5 samples = 20 independent provider runs each time. Back-to-back means queued consecutively, not bypassing concurrency or spending limits."><input type="number" min={1} max={10} value={scheduleSamples} onChange={e=>setScheduleSamples(Math.max(1,Math.min(10,Number(e.target.value)||1)))} /></FormField>
+                            {scheduleTimes.slice(1).map((time,index)=><div className="app-inline-form" key={index}><input type="time" required aria-label={`Additional daily time ${index+1}`} value={time} onChange={e=>setScheduleTimes(current=>current.map((value,i)=>i===index+1?e.target.value:value))} /><Button type="button" variant="ghost" onClick={()=>setScheduleTimes(current=>current.filter((_,i)=>i!==index+1))}>Remove time</Button></div>)}
+                            <Button type="button" variant="outline" disabled={scheduleTimes.length>=8} onClick={()=>setScheduleTimes(current=>[...current,"17:00"])}>Add another daily time</Button>
+                          </details>
+                          <p aria-live="polite">{editingScheduleSelection?selectedScheduleIds.length:selectedPromptIds.length} prompts × {scheduleSamples} samples × {new Set(scheduleTimes).size} times = <strong>{(editingScheduleSelection?selectedScheduleIds.length:selectedPromptIds.length)*scheduleSamples*new Set(scheduleTimes).size} runs per scheduled day</strong>.</p>
+                          <p className="data-note">Each sample/engine variant consumes its own run and provider charges. Normal daily/monthly quotas still apply. Runs queue under the existing concurrency limit. Missed slots do not trigger a historical burst; saving a new batch does not run it.</p>
+                          <Button disabled={busy || !(editingScheduleSelection?selectedScheduleIds.length:selectedPromptIds.length) || !scheduleDays.length}>{editingScheduleSelection?"Save settings for selected schedules":"Create paused batch schedule"}</Button>
+                          {editingScheduleSelection && <Button type="button" variant="ghost" onClick={()=>setEditingScheduleSelection(false)}>Cancel bulk edit</Button>}
                         </form>
                       ) : (
                         <p className="data-note">Viewer access is read-only.</p>
@@ -1903,22 +1892,28 @@ function App() {
                   <Card>
                     <CardContent>
                       <h2>Workspace schedules</h2>
+                      {canWrite && <div className="bulk-toolbar"><label className="check-field"><input type="checkbox" aria-label="Select all schedules in this workspace" checked={schedules.filter(s=>visiblePrompts.some(p=>p.id===s.prompt_id)).length>0 && schedules.filter(s=>visiblePrompts.some(p=>p.id===s.prompt_id)).every(s=>selectedScheduleIds.includes(s.id))} onChange={e=>setSelectedScheduleIds(e.target.checked?schedules.filter(s=>visiblePrompts.some(p=>p.id===s.prompt_id)).map(s=>s.id):[])} />Select all shown</label><span>{selectedScheduleIds.length} selected</span>
+                        <Button disabled={busy||!selectedScheduleIds.length} onClick={()=>{if(!confirm("Enable these selected schedules? Each scheduled sample uses provider credits and your run allowance."))return;action(async()=>{await request("/schedules/bulk","PATCH",{ids:selectedScheduleIds,enabled:true});await load();setNotice("Selected schedules enabled.");});}}>Enable selected</Button>
+                        <Button variant="outline" disabled={busy||!selectedScheduleIds.length} onClick={()=>action(async()=>{await request("/schedules/bulk","PATCH",{ids:selectedScheduleIds,enabled:false});await load();setNotice("Selected schedules paused.");})}>Pause selected</Button>
+                        <Button variant="outline" disabled={!selectedScheduleIds.length} onClick={()=>{const first=schedules.find(s=>selectedScheduleIds.includes(s.id));if(!first)return;setScheduleFrequency(first.preset);setScheduleDays(JSON.parse(first.days));const times=JSON.parse(first.times_json||"[]");setScheduleTimes(times.length?times:[first.local_time]);setScheduleTimezone(first.timezone);setScheduleSamples(first.repetitions||1);setEditingScheduleSelection(true);window.scrollTo({top:0,behavior:"smooth"});}}>Edit selected settings</Button>
+                      </div>}
                       {schedules
                         .filter((s) =>
                           visiblePrompts.some((p) => p.id === s.prompt_id),
                         )
                         .map((s) => (
                           <div className="schedule-row" key={s.id}>
+                            {canWrite && <input type="checkbox" aria-label={`Select schedule for ${prompts.find(p=>p.id===s.prompt_id)?.text || s.prompt_id}`} checked={selectedScheduleIds.includes(s.id)} onChange={e=>setSelectedScheduleIds(current=>e.target.checked?[...current,s.id]:current.filter(id=>id!==s.id))} />}
                             <div>
                               <strong>
                                 {prompts.find((p) => p.id === s.prompt_id)
                                   ?.text || s.prompt_id}
                               </strong>
                               <small>
-                                {s.preset} · {s.local_time} · {s.timezone} ·
+                                {s.batch_name ? s.batch_name + " · " : ""}{s.preset} · {JSON.parse(s.times_json||"[]").length ? JSON.parse(s.times_json).join(", ") : s.local_time} · {s.repetitions||1} sample(s) · {s.timezone} ·
                                 days {JSON.parse(s.days).join(", ")}
                               </small>
-                              {canWrite && (
+                              {canWrite && !s.batch_id && (
                                 <details className="schedule-edit">
                                   <summary>Edit timing</summary>
                                   <form
@@ -2342,7 +2337,7 @@ function App() {
                       </Card>
                       <Card>
                         <CardContent>
-                          <h2>Collection defaults & guardrails</h2>
+                          <h2>Poisoned-SERP fixer & collection defaults</h2>
                           <form
                             className="form-stack"
                             onSubmit={(e) =>
@@ -2370,7 +2365,7 @@ function App() {
                                   !!settings.resolve_poisoned_results
                                 }
                               />{" "}
-                              Resolve poisoned Google SERPs (recommended)
+                              Poisoned-SERP fixer — on by default (recommended)
                             </label>
                             <p className="data-note">
                               Enabled by default. Adds the provider's
@@ -2380,7 +2375,7 @@ function App() {
                             </p>
                             <FormField
                               label="Daily run-count limit"
-                              hint="1–100 per organization, resets at midnight UTC. This is a beta guardrail, not a guaranteed USD spending limit."
+                              hint="Shared organization run-count guardrail; resets at midnight UTC. This is not a guaranteed dollar-spending cap."
                             >
                               <input
                                 type="number"

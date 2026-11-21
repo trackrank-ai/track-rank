@@ -11,6 +11,7 @@ export type Env = {
   RECOVERY_PUBLIC_KEY?: string;
   BACKUPS?: R2Bucket;
   BILLING_TAX_REVIEWED?: string;
+  HOSTED_FREE_TRIAL_ENABLED?: string;
   BILLING_ENABLED?: string;
   BILLING_CHECKOUT_ENABLED?: string;
   BILLING_ALERT_EMAIL?: string;

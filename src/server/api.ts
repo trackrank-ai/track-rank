@@ -1,3 +1,7 @@
+import { bulkRunSchema, bulkScheduleSchema, bulkToggleSchema, updateBulkSchedules, bulkScheduleUpdateSchema, selectedRows, createBulkRuns, createBulkSchedules } from "./bulk";
+import { assertProviderOptions, providerOptions } from "./provider-options";
+import { promptBatchSchema, savePromptBatch } from "./prompt-batch";
+import { startTrial } from "./trials";
 import { billingRoute } from "./billing";
 import { localAuthEnabled } from "./local-auth";
 import { calendarMonth, defaultPlanVersion, organizationPlan } from "./plans";
@@ -41,7 +45,7 @@ const promptSchema = z
     location_name: z.string().trim().min(2).max(200).default("United States"),
     language_code: z
       .string()
-      .regex(/^[a-z]{2}(?:-[A-Z]{2})?$/)
+      .min(2).max(20)
       .default("en"),
     enabled: z.boolean().default(true),
   })
@@ -112,9 +116,29 @@ export async function api(
     method = req.method;
   const p = principal || (await authenticate(req, env));
   // Only account-level routes precede tenant resolution. Keys use their customer budget.
-  if (["/organizations", "/invites/accept", "/invites/preview"].includes(path)) {
+  if (["/organizations", "/onboarding/trial", "/invites/accept", "/invites/preview"].includes(path)) {
     if (p.orgId) await customerLimit(env, p.orgId);
     else await enforceLimit(env, `account:${p.userId}`, 120);
+  }
+  if (path === "/onboarding/trial" && method === "POST") {
+    if (p.keyId) throw new HttpError(403, "Sign in to start a trial");
+    if (env.HOSTED_FREE_TRIAL_ENABLED !== "true") throw new HttpError(503, "Free trial enrollment is temporarily unavailable");
+    const user = await one<Row>(env, "SELECT name,emailVerified FROM user WHERE id=?", p.userId);
+    if (!user?.emailVerified) throw new HttpError(403, "Verify your email before starting the trial");
+    const claim = await one<Row>(env, "SELECT org_id FROM account_trial_claims WHERE user_id=?", p.userId);
+    if (claim) {
+      if (!claim.org_id || !await one(env, "SELECT org_id FROM memberships WHERE org_id=? AND user_id=?", claim.org_id, p.userId)) throw new HttpError(409, "Your introductory trial has already been used");
+      return json({ id: claim.org_id });
+    }
+    const orgId = "trial_" + await hashToken(p.userId), workspaceId = orgId + "_default", t = now();
+    await env.DB.batch([
+      env.DB.prepare("INSERT OR IGNORE INTO organizations(id,name,created_at) VALUES(?,?,?)").bind(orgId, (String(user.name || "My") + "'s organization").slice(0,100),t),
+      env.DB.prepare("INSERT OR IGNORE INTO organization_plans VALUES(?,'pending-v1',?,'Trial onboarding')").bind(orgId,t),
+      env.DB.prepare("INSERT OR IGNORE INTO memberships VALUES(?,?,'owner',?)").bind(orgId,p.userId,t),
+      env.DB.prepare("INSERT OR IGNORE INTO workspaces(id,org_id,name,created_at) VALUES(?,?,'Default workspace',?)").bind(workspaceId,orgId,t),
+    ]);
+    await startTrial(env,p.userId,orgId);
+    return json({ id: orgId },201);
   }
   if (path === "/organizations" && method === "GET")
     return json({ organizations: await organizations(env, p) });
@@ -139,6 +163,11 @@ export async function api(
         "INSERT INTO workspaces(id,org_id,name,created_at) VALUES(?,?,'Default workspace',?)",
       ).bind(workspaceId, orgId, t),
     ]);
+    // Creating another organization must never restart the account's introductory trial.
+    if (env.HOSTED_FREE_TRIAL_ENABLED === "true" && planVersion === "pending-v1") {
+      const claim = await one(env, "SELECT user_id FROM account_trial_claims WHERE user_id=?", p.userId);
+      if (!claim) await startTrial(env, p.userId, orgId);
+    }
     return json({ id: orgId, workspace_id: workspaceId }, 201);
   }
   if (["/invites/accept", "/invites/preview"].includes(path) && method === "POST") {
@@ -181,7 +210,8 @@ export async function api(
   const t = await tenant(env, p, u.searchParams.get("org"), scope),
     org = t.orgId;
   if (path === "/billing" || path.startsWith("/billing/")) return billingRoute(req, env, t, path);
-  await customerLimit(env, org, method === "POST" && /\/(run|refresh|analyze)$/.test(path));
+  await customerLimit(env, org, method === "POST" && (/\/(run|refresh|analyze)$/.test(path) || path === "/runs/bulk"));
+  if (path === "/provider/options" && method === "GET") return json(await providerOptions((u.searchParams.get("engines") || "chatgpt").split(",") as ("chatgpt"|"gemini"|"google")[], (u.searchParams.get("q") || "").slice(0,100), (u.searchParams.get("selected_location") || "United States").slice(0,200)));
   if (path === "/workspaces" && method === "GET")
     return json({
       workspaces: await all(
@@ -329,8 +359,10 @@ export async function api(
       ),
     });
   }
+  if (path === "/prompts/bulk" && method === "POST") return json(await savePromptBatch(env, org, await body(req, promptBatchSchema)), 201);
   if (path === "/prompts" && method === "POST") {
     const b = await body(req, promptSchema);
+    await assertProviderOptions([b.engine], b.location_name, b.language_code);
     await belongs(env, "workspaces", org, b.workspace_id);
     await belongs(env, "brands", org, b.brand_id);
     const pid = uuid(),
@@ -353,9 +385,16 @@ export async function api(
     );
     return json({ id: pid }, 201);
   }
+  if (path === "/prompts/bulk-settings" && method === "PATCH") {
+    const b=await body(req,bulkToggleSchema);const table=path.startsWith('/prompts')?'prompts':'schedules';
+    const rows=await selectedRows(env,org,table,b.ids);
+    await env.DB.batch(rows.map(row=>env.DB.prepare(`UPDATE ${table} SET enabled=?,mode=? WHERE org_id=? AND id=?`).bind(b.enabled===undefined?row.enabled:Number(b.enabled),b.mode||row.mode,org,row.id)));
+    return json({updated:rows.length});
+  }
   const match = path.match(/^\/prompts\/([^/]+)(?:\/(run))?$/);
   if (match && method === "PATCH") {
     const b = await body(req, promptSchema);
+    await assertProviderOptions([b.engine], b.location_name, b.language_code);
     await belongs(env, "prompts", org, match[1]);
     await belongs(env, "workspaces", org, b.workspace_id);
     await belongs(env, "brands", org, b.brand_id);
@@ -406,6 +445,14 @@ export async function api(
       ],
     });
   }
+  if (path === "/runs/bulk" && method === "POST") {
+    const result=await createBulkRuns(env,org,await body(req,bulkRunSchema));
+    // Existing queued runs are recoverable by cron; no uncertain/accepted provider task is resubmitted.
+    ctx.waitUntil(Promise.all(result.runs.filter(r=>r.status==='queued' && !r.workflow_started).slice(0,8).map(r=>launchRun(env,String(r.id)))));
+    return json(result, result.complete?202:207);
+  }
+  if (path === "/schedules/bulk" && method === "POST") return json(await createBulkSchedules(env,org,await body(req,bulkScheduleSchema)),201);
+  if (path === "/schedules/bulk" && method === "PATCH") return json(await updateBulkSchedules(env, org, await body(req,bulkScheduleUpdateSchema)));
   if (path === "/runs" && method === "GET") {
     const w = u.searchParams.get("workspace"),
       before = Number(u.searchParams.get("before") || now() + 1);
