@@ -3,7 +3,7 @@
 ## Plan and provenance
 
 TrackRank is a direct SaaS merchant, not a Connect marketplace. Initial scope:
-USD10/month Starter per organization, not per seat. Use Stripe-hosted Checkout
+14-day card-required trial, then USD10/month Starter per organization, not per seat. Use Stripe-hosted Checkout
 (Payments + Billing), recurring subscription invoices and the customer portal
 (Invoicing). No standalone invoice editor is needed for this launch. Keep
 Stripe Tax configurable only after verified setup. Self-hosted deployment needs
@@ -31,7 +31,7 @@ References:
 - Raw-body signature and timestamp verification, environment matching, current subscription retrieval.
 - Subscription and invoice events, plus Checkout completion/async-success events.
 - Transactional event deduplication, stale event protection, tenant mapping by locally recorded Customer ID.
-- Active subscriptions grant mapped limits. Past-due/unpaid/canceled/paused/incomplete states block paid assignments.
+- Active and trialing subscriptions grant mapped limits. Past-due/unpaid/canceled/paused/incomplete states block paid assignments.
 - Cancellation at period end retains access while Stripe reports active.
 - Paid access checked in common plan resolution for UI/API/MCP/provider dispatch.
 - Billing endpoints bypass paid access and monthly quotas so owners can recover.
@@ -48,7 +48,7 @@ payment, email or a production deployment.
 
 ## Deploy/configure in staging before production
 
-1. Apply migrations through 0006 in staging. 0006 activates Starter but does not
+1. Apply migrations through 0007 in staging. 0006 activates Starter but does not
    assign it to anyone or change the free beta default.
 2. Insert sandbox price mapping using the price ID in stripe-sandbox.json:
    `INSERT INTO billing_prices VALUES('<sandbox price>','starter-v1',0);`
@@ -68,30 +68,27 @@ payment, email or a production deployment.
 6. Live mode requires separate live catalog IDs/mapping (`livemode=1`), keys,
    endpoint secret, portal configuration and live verification. None are configured.
 
-## Remaining production gates
+## Production preparation follow-up (November 21)
 
-- No deployment, remote migration, webhook registration or live payments performed.
-- No completed card purchase, renewal, refund or dispute end-to-end acceptance yet.
-- Add refund/dispute/early-fraud-warning processing and operator alerting before
-  production. Do not subscribe to these events until there is a tested response.
-- Set up periodic reconciliation and an operational alert for webhook failures,
-  unsupported prices and conflicting subscriptions. Current behavior retries via
-  non-2xx responses and Stripe event logs; no operator notification service exists.
-- Checkout is serialized with a two-minute token-owned D1 lease. Webhook processing
-  still needs stress testing for concurrent same-second events and stale snapshot
-  races, plus periodic reconciliation before a high-concurrency paid rollout.
-- Starter is the only checkout tier. Future price versions require explicit
-  mappings and controlled portal upgrade/downgrade/proration tests. Unsupported
-  prices fail closed, not silently mapped to Starter.
-- Existing beta remains free by design. Before requiring EVERY new hosted
-  customer to subscribe, define an unpaid onboarding plan and its allowances;
-  do not change DEFAULT_PLAN_VERSION to Starter as a shortcut.
-- Tax settings read-back is `pending`; automatic_tax is NOT enabled. Confirm head
-  office address, tax code, tax-inclusive/exclusive pricing and actual jurisdiction
-  registrations before enabling it. Enabling automatic tax alone is insufficient.
-  Prefer a least-privilege restricted live key for deployment.
-- Paid terms/pricing/refunds, support verification, deletion operations, backups,
-  restore, bounded polling, cost controls and other LAUNCH.md gates still apply.
+See [BILLING-OPERATIONS.md](BILLING-OPERATIONS.md) for current rollout, review and
+rollback instructions. The original sandbox status above is historical; the
+follow-up added a deployed isolated staging Worker, migrations through 0007,
+registered TEST webhook, card-required 14-day trial, confirmed refund policy,
+published staging pricing/terms/privacy, customer synchronization leases,
+fair cron reconciliation, 24-hour snapshot freshness enforcement, pending
+onboarding, refund/dispute/fraud review and persistent retryable alert delivery.
+
+Real test-card lifecycle and actual Stripe-signed CLI webhook evidence is under
+`reports/billing-acceptance/lifecycle.json`. This includes trial conversion,
+failed renewal, payment recovery, a real TEST refund, cancellation and repairing
+local drift. It is not a live payment and is not a production backup drill.
+
+Still external/live-blocked: live credentials/catalog/account activation,
+actual Tax registration decisions/settings and product tax code, a monitored
+operator alert recipient plus verified sender/delivery drill, support inbox
+receipt, production backup/restore and real auth/provider beta acceptance.
+Automatic tax remains disabled; no tax registrations were invented. Self-hosting
+remains free and independent. Checkout can be paused without disabling recovery.
 
 ## Verification
 

@@ -1,0 +1,17 @@
+{
+  "checked_at": "2026-11-21T02:41:16.487Z",
+  "mode": "test",
+  "browser_checkout_completed": true,
+  "hosted_stripe_webhook_received": true,
+  "state": {
+    "status": "trialing",
+    "subscription_id": "sub_1Ue4E95cBsaZf4oTFsad1P0P",
+    "plan_version_id": "starter-v1",
+    "processed_events": 4
+  },
+  "browser_app_verified": true,
+  "cancellation_webhook_verified": true,
+  "canceled_api_status": 402,
+  "recovery_portal_status": 200,
+  "cleanup_subscription_status": "canceled"
+}

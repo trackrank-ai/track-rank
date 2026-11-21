@@ -638,9 +638,10 @@ function App() {
         <main className="app-content">
           {billing.enabled && <Card><CardContent>
             <h2>Hosted subscription</h2>
-            <p>Status: {billing.status || "No subscription"}. Starter is $10 USD/month per organization. Payment confirmation can take a moment; refresh after checkout.</p>
+            <p>Status: {billing.status || "No subscription"}. Starter includes a 14-day free trial with a card required, then $10 USD/month before tax per organization. Cancel before the trial ends to avoid the first charge. First paid charge refundable within 7 days. Payment confirmation can take a moment; refresh after checkout.</p>
+            {billing.risk_hold ? <p role="alert">Paid access is paused for billing review. Contact support; billing management remains available.</p> : null}
             {billing.cancel_at_period_end ? <p>Cancels at the end of the current billing period.</p> : null}
-            <Button disabled={busy} onClick={() => { setBusy(true); request("/billing/checkout", "POST").then(r => window.location.assign(r.url)).catch(e => setError(e.message)).finally(() => setBusy(false)); }}>Subscribe to Starter</Button>{" "}
+            <Button disabled={busy} onClick={() => { setBusy(true); request("/billing/checkout", "POST").then(r => window.location.assign(r.url)).catch(e => setError(e.message)).finally(() => setBusy(false)); }}>Start 14-day trial / subscribe</Button>{" "}
             <Button variant="outline" disabled={busy} onClick={() => { setBusy(true); request("/billing/portal", "POST").then(r => window.location.assign(r.url)).catch(e => setError(e.message)).finally(() => setBusy(false)); }}>Manage billing & invoices</Button>
             <p className="data-note">Billing changes require the organization owner. Other members can view status.</p>
           </CardContent></Card>}

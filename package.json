@@ -10,14 +10,18 @@
     "generate-routes": "vite build",
     "build": "vite build",
     "preview": "vite preview",
-    "deploy": "npm run build && wrangler deploy",
+    "deploy": "node scripts/deploy-environment.mjs production",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test tests/*.test.ts",
     "setup:local": "node scripts/setup-local.mjs",
     "build:selfhost": "node scripts/self-host.mjs build",
     "deploy:selfhost": "node scripts/self-host.mjs deploy",
     "migrate:selfhost": "node scripts/self-host.mjs migrate",
-    "plans": "node scripts/plans.mjs"
+    "plans": "node scripts/plans.mjs",
+    "deploy:staging": "node scripts/deploy-environment.mjs staging",
+    "deploy:production": "node scripts/deploy-environment.mjs production",
+    "test:billing:lifecycle": "node --import tsx scripts/billing-lifecycle.ts",
+    "billing:preflight": "node scripts/billing-preflight.mjs"
   },
   "dependencies": {
     "@better-auth/drizzle-adapter": "^1.7.26",

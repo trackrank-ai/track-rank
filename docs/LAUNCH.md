@@ -54,3 +54,15 @@ Docker/self-hosting and portable storage/execution adapters are a separate distr
 4. Verify recoverable D1/R2 backups with stable encryption keys, add failure/queue alerts, test representative tenant/load/failure cases and define retention/deletion. Dollar budgeting is required if promising a dollar spending cap; existing run caps are not monetary budgets.
 
 The app can be used as an early hosted beta after authentication/provider acceptance checks. Do not describe it as fully production-hardened or billing-ready.
+
+## Billing follow-up — November 21, 2026
+
+Hosted billing is implemented and isolated staging is deployed. Policy confirmed:
+14-day trial requires card; then USD10/month before tax; full refund within 7
+days of first paid charge. Versioned Starter access, Checkout/portal, signed
+webhooks, risk review, operator alert queue, synchronization leases and scheduled
+reconciliation are implemented. See BILLING-OPERATIONS.md and acceptance reports.
+Real Stripe TEST-card trial/payment/failure/recovery/refund/cancellation checks
+passed. Live billing remains disabled in production. Live keys/catalog/account
+activation, actual Tax setup, alert/inbox delivery and production recovery plus
+existing provider/auth acceptance gates are not certified by these tests.

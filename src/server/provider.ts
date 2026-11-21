@@ -121,6 +121,7 @@ export async function createRun(
     await one<Row>(env, "SELECT * FROM organizations WHERE id=?", orgId),
   );
   const plan = await organizationPlan(env, orgId);
+  if (plan.family === "pending") throw new HttpError(402, "Subscribe to start tracking");
   const month = calendarMonth();
   const config = {
     engine: p.engine,

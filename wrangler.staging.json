@@ -1,0 +1,48 @@
+{
+  "name": "trackrank-staging",
+  "account_id": "029c862aca4d53677446bd4004b732f4",
+  "workers_dev": true,
+  "keep_vars": true,
+  "main": "src/worker.ts",
+  "compatibility_date": "2025-09-02",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "vars": {
+    "BASE_URL": "https://trackrank-staging.edninodel.workers.dev",
+    "PUBLIC_OPERATOR_NAME": "TrackRank Staging",
+    "PUBLIC_SUPPORT_EMAIL": "info@trackrank.ai",
+    "SIGNUP_ENABLED": "false",
+    "BILLING_ENABLED": "true",
+    "BILLING_CHECKOUT_ENABLED": "true",
+    "BILLING_ENFORCE_NEW_ORGS": "true",
+    "STRIPE_STARTER_PRICE_ID": "price_1Ue3uj5cBsaZf4oTW3xI4lis",
+    "STRIPE_PORTAL_CONFIGURATION": "bpc_1Ue3uj5cBsaZf4oT6QPc7EQK"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "trackrank-staging-db",
+      "database_id": "8f5c336a-729a-4647-b432-79eed92d6e6f",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "ANSWERS",
+      "bucket_name": "trackrank-staging-answers"
+    }
+  ],
+  "workflows": [
+    {
+      "name": "trackrank-staging-tracking",
+      "binding": "RUN_WORKFLOW",
+      "class_name": "TrackingWorkflow"
+    }
+  ],
+  "triggers": {
+    "crons": [
+      "*/5 * * * *"
+    ]
+  }
+}

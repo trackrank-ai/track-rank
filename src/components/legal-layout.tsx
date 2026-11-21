@@ -2,13 +2,13 @@ import { Link, useLoaderData } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { ThemeToggle } from "./theme-toggle";
 
-export const legal = { updated: "November 20, 2026" };
+export const legal = { updated: "November 21, 2026" };
 export function OperatorName() {
   return <>{useLoaderData({ from: "__root__" }).operator}</>;
 }
 export function LegalLinks() {
   return <nav className="legal-links" aria-label="Legal and support">
-    <Link to="/privacy">Privacy</Link><Link to="/terms">Terms</Link>
+    <Link to="/pricing">Pricing</Link><Link to="/privacy">Privacy</Link><Link to="/terms">Terms</Link>
     <Link to="/support">Support</Link><Link to="/security">Security</Link>
   </nav>;
 }

@@ -24,3 +24,13 @@ BILLING_ENABLED="false"
 # STRIPE_WEBHOOK_SECRET="" # Worker secret; separate per endpoint
 # STRIPE_STARTER_PRICE_ID=""
 # STRIPE_PORTAL_CONFIGURATION=""
+# Pause NEW checkouts without disabling webhooks, portal or reconciliation.
+BILLING_CHECKOUT_ENABLED="false"
+# Only enable for the hosted paid service; never required for self-hosted installs.
+BILLING_ENFORCE_NEW_ORGS="false"
+# Operational alert destination, separate from customer emails. Configure deliberately.
+# BILLING_ALERT_EMAIL=""
+BILLING_RECONCILE_BATCH="10"
+# Automatic tax requires verified business registrations, tax code and exclusive price.
+STRIPE_AUTOMATIC_TAX="false"
+STRIPE_TAX_READY="false"

@@ -63,6 +63,7 @@ function fixture() {
   sql.exec(readFileSync(new URL("../migrations/0004_versioned_plans.sql", import.meta.url), "utf8"));
   sql.exec(readFileSync(new URL("../migrations/0005_recipient_invitations.sql", import.meta.url), "utf8"));
   sql.exec(readFileSync(new URL("../migrations/0006_stripe_billing.sql", import.meta.url), "utf8"));
+  sql.exec(readFileSync(new URL("../migrations/0007_billing_operations.sql", import.meta.url), "utf8"));
   const db = {
     prepare: (s: string) => new Statement(sql, s),
     batch: async (stmts: Statement[]) => {
@@ -699,7 +700,7 @@ test("plan versions are immutable; retired customers are grandfathered and defau
   sql.exec("UPDATE plan_versions SET status='retired' WHERE id='starter-v1'");
   env.BILLING_ENABLED = "true";
   env.STRIPE_SECRET_KEY = "sk_test_fixture";
-  sql.prepare("INSERT INTO billing_customers(org_id,customer_id,status,price_id,updated_at) VALUES(?,'cus_bob','active','price_bob',0)").run(b.id);
+  sql.prepare("INSERT INTO billing_customers(org_id,customer_id,status,price_id,updated_at) VALUES(?,'cus_bob','active','price_bob',?)").run(b.id,Date.now());
   sql.exec("INSERT INTO billing_prices VALUES('price_bob','starter-v1',0)");
   const settings = await (await call(env, { userId: 'bob' }, '/settings' , 'GET', undefined, b.id)).json() as any;
   assert.equal(settings.plan.version, 'starter-v1');

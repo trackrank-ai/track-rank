@@ -16,9 +16,9 @@ export async function organizationPlan(env: Env, org: string) {
   if (!row) throw new HttpError(503, "Organization plan is not configured");
   if (Number(row.price_cents) > 0) {
     // Paid catalog assignments never grant access by themselves, even if billing is disabled.
-    const billing = await one<Row>(env, "SELECT status,price_id FROM billing_customers WHERE org_id=?", org);
+    const billing = await one<Row>(env, "SELECT status,price_id,risk_hold,updated_at FROM billing_customers WHERE org_id=?", org);
     const mapped = billing && await one<Row>(env, "SELECT plan_version_id FROM billing_prices WHERE price_id=? AND livemode=?", billing.price_id, Number(!env.STRIPE_SECRET_KEY?.includes("_test_")));
-    if (env.BILLING_ENABLED !== "true" || !env.STRIPE_SECRET_KEY || billing?.status !== "active" || mapped?.plan_version_id !== row.id)
+    if (env.BILLING_ENABLED !== "true" || !env.STRIPE_SECRET_KEY || ! ["active", "trialing"].includes(String(billing?.status)) || billing?.risk_hold === 1 || Number(billing?.updated_at) < now() - 24 * 3600000 || mapped?.plan_version_id !== row.id)
       throw new HttpError(402, "Subscription payment required; the organization owner can use billing management");
   }
   let limits: PlanLimits;
@@ -28,7 +28,7 @@ export async function organizationPlan(env: Env, org: string) {
     price_cents: Number(row.price_cents), currency: String(row.currency), interval: String(row.interval), limits };
 }
 export async function defaultPlanVersion(env: Env) {
-  const version = env.DEFAULT_PLAN_VERSION || "beta-v1";
+  const version = env.BILLING_ENFORCE_NEW_ORGS === "true" ? "pending-v1" : env.DEFAULT_PLAN_VERSION || "beta-v1";
   const row = await one(env, "SELECT id FROM plan_versions WHERE id=? AND status='active'", version);
   if (!row) throw new HttpError(503, "Default plan is not available for new organizations");
   return version;

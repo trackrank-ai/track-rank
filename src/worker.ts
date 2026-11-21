@@ -1,4 +1,4 @@
-import { stripeWebhook } from "./server/billing";
+import { stripeWebhook, reconcileBilling } from "./server/billing";
 import { publicSettings } from "./server/public-settings";
 import handler from "@tanstack/react-start/server-entry";
 import { api } from "./server/api";
@@ -131,6 +131,7 @@ const appWorker = {
   },
   async scheduled(_event: unknown, env: Env, ctx: Ctx) {
     ctx.waitUntil(sweep(env));
+    ctx.waitUntil(reconcileBilling(env));
   },
 };
 
