@@ -1,5 +1,6 @@
 import {z} from 'zod';import {all,exec,HttpError,now,one,required,uuid,type Env,type Row} from './types';import {organizationPlan} from './plans';import {credentials,type Engine} from './provider';import {assertProviderOptions} from './provider-options';import {hashToken} from './crypto';
 import { prepareRunAdmission, runUsage, runUsagePeriods } from './run-admission';
+import { trackedWorkspaceBrands } from './workspace-brands';
 const ids=z.array(z.string().min(1).max(100)).min(1).max(100);
 export const bulkRunSchema=z.object({prompt_ids:ids,repetitions:z.number().int().min(1).max(10).default(1),batch_key:z.string().regex(/^[A-Za-z0-9_-]{8,100}$/)}).strict();
 export const bulkScheduleSchema=z.object({prompt_ids:ids,name:z.string().trim().max(100).default('Scheduled prompts'),preset:z.enum(['daily','weekly','mwf','custom']),days:z.array(z.number().int().min(0).max(6)).min(1).max(7),times:z.array(z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/)).min(1).max(8),timezone:z.string().min(1).max(100),repetitions:z.number().int().min(1).max(10).default(1),enabled:z.boolean().default(false)}).strict();
@@ -41,7 +42,7 @@ export async function createBulkRuns(env:Env,org:string,input:unknown){
  const c=await credentials(env,org);if(!c.login||!c.password)throw new HttpError(409,'Configure DataForSEO credentials in Settings before running a batch');
  for(const p of rows)await assertProviderOptions([p.engine as Engine],String(p.location_name),String(p.language_code));
  const organization=await one<Row>(env,'SELECT resolve_poisoned_results FROM organizations WHERE id=?',org);
- const brands=await all(env,"SELECT b.id,b.name,b.domain,b.aliases,COALESCE(wb.kind,b.kind) AS kind FROM brands b LEFT JOIN workspace_brands wb ON wb.org_id=b.org_id AND wb.brand_id=b.id AND wb.workspace_id=? WHERE b.org_id=? AND (wb.brand_id IS NOT NULL OR NOT EXISTS(SELECT 1 FROM workspace_brands selected WHERE selected.org_id=b.org_id AND selected.workspace_id=?))",workspace,org,workspace);
+ const brands=await trackedWorkspaceBrands(env,org,workspace);
  const statements=[];
  for(const id of selected){const p=rows.find(row=>row.id===id)!;for(let sample=1;sample<=b.repetitions;sample++){
   const config={engine:p.engine,mode:p.mode,location_name:p.location_name,language_code:p.language_code,resolve_poisoned_results:!!organization?.resolve_poisoned_results,brands,sample_index:sample,sample_count:b.repetitions,batch_key:b.batch_key};

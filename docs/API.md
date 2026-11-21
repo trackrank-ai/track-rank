@@ -17,15 +17,16 @@ Scopes: `read` for GET, `write` for research mutations, `run` for paid execution
 | GET, POST | `/workspaces` | List/create `{name, brand_id?}` |
 | POST | `/workspaces/:id/brands` | Attach `{brand_id, kind}` to workspace |
 | DELETE | `/workspaces/:id/brands/:brand_id` | Unlink; future runs use remaining set |
-| GET, POST | `/brands` | List/create `{name, domain?, kind: own\|client\|competitor, aliases?: string[]}` |
+| GET, POST | `/brands` | List/create `{name, domain?, kind: own\|client\|competitor, aliases?: string[], workspace_id?}` |
 | PATCH | `/brands/:id` | Update name/domain/kind/aliases; future runs use changes |
 | GET, POST | `/prompts` | Optional GET `?workspace=id`; use `view=library` for filtered pagination |
 | POST | `/prompts/bulk` | Save up to 500 prompt/engine combinations per request |
+| POST | `/prompts/move` | Move up to 100 prompt IDs to another workspace in the same organization with `{ids, workspace_id}` |
 | GET | `/prompts/:id` | Read a saved prompt in the selected organization |
 | PATCH | `/prompts/:id` | Full prompt configuration, same as creation |
 | POST | `/prompts/:id/run` | Paid collection; `Idempotency-Key` recommended, 8–128 chars |
 | POST | `/prompt-ideas` | Free deterministic templates `{topic, location?}` |
-| GET | `/runs` | Up to 100 runs with optional `workspace`, `before`, and `before_id` |
+| GET | `/runs` | Up to 100 runs with optional workspace, history filters, and cursor |
 | GET | `/runs/:id` | Full normalized result and analysis |
 | GET | `/runs/:id/raw` | Authenticated private R2 JSON download |
 | POST | `/runs/:id/refresh` | Collect the existing external task, never resubmit |
@@ -50,9 +51,15 @@ Scopes: `read` for GET, `write` for research mutations, `run` for paid execution
 
 Errors return JSON `{error}` and an HTTP status. JSON requests have a 32 KiB body limit. Bulk prompt saves have a larger route-specific limit to accommodate 500 prompts.
 
-The prompt library requires `workspace` and supports `q` for prompt text, `engine`, `schedule=active` or `schedule=inactive`, and `brand`. A prompt is actively scheduled when the prompt and at least one of its schedules are enabled. Brand matching uses the prompt's associated brand or falls back to the workspace's primary brand. Pass the returned `next_cursor` as `before` and `before_id` to load the next page.
+The prompt library spans the organization when `workspace` is omitted. It supports `q` for prompt text, `engine`, `schedule=active` or `schedule=inactive`, and `brand`. A prompt is actively scheduled when the prompt and at least one of its schedules are enabled. Brand matching uses the prompt's associated brand or falls back to the workspace's primary brand. Pass the returned `next_cursor` as `before` and `before_id` to load the next page.
 
 Run admission uses the plan's monthly allowance. The settings endpoint still accepts the legacy `daily_run_limit` field for older clients and ignores its value.
+
+Run history and CSV export support `workspace`, `engine`, `prompt_id`, `status`, `q` for prompt text or answer text, and `brand_id` for mentions or citations in eligible collected answers. Use the same filters on every page. CSV exports up to 1,000 matching runs.
+
+Moving prompts preserves their IDs and schedules. The associated brand follows the prompt when the destination tracks it. Each queued or completed run retains the workspace it had when it was created.
+
+Create a brand with `workspace_id` to track it in that workspace immediately. New runs match the brands explicitly tracked in their workspace. Listing schedules accepts an optional `workspace` filter.
 
 Run history sorts by creation timestamp and run ID, newest first. To get the next page, pass both `next_before` as `before` and `next_before_id` as `before_id`, with the same workspace filter. The MCP `list_runs` tool accepts the same cursor fields. Both response fields are null at the end. A numeric `before` alone still filters strictly to older timestamps.
 

@@ -155,7 +155,7 @@ async function setupPrompt(env: Env, user = "alice") {
     { userId: user },
     "/brands",
     "POST",
-    { name: "Acme", domain: "acme.test" },
+    { name: "Acme", domain: "acme.test", workspace_id: o.workspace_id },
     o.id,
   );
   const brand = (await b.json()) as { id: string };

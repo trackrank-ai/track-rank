@@ -2,8 +2,8 @@ import {assertProviderOptions} from "./provider-options";
 import { maintenance } from "./erasure";
 import { organizationPlan } from "./plans";
 import { prepareRunAdmission, runUsage, runUsagePeriods } from "./run-admission";
+import { trackedWorkspaceBrands } from "./workspace-brands";
 import {
-  all,
   exec,
   HttpError,
   now,
@@ -121,13 +121,7 @@ export async function createRun(
     location_name: p.location_name,
     language_code: p.language_code,
     resolve_poisoned_results: !!org.resolve_poisoned_results,
-    brands: await all(
-      env,
-      "SELECT b.id,b.name,b.domain,b.aliases,COALESCE(wb.kind,b.kind) AS kind FROM brands b LEFT JOIN workspace_brands wb ON wb.org_id=b.org_id AND wb.brand_id=b.id AND wb.workspace_id=? WHERE b.org_id=? AND (wb.brand_id IS NOT NULL OR NOT EXISTS(SELECT 1 FROM workspace_brands selected WHERE selected.org_id=b.org_id AND selected.workspace_id=?))",
-      p.workspace_id,
-      orgId,
-      p.workspace_id,
-    ),
+    brands: await trackedWorkspaceBrands(env, orgId, String(p.workspace_id)),
   };
   const periods = runUsagePeriods(now());
   await prepareRunAdmission(env, {

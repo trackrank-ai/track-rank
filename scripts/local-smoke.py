@@ -26,7 +26,7 @@ login=check(s.post(base+'/api/auth/sign-in/email',json=fixture));assert login.ge
 print('PASS: fresh email signup, automatic session, wrong-password rejection, logout and login')
 org=check(s.post(base+'/api/v1/organizations',json={'name':'HTTP integration org'}),201);oid=org['id'];suffix='?org='+oid
 ws=check(s.get(base+'/api/v1/workspaces'+suffix));assert ws['workspaces'][0]['id']==org['workspace_id'];print('PASS: organization and automatic default workspace')
-brand=check(s.post(base+'/api/v1/brands'+suffix,json={'name':'Local Test Brand','domain':'example.test','kind':'own'}),201)
+brand=check(s.post(base+'/api/v1/brands'+suffix,json={'name':'Local Test Brand','domain':'example.test','kind':'own','workspace_id':org['workspace_id']}),201)
 prompt=check(s.post(base+'/api/v1/prompts'+suffix,json={'workspace_id':org['workspace_id'],'brand_id':brand['id'],'text':'Best local test brands?','engine':'google'}),201)
 rows=check(s.get(base+'/api/v1/prompts'+suffix))['prompts'];assert rows[0]['mode']=='standard';assert rows[0]['engine']=='google';print('PASS: persisted brands and prompts with standard queue default')
 settings=check(s.get(base+'/api/v1/settings'+suffix));assert settings['resolve_poisoned_results']==1
