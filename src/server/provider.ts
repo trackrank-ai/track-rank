@@ -1,6 +1,7 @@
 import {assertProviderOptions} from "./provider-options";
 import { maintenance } from "./erasure";
-import { calendarMonth, organizationPlan } from "./plans";
+import { organizationPlan } from "./plans";
+import { prepareRunAdmission, runUsage, runUsagePeriods } from "./run-admission";
 import {
   all,
   exec,
@@ -8,7 +9,6 @@ import {
   now,
   one,
   required,
-  uuid,
   type Env,
   type Row,
 } from "./types";
@@ -91,20 +91,9 @@ export async function createRun(
   idempotencyKey: string,
 ) {
   if (maintenance(env)) throw new HttpError(503, "Scheduled maintenance");
-  const existing = await one<Row>(
-    env,
-    "SELECT * FROM runs WHERE org_id=? AND idempotency_key=?",
-    orgId,
-    idempotencyKey,
-  );
-  if (existing) {
-    if (existing.prompt_id !== promptId)
-      throw new HttpError(
-        409,
-        "Idempotency key is already used by a different prompt",
-      );
-    return existing;
-  }
+  const replay = () => existingRun(env, orgId, promptId, idempotencyKey);
+  const existing = await replay();
+  if (existing) return existing;
   const p = required(
     await one<Row>(
       env,
@@ -126,7 +115,6 @@ export async function createRun(
   );
   const plan = await organizationPlan(env, orgId);
   if (plan.family === "pending") throw new HttpError(402, "Subscribe to start tracking");
-  const month = calendarMonth();
   const config = {
     engine: p.engine,
     mode: p.mode,
@@ -141,40 +129,39 @@ export async function createRun(
       p.workspace_id,
     ),
   };
-  const id = uuid(),
-    t = now();
-  await exec(
-    env,
-    "INSERT OR IGNORE INTO runs(id,org_id,prompt_id,workspace_id,prompt_text,config,status,idempotency_key,created_at,updated_at) SELECT ?,?,?,?,?,?,'queued',?,?,? WHERE (SELECT COUNT(*) FROM runs WHERE org_id=? AND created_at>=?) < ? AND (SELECT COUNT(*) FROM runs WHERE org_id=? AND created_at>=? AND created_at<?) < ?",
-    id,
-    orgId,
-    promptId,
-    p.workspace_id,
-    p.text,
-    JSON.stringify(config),
-    idempotencyKey,
-    t,
-    t,
-    orgId,
-    new Date(new Date(t).toISOString().slice(0, 10)).getTime(),
-    org.daily_run_ceiling,
-    orgId, month.start, month.end, plan.limits.runs_per_month,
-  );
-  const result = await one<Row>(
-    env,
-    "SELECT * FROM runs WHERE org_id=? AND idempotency_key=?",
-    orgId,
-    idempotencyKey,
-  );
+  const periods = runUsagePeriods(now());
+  await prepareRunAdmission(env, {
+    org: orgId,
+    prompt: promptId,
+    workspace: String(p.workspace_id),
+    text: String(p.text),
+    config,
+    key: idempotencyKey,
+  }, periods, plan).run();
+  const result = await replay();
   if (!result) {
-    const usage = await one<{ count: number }>(env, "SELECT COUNT(*) AS count FROM runs WHERE org_id=? AND created_at>=? AND created_at<?", orgId, month.start, month.end);
-    if ((usage?.count || 0) >= plan.limits.runs_per_month)
+    const usage = await runUsage(env, orgId, periods);
+    if (usage?.plan_version_id !== plan.version)
+      throw new HttpError(409, "Organization plan changed. Retry the request.");
+    if (usage.monthly >= plan.limits.runs_per_month)
       throw new HttpError(429, "Monthly run allowance reached; resets on the first of the month UTC", {
-        "Retry-After": String(Math.max(1, Math.ceil((month.end - now()) / 1000))),
+        "Retry-After": String(Math.max(1, Math.ceil((periods.month.end - now()) / 1000))),
       });
     throw new HttpError(429, "Daily run limit reached. Limit resets at midnight UTC.");
   }
   return result;
+}
+async function existingRun(env: Env, org: string, prompt: string, key: string) {
+  const row = await one<Row>(env,
+    `SELECT r.* FROM run_admissions a LEFT JOIN runs r
+      ON r.org_id=a.org_id AND r.idempotency_key=a.idempotency_key
+      WHERE a.org_id=? AND a.idempotency_key=?`,
+    org, key,
+  );
+  if (!row) return null;
+  if (!row.id) throw new HttpError(410, "The original run is no longer available. Its idempotency key cannot be reused.");
+  if (row.prompt_id !== prompt) throw new HttpError(409, "Idempotency key is already used by a different prompt");
+  return row;
 }
 function safeUrl(value: unknown) {
   try {

@@ -4,7 +4,8 @@ import { promptBatchSchema, savePromptBatch } from "./prompt-batch";
 import { startTrial } from "./trials";
 import { billingRoute } from "./billing";
 import { localAuthEnabled } from "./local-auth";
-import { calendarMonth, defaultPlanVersion, organizationPlan } from "./plans";
+import { defaultPlanVersion, organizationPlan } from "./plans";
+import { runUsage, runUsagePeriods } from "./run-admission";
 import { customerLimit, enforceLimit } from "./rate-limit";
 import { z } from "zod";
 import { admin, authenticate, organizations, tenant } from "./auth";
@@ -647,18 +648,18 @@ export async function api(
         openrouter_model: c.openrouter_model || "",
       };
     }
-    const usage = await one<Row>(
-      env,
-      "SELECT COUNT(*) AS runs,COALESCE(SUM(provider_cost),0) AS reported_provider_cost FROM runs WHERE org_id=? AND created_at>=?",
-      org,
-      new Date(new Date().toISOString().slice(0, 10)).getTime(),
-    );
+    const periods = runUsagePeriods(now());
     const plan = await organizationPlan(env, org);
-    const month = calendarMonth();
-    const monthly = await one<Row>(env, "SELECT operations FROM monthly_api_usage WHERE org_id=? AND month=?", org, month.key);
-    const runs = await one<Row>(env, "SELECT COUNT(*) AS count FROM runs WHERE org_id=? AND created_at>=? AND created_at<?", org, month.start, month.end);
+    const [counts, cost, monthly] = await Promise.all([
+      runUsage(env, org, periods),
+      one<{ reported_provider_cost: number }>(env,
+        "SELECT COALESCE(SUM(provider_cost),0) AS reported_provider_cost FROM runs WHERE org_id=? AND created_at>=? AND created_at<?",
+        org, periods.dayStart, periods.dayStart + 86400000),
+      one<Row>(env, "SELECT operations FROM monthly_api_usage WHERE org_id=? AND month=?", org, periods.month.key),
+    ]);
+    const usage = { runs: counts?.daily ?? 0, reported_provider_cost: cost?.reported_provider_cost ?? 0 };
     return json({ ...o, ...configured, usage, role: t.role, daily_run_limit: o.daily_run_ceiling, plan,
-      monthly_usage: { api_operations: monthly?.operations || 0, runs: runs?.count || 0, resets_at: month.end } });
+      monthly_usage: { api_operations: monthly?.operations || 0, runs: counts?.monthly ?? 0, resets_at: periods.month.end } });
   }
   if (path === "/settings" && method === "PATCH") {
     admin(t);

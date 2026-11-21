@@ -46,9 +46,11 @@ Scopes: `read` for GET, `write` for research mutations, `run` for paid execution
 | GET | `/audit` | Admin: latest 100 metadata-only events |
 | GET | `/export` | Latest 1,000 organization runs as formula-neutralized CSV |
 
-Errors: JSON `{error}` and status 400/401/403/404/409/413/429/500/502/503. Requests are bounded to 32 KB; client-side forms validate additionally.
+Errors: JSON `{error}` and status 400/401/403/404/409/410/413/429/500/502/503. Requests are bounded to 32 KB; client-side forms validate additionally.
 
 Run history sorts by creation timestamp and run ID, newest first. To get the next page, pass both `next_before` as `before` and `next_before_id` as `before_id`, with the same workspace filter. The MCP `list_runs` tool accepts the same cursor fields. Both response fields are null at the end. A numeric `before` alone still filters strictly to older timestamps.
+
+Run requests replay the original admission without consuming more quota. If the original run or a recorded batch sample has been removed, retrying its idempotency key returns HTTP 410.
 
 ### Prompt
 
