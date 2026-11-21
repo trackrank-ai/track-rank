@@ -1,5 +1,6 @@
 import { MAX_PROMPT_TAGS, MAX_PROMPT_TAG_LENGTH, splitPromptTags } from "@/lib/prompt-tags";
 import { formatBillingPrice } from "@/lib/billing-price";
+import { MAX_COLLECTION_RUNS } from "@/lib/collection-limits";
 import { inspectPromptInput, MAX_PROMPT_COMBINATIONS } from "@/lib/prompt-input";
 import { appLoginPath, parseAppSearch, type AppTab as Tab } from "@/lib/app-location";
 import { Tooltip as HelpTooltip } from "radix-ui";
@@ -249,8 +250,11 @@ function App() {
   const savedPrompts = currentLibrary?.rows ?? [];
   const workspaceTags = promptLibrary?.scope === workspaceKey ? promptLibrary.tags : [];
   const tagOptions = search.tag && !workspaceTags.includes(search.tag) ? [search.tag, ...workspaceTags] : workspaceTags;
-  const savedSelection = selectedPromptIds.filter(id => savedPrompts.some(prompt => prompt.id === id));
-  const mixedWorkspaceSelection = new Set(savedPrompts.filter(p => savedSelection.includes(p.id)).map(p => p.workspace_id)).size > 1;
+  const selectedPromptSet = new Set(selectedPromptIds);
+  const selectedSavedPrompts = savedPrompts.filter(prompt => selectedPromptSet.has(prompt.id));
+  const savedSelection = selectedSavedPrompts.map(prompt => prompt.id);
+  const mixedWorkspaceSelection = new Set(selectedSavedPrompts.map(p => p.workspace_id)).size > 1;
+  const selectedRunCount = savedSelection.length * runSamples;
   const filteredPrompts = !!(promptSearch.trim() || promptEngineFilter || promptScheduleFilter || promptBrandFilter || search.tag);
   const promptInput = useMemo(() => editPrompt
     ? { prompts: promptText.trim() ? [promptText.trim()] : [], error: "" }
@@ -720,8 +724,8 @@ function App() {
   }
   async function queuePromptBatch(ids: string[], samples: number) {
     if (!ids.length || !batchScope || batchInFlight.current) return;
-    if (ids.length * samples > 100) {
-      setError("Select at most 100 runs per batch. Reduce the selection or samples per prompt.");
+    if (ids.length * samples > MAX_COLLECTION_RUNS) {
+      setError(`Queue up to ${MAX_COLLECTION_RUNS} runs per collection. Reduce the selection or samples per prompt.`);
       return;
     }
     try {
@@ -1729,7 +1733,7 @@ function App() {
                       )}
                       {savedPrompts.length > 0 && canWrite && <div className="bulk-toolbar">
                         <label className="check-field"><input type="checkbox" aria-label="Select all shown prompts" checked={savedSelection.length===savedPrompts.length} onChange={e=>setSelectedPromptIds(e.target.checked?savedPrompts.map(p=>p.id):[])} /> Select all shown ({savedPrompts.length})</label><span>{savedSelection.length} selected</span>
-                        <Button disabled={busy||!!pendingRun||!savedSelection.length||mixedWorkspaceSelection||savedSelection.length*runSamples>100} onClick={()=>queuePromptBatch(savedSelection,runSamples)}>Run selected — {savedSelection.length*runSamples} runs</Button>
+                        <Button disabled={busy||!!pendingRun||!savedSelection.length||mixedWorkspaceSelection||selectedRunCount>MAX_COLLECTION_RUNS} onClick={()=>queuePromptBatch(savedSelection,runSamples)}>Run selected — {selectedRunCount} runs</Button>
                         <Button variant="outline" disabled={!savedSelection.length||savedSelection.length>100} onClick={()=>{setSelectedPromptIds(savedSelection);setEditingScheduleSelection(false);setTab("schedules");}}>Schedule selected</Button>
                         <Button variant="outline" disabled={busy||!savedSelection.length||savedSelection.length>100} onClick={()=>action(async()=>{await request("/prompts/bulk-settings","PATCH",{ids:savedSelection,enabled:true});await load();setNotice("Selected prompts enabled.");})}>Enable selected</Button>
                         <Button variant="outline" disabled={busy||!savedSelection.length||savedSelection.length>100} onClick={()=>action(async()=>{await request("/prompts/bulk-settings","PATCH",{ids:savedSelection,enabled:false});await load();setNotice("Selected prompts paused; history retained.");})}>Pause selected</Button>
@@ -1777,9 +1781,8 @@ function App() {
                           <Button value="remove" variant="outline" disabled={busy}>Remove tags</Button>
                         </form>
                       )}
-                      {savedSelection.length*runSamples>100 && (
-                        <p className="data-note">Choose up to 100 prompts for a bulk action and up to 100 runs per collection batch.</p>
-                      )}
+                      {selectedRunCount > MAX_COLLECTION_RUNS && <p className="data-note">Queue up to {MAX_COLLECTION_RUNS} runs per collection. Reduce the selection or samples per prompt.</p>}
+                      {savedSelection.length > 100 && <p className="data-note">Select up to 100 prompts at a time to schedule or make bulk changes.</p>}
                       {mixedWorkspaceSelection && <p className="data-note">Select prompts from one workspace to run them together.</p>}
                       {!currentLibrary ? <p role="status">Loading saved prompts…</p> :
                         currentLibrary.error ? <p role="alert">{currentLibrary.error}</p> :

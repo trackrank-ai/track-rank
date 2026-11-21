@@ -1,6 +1,6 @@
 import { bulkPromptTagsSchema, decodePrompt, promptTags, updatePromptTags } from "./prompt-tags";
 import { body } from "./request-body";
-import { bulkRunSchema, bulkScheduleSchema, bulkToggleSchema, updateBulkSchedules, bulkScheduleUpdateSchema, selectedRows, createBulkRuns, createBulkSchedules } from "./bulk";
+import { bulkRunSchema, bulkScheduleSchema, bulkToggleSchema, updateBulkSchedules, bulkScheduleUpdateSchema, selectedRows, createBulkRuns, createBulkSchedules, MAX_COLLECTION_REQUEST_BYTES } from "./bulk";
 import { assertProviderOptions, providerOptions } from "./provider-options";
 import { MAX_PROMPT_BATCH_BYTES, promptBatchSchema, savePromptBatch } from "./prompt-batch";
 import { listSavedPrompts } from "./prompt-library";
@@ -32,7 +32,7 @@ import {
   type Principal,
   type Row,
 } from "./types";
-import { launchRuns } from "./dispatch";
+import { launchCollectionRuns, launchRuns } from "./dispatch";
 const name = z.string().trim().min(1).max(100);
 const id = z.string().min(1).max(100);
 const domain = z
@@ -464,9 +464,10 @@ export async function api(
     });
   }
   if (path === "/runs/bulk" && method === "POST") {
-    const result=await createBulkRuns(env,org,await body(req,bulkRunSchema));
+    const input = await body(req, bulkRunSchema, MAX_COLLECTION_REQUEST_BYTES);
+    const result = await createBulkRuns(env, org, input);
     // Existing queued runs are recoverable by cron; no uncertain/accepted provider task is resubmitted.
-    ctx.waitUntil(launchRuns(env, result.runs.map(run => String(run.id))));
+    ctx.waitUntil(launchCollectionRuns(env, result.runs.map(run => String(run.id))));
     return json(result, result.complete?202:207);
   }
   if (path === "/schedules/bulk" && method === "POST") return json(await createBulkSchedules(env,org,await body(req,bulkScheduleSchema)),201);

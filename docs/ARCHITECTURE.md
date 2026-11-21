@@ -76,9 +76,11 @@ of 500 prompt/engine combinations. Exact existing matches are reused.
 Bulk run requests carry a stable batch key and requested-payload hash. Replays
 reuse run identities; changed-payload key reuse is refused. Each sample has its own
 run/config/snapshot; retries do not resubmit uncertain/accepted external jobs.
-A batch queues at most 100 runs under the organization's monthly allowance.
+A manual collection queues at most 500 runs from one workspace under the organization's monthly allowance.
 Admission uses one D1 batch with per-insert quota conditions to handle races. Any
 changed allowance is reported explicitly; returned rows are the only queued work.
+The HTTP request launches admitted workflows in groups of at most 100, and Cron
+can pick up any runs that are still queued and do not have a workflow in progress.
 Provider credentials and canonical engine/location/language settings are checked
 before admission. Starter allows 10 DataForSEO Standard/Priority POSTs and 10
 Live POSTs per UTC minute. Standard/Priority POSTs batch up to 100 runs for
