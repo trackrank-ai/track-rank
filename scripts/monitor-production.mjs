@@ -10,7 +10,10 @@ try {
  const response=await fetch('https://trackrank.ai/api/operations/readiness',{signal:AbortSignal.timeout(15000),headers:{Authorization:'Bearer '+settings.OPERATIONS_TOKEN}});
  if(!response.ok)throw Error('Protected readiness returned HTTP '+response.status);
  const data=await response.json();
- if(!data.cron_succeeded_at || Date.now()-Number(data.cron_succeeded_at)>15*60000)failures.push('Successful cron heartbeat is over 15 minutes old');
+ const rollout=JSON.parse(fs.readFileSync(new URL('reports/billing-acceptance/production-operations.json',root)));
+ const deployedAt=Date.parse(rollout.deployed_at||rollout.checked_at);
+ if(!data.cron_succeeded_at && (!Number.isFinite(deployedAt)||Date.now()-deployedAt>15*60000))failures.push('No successful cron heartbeat observed within 15 minutes of rollout');
+ else if(data.cron_succeeded_at && Date.now()-Number(data.cron_succeeded_at)>15*60000)failures.push('Successful cron heartbeat is over 15 minutes old');
  if(Number(data.queue?.uncertain)>0)failures.push('Provider submission outcome needs review');
  if(Number(data.queue?.stuck)>0)failures.push('Provider run has waited over 24 hours');
  if(Number(data.queue?.recent_failures)>0)failures.push('Provider runs failed in the last 15 minutes');

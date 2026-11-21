@@ -105,5 +105,6 @@
     "destination": "owner Telegram",
     "scheduled_execution_verified": false,
     "history_tool_visibility": "not-found; do not infer absence or recreate"
-  }
+  },
+  "deployed_at": "2026-11-21T03:06:15.146846Z"
 }
