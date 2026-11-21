@@ -1,0 +1,73 @@
+{
+  "tested_at": "2026-11-21T02:37:59.655Z",
+  "checks": [
+    "Card-backed 14-day trial starts and receives paid-plan allowances before charging",
+    "Initial real Stripe test-card invoice paid; CLI-signed webhook grants exact Starter revision",
+    "Clock-advanced renewal declines; signed webhook removes paid access",
+    "Failed invoice paid after payment-method update; signed webhook restores access",
+    "Real test refund traverses invoice-payment graph and records operator review without silently canceling subscription",
+    "Period-end cancellation retains access until expiry, then signed webhook blocks access",
+    "Billing portal remains available after cancellation",
+    "Scheduled reconciliation repairs deliberately corrupted local subscription state"
+  ],
+  "deliveries": [
+    {
+      "type": "invoice.paid",
+      "status": 200
+    },
+    {
+      "type": "customer.subscription.created",
+      "status": 200
+    },
+    {
+      "type": "customer.subscription.updated",
+      "status": 200
+    },
+    {
+      "type": "invoice.paid",
+      "status": 200
+    },
+    {
+      "type": "customer.subscription.updated",
+      "status": 200
+    },
+    {
+      "type": "customer.subscription.updated",
+      "status": 200
+    },
+    {
+      "type": "invoice.payment_failed",
+      "status": 200
+    },
+    {
+      "type": "customer.subscription.updated",
+      "status": 200
+    },
+    {
+      "type": "customer.subscription.updated",
+      "status": 200
+    },
+    {
+      "type": "invoice.paid",
+      "status": 200
+    },
+    {
+      "type": "customer.subscription.updated",
+      "status": 200
+    },
+    {
+      "type": "charge.refunded",
+      "status": 200
+    },
+    {
+      "type": "customer.subscription.updated",
+      "status": 200
+    },
+    {
+      "type": "customer.subscription.deleted",
+      "status": 200
+    }
+  ],
+  "clock_id": "clock_1Ue4Ah5cBsaZf4oTYUlnNdOn",
+  "subscription_id": "sub_1Ue4Aj5cBsaZf4oTc1RrMEwb"
+}

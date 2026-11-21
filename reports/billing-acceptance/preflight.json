@@ -1,0 +1,78 @@
+{
+  "checked_at": "2026-11-21T02:38:02.777Z",
+  "environment": "test",
+  "origin": "https://trackrank-staging.edninodel.workers.dev",
+  "results": [
+    {
+      "name": "Price is USD10/month",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "Price matches key environment",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "Price active",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "Checkout trial policy configured in source",
+      "passed": true,
+      "detail": "14 days, card required, once per organization; terms consent required"
+    },
+    {
+      "name": "Portal active and cancellation/invoices/payment updates enabled",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "Enabled webhook endpoint exists",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "Webhook covers lifecycle and risk events",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "Deployed /api/health",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "Deployed /pricing",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "Deployed /terms",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "Deployed /privacy",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "Tax settings/registrations reviewed",
+      "passed": false,
+      "detail": "Settings: pending; active registrations: 0. Must confirm actual collection obligations; preflight does not infer them."
+    },
+    {
+      "name": "Mode suitable for live launch",
+      "passed": false,
+      "detail": "TEST key: sandbox verification only, cannot approve live charging"
+    },
+    {
+      "name": "Operator alerts configured",
+      "passed": false,
+      "detail": "Requires a verified sender/Resend secret, recipient and a delivered notification drill."
+    }
+  ],
+  "ready_for_live": false
+}

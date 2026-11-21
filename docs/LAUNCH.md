@@ -54,3 +54,27 @@ Docker/self-hosting and portable storage/execution adapters are a separate distr
 4. Verify recoverable D1/R2 backups with stable encryption keys, add failure/queue alerts, test representative tenant/load/failure cases and define retention/deletion. Dollar budgeting is required if promising a dollar spending cap; existing run caps are not monetary budgets.
 
 The app can be used as an early hosted beta after authentication/provider acceptance checks. Do not describe it as fully production-hardened or billing-ready.
+
+## Billing follow-up — November 21, 2026
+
+Hosted billing is implemented and isolated staging is deployed. Policy confirmed:
+14-day trial requires card; then USD10/month before tax; full refund within 7
+days of first paid charge. Versioned Starter access, Checkout/portal, signed
+webhooks, risk review, operator alert queue, synchronization leases and scheduled
+reconciliation are implemented. See BILLING-OPERATIONS.md and acceptance reports.
+Real Stripe TEST-card trial/payment/failure/recovery/refund/cancellation checks
+passed. Production billing management/webhooks/reconciliation are now deployed,
+but new checkout remains paused. Live account/key/catalog/portal/webhook are
+configured and the actual Worker verified live account access. Original keys were
+preserved and encrypted recovery, D1 restore and R2 recovery-canary drills passed.
+Production initially held zero users/organizations/runs/objects. Operator-only
+erasure and external monitor are implemented; see BILLING-OPERATIONS.md and
+production acceptance reports.
+
+Outstanding: actual tax obligations/registrations review, actual
+Google/email/invitation/provider/scheduled-run/API-MCP acceptance, a real-card trial
+when checkout can be enabled, and infrastructure
+cost attribution from actual usage. No live enrollment or charge was made.
+
+Support forwarding and operator-alert inbox receipt were subsequently verified in Gmail.
+Recovery files were backed up to owner-only Drive and downloaded/hash-verified.

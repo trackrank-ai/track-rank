@@ -1,0 +1,14 @@
+import fs from 'node:fs';
+import {execFileSync} from 'node:child_process';
+const environment=process.argv[2];
+if(!['staging','production'].includes(environment))throw Error('Use staging or production');
+const configPath=environment==='staging'?'wrangler.staging.json':'wrangler.jsonc';
+const run=(args,env=process.env)=>execFileSync(process.execPath,args,{stdio:'inherit',env});
+run(['node_modules/vite/bin/vite.js','build'],{...process.env,TRACKRANK_CONFIG:configPath});
+const generated=JSON.parse(fs.readFileSync('dist/server/wrangler.json','utf8'));
+const expected=environment==='staging'?'trackrank-staging':'trackrank-ai';
+if(generated.name!==expected)throw Error('Generated Worker name mismatch; refusing deployment');
+const db=generated.d1_databases?.find(b=>b.binding==='DB')?.database_id;
+if(environment==='staging'&&db!=='8f5c336a-729a-4647-b432-79eed92d6e6f')throw Error('Staging database mismatch');
+if(environment==='production'&&db!=='50b16780-7ff1-4e31-8000-d99d81e11122')throw Error('Production database mismatch');
+run(['node_modules/wrangler/bin/wrangler.js','deploy','--config','dist/server/wrangler.json']);

@@ -1,0 +1,114 @@
+{
+  "checked_at": "2026-11-21T03:01:29.569Z",
+  "readiness": {
+    "cron_succeeded_at": 1795230654851,
+    "queue": {
+      "queued": null,
+      "oldest_queued_at": null,
+      "uncertain": null,
+      "stuck": null,
+      "recent_failures": null
+    },
+    "organization_usage": [],
+    "infrastructure_dollars_measured": false,
+    "stripe": {
+      "account_id": "acct_1Ue3pgG7SA9cWOCT",
+      "charges_enabled": true,
+      "payouts_enabled": true
+    },
+    "email_configured": true,
+    "google_configured": true,
+    "alert_recipient_configured": true,
+    "checkout_enabled": false,
+    "tax_reviewed": false,
+    "stats": {
+      "organizations": 0,
+      "runs": 0,
+      "billing_customers": 0,
+      "unresolved_alerts": 0
+    }
+  },
+  "recovery": {
+    "encrypted_key_backup": true,
+    "original_auth_key_preserved": true,
+    "independently_decrypted_canary": true,
+    "r2_snapshot": "production-readiness-1795230088445",
+    "r2_original_objects_copied": 0,
+    "r2_restore_canary_decrypted": true,
+    "backup_ciphertext_sha256": "056f1a4a052c2dee7de560eb434e8effccff3579b71ecaef046275de6b481cdd"
+  },
+  "alert": {
+    "id": "delivery-drill:5db8c47a-a798-4c2f-97e2-f0f2e32cd046",
+    "provider_accepted": true,
+    "message_ids": [
+      "01a1fc0d-4033-70af-afee-b8a5469173d6"
+    ]
+  },
+  "support": {
+    "id": "01a1fc0d-4123-7d44-a030-99022b55b1ad",
+    "provider_accepted": true
+  },
+  "email_delivery": [
+    {
+      "http_status": 502,
+      "error": "Email status unavailable"
+    },
+    {
+      "http_status": 502,
+      "error": "Email status unavailable"
+    }
+  ],
+  "deployed_version": "d97a6eb4-f3a8-4150-b56f-fd1ce3c674f8",
+  "erasure_tests_passed": true,
+  "offhost_recovery": {
+    "folder": "1JWzrIoR-7bFSyJm30b_XXk7J5fgO5eMR",
+    "permissions": "owner-only",
+    "owner": "edninodel@gmail.com",
+    "files": [
+      {
+        "name": "pre-billing-database.sql",
+        "file_id": "1_pSmSgzXx7txFKUSMUbHLFNQQi3snetn",
+        "download_sha256_verified": true
+      },
+      {
+        "name": "encrypted-production-keys.json",
+        "file_id": "155XEa9qjc2PITz-CWJMMGFKHRLz7Ryif",
+        "download_sha256_verified": true
+      },
+      {
+        "name": "recovery-private.pem",
+        "file_id": "1Jzk5e5NQRWDI0NkqBlK38evfPc30v6nb",
+        "download_sha256_verified": true
+      },
+      {
+        "name": "recovery-public.pem",
+        "file_id": "1RiW71gj11xh3LjkfFZUjBKdtT160unDX",
+        "download_sha256_verified": true
+      }
+    ]
+  },
+  "inbox_delivery": {
+    "support": {
+      "gmail_thread_id": "1a1fc0d4c14d19f6",
+      "inbox_received": true
+    },
+    "alert": {
+      "gmail_thread_id": "1a1fc0d45c0cd838",
+      "inbox_received": true
+    }
+  },
+  "monitor": {
+    "automation_id": "55447375-b632-4997-a3fa-b53f37d4ea34",
+    "interval_minutes": 5,
+    "failure_alert_after": 2,
+    "cooldown_minutes": 60,
+    "destination": "owner Telegram",
+    "scheduled_execution_verified": true,
+    "history_tool_visibility": "not-found; do not infer absence or recreate",
+    "checked_at": "2026-11-21T03:11:27.764Z",
+    "cron_succeeded_at": 1795230654851,
+    "failures": [],
+    "proof": "State file advanced to the scheduled five-minute execution at 03:11:27 UTC, after the final manual monitor check; successful production cron heartbeat observed independently."
+  },
+  "deployed_at": "2026-11-21T03:06:15.146846Z"
+}

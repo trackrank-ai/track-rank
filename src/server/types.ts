@@ -5,6 +5,23 @@ import type {
   Workflow,
 } from "@cloudflare/workers-types";
 export type Env = {
+  MAINTENANCE_MODE?: string;
+  MAINTENANCE_SINCE?: string;
+  OPERATIONS_TOKEN?: string;
+  RECOVERY_PUBLIC_KEY?: string;
+  BACKUPS?: R2Bucket;
+  BILLING_TAX_REVIEWED?: string;
+  BILLING_ENABLED?: string;
+  BILLING_CHECKOUT_ENABLED?: string;
+  BILLING_ALERT_EMAIL?: string;
+  BILLING_RECONCILE_BATCH?: string;
+  BILLING_ENFORCE_NEW_ORGS?: string;
+  STRIPE_SECRET_KEY?: string;
+  STRIPE_AUTOMATIC_TAX?: string;
+  STRIPE_TAX_READY?: string;
+  STRIPE_WEBHOOK_SECRET?: string;
+  STRIPE_STARTER_PRICE_ID?: string;
+  STRIPE_PORTAL_CONFIGURATION?: string;
   DEFAULT_PLAN_VERSION?: string;
   API_REQUESTS_PER_MINUTE?: string;
   PROVIDER_REQUESTS_PER_MINUTE?: string;

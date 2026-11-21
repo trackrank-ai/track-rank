@@ -163,7 +163,7 @@ function Login() {
                 <strong>Authentication setup in progress</strong>
                 <p>
                   Google and email delivery credentials are not connected yet.
-                  Account creation is paused until they are configured.
+                  Account creation and password-reset email are paused until they are configured. Existing verified accounts can still sign in with their password.
                 </p>
                 <Link to="/setup">
                   View setup requirements <ArrowRight size={12} />
@@ -247,7 +247,8 @@ function Login() {
               type="submit"
               disabled={
                 busy ||
-                !config?.email_auth ||
+                !config ||
+                (mode !== "login" && !config?.email_auth) ||
                 (mode === "signup" && !config?.signup_enabled)
               }
             >

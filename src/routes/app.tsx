@@ -154,6 +154,7 @@ function App() {
     [runs, setRuns] = useState<Item[]>([]),
     [schedules, setSchedules] = useState<Item[]>([]),
     [settings, setSettings] = useState<Item>({}),
+    [billing, setBilling] = useState<Item>({}),
     [members, setMembers] = useState<Item[]>([]),
     [keys, setKeys] = useState<Item[]>([]),
     [invites, setInvites] = useState<Item[]>([]),
@@ -248,6 +249,9 @@ function App() {
     if (!org) return;
     setLoading(true);
     try {
+      const billingState = await request("/billing");
+      if (activeOrg.current !== org) return;
+      setBilling(billingState);
       const results = await Promise.all([
         request("/workspaces"),
         request("/brands"),
@@ -632,6 +636,16 @@ function App() {
           </div>
         </header>
         <main className="app-content">
+          {billing.enabled && <Card><CardContent>
+            <h2>Hosted subscription</h2>
+            <p>Status: {billing.status || "No subscription"}. Starter includes a 14-day free trial with a card required, then $10 USD/month before tax per organization. Cancel before the trial ends to avoid the first charge. First paid charge refundable within 7 days. Payment confirmation can take a moment; refresh after checkout.</p>
+            {billing.risk_hold ? <p role="alert">Paid access is paused for billing review. Contact support; billing management remains available.</p> : null}
+            {billing.cancel_at_period_end ? <p>Cancels at the end of the current billing period.</p> : null}
+            <Button disabled={busy} onClick={() => { setBusy(true); request("/billing/checkout", "POST").then(r => window.location.assign(r.url)).catch(e => setError(e.message)).finally(() => setBusy(false)); }}>Start 14-day trial / subscribe</Button>{" "}
+            <Button variant="outline" disabled={busy} onClick={() => { setBusy(true); request("/billing/portal", "POST").then(r => window.location.assign(r.url)).catch(e => setError(e.message)).finally(() => setBusy(false)); }}>Manage billing & invoices</Button>
+            <p className="data-note">Billing changes require the organization owner. Other members can view status.</p>
+          </CardContent></Card>}
+
           {error && (
             <div className="app-message error" role="alert">
               {error}
@@ -2176,7 +2190,7 @@ function App() {
                         <p className="data-note">Assigned plan allowances; shared by all organization members and API keys. Deployment safety ceilings and your daily run guardrail may be lower.</p>
                         <p>{settings.plan.limits.api_per_minute.toLocaleString()} API operations/minute · {settings.plan.limits.provider_per_minute.toLocaleString()} provider operations/minute · {settings.plan.limits.concurrent_runs} concurrent runs</p>
                         <p>{Number(settings.monthly_usage?.api_operations || 0).toLocaleString()} / {settings.plan.limits.api_per_month.toLocaleString()} monthly API operations · {Number(settings.monthly_usage?.runs || 0).toLocaleString()} / {settings.plan.limits.runs_per_month.toLocaleString()} monthly runs</p>
-                        <p className="data-note">Monthly allowances reset on the first UTC. Plan pricing is catalog metadata; billing is not enabled yet.</p>
+                        <p className="data-note">Monthly allowances reset on the first UTC. Hosted subscriptions are managed separately from self-hosted installs.</p>
                       </CardContent>
                     </Card>
                   )}

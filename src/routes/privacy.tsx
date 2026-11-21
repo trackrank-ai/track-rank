@@ -9,10 +9,12 @@ function Privacy() { return <LegalLayout title="Privacy Policy" intro="What we c
 <li><strong>Organization data:</strong> memberships, invitation records, workspaces, brands, domains, aliases, prompts, locations, languages, schedules and settings.</li>
 <li><strong>Results:</strong> provider responses, raw result payloads, answers, citations, mentions, discovered brands, analysis, run errors, usage and reported provider costs.</li>
 <li><strong>Credentials and access:</strong> encrypted provider credentials, hashed TrackRank API keys, their scopes and usage metadata, audit events and rate-limit records.</li>
+<li><strong>Billing:</strong> Stripe processes card/payment details, billing contact and address data directly. We store Stripe customer, subscription and price identifiers, subscription/trial/cancellation status, billing periods and operational event/risk records. We do not store complete card numbers or security codes.</li>
 <li><strong>Support:</strong> messages and any diagnostic information you choose to send us. Hosting providers may also process technical request and security logs.</li>
 </ul></section>
 <section><h2>How we use information</h2><p>We use this information to authenticate users, operate team workspaces, run requested or scheduled tracking, display and export results, prevent abuse, troubleshoot problems and respond to requests. Authorized organization members can access organization data according to their roles; administrators manage team access.</p></section>
 <section><h2>Service providers and disclosures</h2><ul>
+<li><strong>Stripe:</strong> hosted payment collection, subscriptions, invoices, payment-method updates and fraud/payment operations. Stripe’s own privacy policy applies to its processing.</li>
 <li><strong>Cloudflare:</strong> application hosting, database, object storage and workflow execution.</li>
 <li><strong>Resend:</strong> account verification and password-reset emails, including recipient address and email contents.</li>
 <li><strong>Google:</strong> optional account sign-in. Tracking supported AI/search engines uses the configured collection provider, not your Google sign-in account.</li>

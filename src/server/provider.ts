@@ -1,3 +1,4 @@
+import { maintenance } from "./erasure";
 import { calendarMonth, organizationPlan } from "./plans";
 import {
   all,
@@ -88,6 +89,7 @@ export async function createRun(
   promptId: string,
   idempotencyKey: string,
 ) {
+  if (maintenance(env)) throw new HttpError(503, "Scheduled maintenance");
   const existing = await one<Row>(
     env,
     "SELECT * FROM runs WHERE org_id=? AND idempotency_key=?",
@@ -121,6 +123,7 @@ export async function createRun(
     await one<Row>(env, "SELECT * FROM organizations WHERE id=?", orgId),
   );
   const plan = await organizationPlan(env, orgId);
+  if (plan.family === "pending") throw new HttpError(402, "Subscribe to start tracking");
   const month = calendarMonth();
   const config = {
     engine: p.engine,
@@ -315,6 +318,7 @@ export function normalize(result: Row, config: Config) {
   };
 }
 async function complete(env: Env, run: Row, task: Row) {
+  if (maintenance(env)) return;
   const results = task.result as Row[] | null;
   if (!results?.length) throw new Error("Provider returned no result");
   const config = JSON.parse(String(run.config)) as Config;
@@ -342,6 +346,7 @@ async function complete(env: Env, run: Row, task: Row) {
   );
 }
 export async function executeRun(env: Env, id: string) {
+  if (maintenance(env)) return;
   const run = required(
     await one<Row>(env, "SELECT * FROM runs WHERE id=?", id),
   );
@@ -412,6 +417,7 @@ export async function executeRun(env: Env, id: string) {
   }
 }
 export async function collectRun(env: Env, run: Row) {
+  if (maintenance(env)) return;
   if (run.status !== "submitted") return;
   try {
     const config = JSON.parse(String(run.config)) as Config;
