@@ -1,3 +1,4 @@
+import { billingAccount, billingAdminUpdate, canManageBilling, updateBillingAdmins } from "./billing-account";
 import Stripe from "stripe";
 import { z } from "zod";
 import { billingOffers, publicBillingOffers } from "./billing-catalog";
@@ -13,13 +14,35 @@ export function stripeClient(env: Env) {
   return new Stripe(env.STRIPE_SECRET_KEY, { httpClient: Stripe.createFetchHttpClient(), maxNetworkRetries: 2, timeout: 15000 });
 }
 const checkoutOffer = z.object({ offer_key: z.string().max(64).regex(/^[a-z0-9][a-z0-9-]*$/) }).strict();
-const checkoutRevision = "paid-offer-v1";
+const checkoutRevision = "billing-account-v1";
 export async function billingRoute(req: Request, env: Env, p: Principal, path: string) {
-  if (p.keyId) throw new HttpError(403, "Sign in to manage billing");
   const org = p.orgId!;
+  const account = await billingAccount(env, org);
+  const manage = await canManageBilling(env, p);
+  const isOwner = !!await one(env, "SELECT 1 FROM memberships WHERE org_id=? AND user_id=? AND role='owner'", org, p.userId);
+  if (path === "/billing/admins" && req.method === "GET") {
+    if (!isOwner) throw new HttpError(403, "Only an owner can list billing delegates");
+    return json({ members: await all(env, `SELECT m.user_id,m.role,u.name,u.email,
+      EXISTS(SELECT 1 FROM billing_account_admins a WHERE a.org_id=m.org_id AND a.user_id=m.user_id) AS billing_admin
+      FROM memberships m JOIN user u ON u.id=m.user_id WHERE m.org_id=? ORDER BY u.name,m.user_id`, org) });
+  }
+  if (req.method !== "GET") await enforceLimit(env, `billing:${account.id}`, 10);
+  if (["/billing/handoff", "/billing/admin-handoff"].includes(path) && req.method === "GET") {
+    if (!manage) throw new HttpError(403, "Billing administrator access required");
+    const delegation = path === "/billing/admin-handoff";
+    if (delegation && !await one(env, "SELECT 1 FROM memberships WHERE org_id=? AND user_id=? AND role='owner'", org, p.userId))
+      throw new HttpError(403, "Only an owner can delegate billing");
+    return json({ url: `${env.BASE_URL}/app?${new URLSearchParams({org,tab:"settings"})}`, requires_interactive_session: true });
+  }
+  if (path === "/billing/admins" && req.method === "PATCH")
+    return json(await updateBillingAdmins(env, p, await body(req, billingAdminUpdate)));
+  if (path !== "/billing") {
+    if (p.keyId) throw new HttpError(403, "Sign in to manage billing");
+    if (!manage) throw new HttpError(403, "An owner or billing administrator session is required");
+  }
   if (req.method === "GET" && path === "/billing") {
     await enforceLimit(env, `billing-read:${org}`, 60);
-    const state = await one<Row>(env, "SELECT status,current_period_end,cancel_at_period_end,risk_hold FROM billing_customers WHERE org_id=?", org);
+    const state = await one<Row>(env, "SELECT status,current_period_end,cancel_at_period_end,risk_hold FROM billing_accounts WHERE org_id=?", org);
     const trial = await one<Row>(env, "SELECT started_at,ends_at FROM organization_trials WHERE org_id=?", org);
     const assignment = await one<Row>(env, "SELECT p.family,p.price_cents FROM organization_plans a JOIN plan_versions p ON p.id=a.plan_version_id WHERE a.org_id=?", org);
     let accessStatus = assignment?.family === "pending" ? "choose_plan" : "assigned";
@@ -33,19 +56,18 @@ export async function billingRoute(req: Request, env: Env, p: Principal, path: s
       }
     }
     const offers = publicBillingOffers(await billingOffers(env));
-    return json({ enabled: env.BILLING_ENABLED === "true", checkout_enabled: offers.length > 0, offers, ...state, has_billing_account: !!state, free_trial: trial, access_status: accessStatus, owner: p.role === "owner" });
+    return json({ enabled: env.BILLING_ENABLED === "true", checkout_enabled: offers.length > 0, offers, ...state, has_stripe_customer: !!account.customer_id, free_trial: trial, access_status: accessStatus, billing_account_id: account.id, can_manage_billing: manage, owner: isOwner });
   }
-  if (p.role !== "owner") throw new HttpError(403, "Only the organization owner can manage billing");
+
   if (req.method === "GET" && path === "/billing/alerts") return json({ alerts: await all(env, "SELECT id,kind,summary,created_at FROM billing_alerts WHERE org_id=? AND resolved_at IS NULL ORDER BY created_at DESC LIMIT 50", org) });
   if (req.method !== "POST") throw new HttpError(405, "Method not allowed");
-  await enforceLimit(env, `billing:${org}`, 10);
   if (path !== "/billing/checkout" && path !== "/billing/portal") throw new HttpError(404, "Not found");
   const stripe = stripeClient(env);
   const settingsUrl = new URL("/app", env.BASE_URL);
   settingsUrl.search = new URLSearchParams({ org, tab: "settings" }).toString();
-  let customer = await one<Row>(env, "SELECT * FROM billing_customers WHERE org_id=?", org);
+  let customer = account;
   if (path === "/billing/portal") {
-    if (!customer) throw new HttpError(409, "No billing account yet");
+    if (!customer.customer_id) throw new HttpError(409, "No Stripe customer yet");
     if (!env.STRIPE_PORTAL_CONFIGURATION) throw new HttpError(503, "Customer portal setup is pending");
     const session = await stripe.billingPortal.sessions.create({ customer: String(customer.customer_id), configuration: env.STRIPE_PORTAL_CONFIGURATION, return_url: settingsUrl.href });
     return json({ url: session.url });
@@ -59,24 +81,17 @@ export async function billingRoute(req: Request, env: Env, p: Principal, path: s
   const price = await stripe.prices.retrieve(priceId);
   if (!price.active || price.unit_amount !== mapping.price_cents || price.currency !== mapping.currency || price.recurring?.interval !== mapping.interval || price.recurring?.interval_count !== 1)
     throw new HttpError(503, "Stripe price does not match the plan revision");
-  const automaticTax = price.livemode || env.STRIPE_AUTOMATIC_TAX === "true";
-  if (automaticTax) {
-    const settings = await stripe.tax.settings.retrieve();
-    const registrations = await stripe.tax.registrations.list({ status: "active", limit: 1 });
-    const product = typeof price.product === "string" ? await stripe.products.retrieve(price.product) : price.product;
-    if (settings.status !== "active" || !registrations.data.length || price.tax_behavior !== "exclusive" || "deleted" in product || !product.tax_code)
-      throw new HttpError(503, "Tax configuration requires verified registrations, tax-exclusive pricing and a product tax code");
-  }
+  const automaticTax = false; // Explicit Checkout Studio configuration; tax policy reviewed by owner.
   const lockToken = crypto.randomUUID();
   const lock = await one(env, `INSERT INTO billing_checkout_locks VALUES(?,?,?)
-    ON CONFLICT(org_id) DO UPDATE SET token=excluded.token,expires_at=excluded.expires_at
-    WHERE billing_checkout_locks.expires_at<? RETURNING token`, org, lockToken, now() + 120000, now());
+    ON CONFLICT(billing_account_id) DO UPDATE SET token=excluded.token,expires_at=excluded.expires_at
+    WHERE billing_checkout_locks.expires_at<? RETURNING token`, account.id, lockToken, now() + 120000, now());
   if (!lock) throw new HttpError(409, "Checkout is already being prepared; retry shortly");
   try {
-  if (!customer) {
-    const created = await stripe.customers.create({ metadata: { trackrank_org: org } }, { idempotencyKey: `trackrank-customer:${org}` });
-    await exec(env, "INSERT OR IGNORE INTO billing_customers(org_id,customer_id,updated_at) VALUES(?,?,?)", org, created.id, now());
-    customer = await one<Row>(env, "SELECT * FROM billing_customers WHERE org_id=?", org);
+  if (!customer.customer_id) {
+    const created = await stripe.customers.create({ metadata: { trackrank_billing_account: String(account.id) } }, { idempotencyKey: `trackrank-customer:${account.id}` });
+    await exec(env, "UPDATE billing_accounts SET customer_id=?,updated_at=? WHERE id=? AND customer_id IS NULL", created.id, now(), account.id);
+    customer = await billingAccount(env, org);
   }
   const customerId = String(customer!.customer_id);
   const existing = await stripe.subscriptions.list({ customer: customerId, status: "all", limit: 100 });
@@ -97,25 +112,26 @@ export async function billingRoute(req: Request, env: Env, p: Principal, path: s
   const session = await stripe.checkout.sessions.create({
     customer: customerId, mode: "subscription", line_items: [{ price: priceId, quantity: 1 }],
     automatic_tax: { enabled: automaticTax },
-    tax_id_collection: { enabled: automaticTax },
+    ui_mode: "hosted_page",
+    phone_number_collection: { enabled: false },
+    allow_promotion_codes: false,
+    origin_context: "web",
     payment_method_collection: "always",
-    billing_address_collection: "required", customer_update: { address: "auto", name: "auto" },
+    billing_address_collection: "auto",
     success_url: settingsUrl.href, cancel_url: settingsUrl.href,
     metadata: { trackrank_checkout_revision: checkoutRevision, trackrank_offer: offer_key, trackrank_price: priceId },
-    custom_text: { terms_of_service_acceptance: { message: `I agree to the [Terms](${env.BASE_URL}/terms) and have read the [Privacy Policy](${env.BASE_URL}/privacy).` } },
-    integration_identifier: "trackrank_hosted_qxkpmvnr",
-    consent_collection: { terms_of_service: "required" },
+    integration_identifier: "hosted_web_0001",
     expires_at: window + 3600,
   }, { idempotencyKey: `trackrank-checkout:${checkoutRevision}:${attempt}` });
   return json({ url: session.url });
   } finally {
-    await exec(env, "DELETE FROM billing_checkout_locks WHERE org_id=? AND token=?", org, lockToken);
+    await exec(env, "DELETE FROM billing_checkout_locks WHERE billing_account_id=? AND token=?", account.id, lockToken);
   }
 }
 
 export async function syncSubscription(env: Env, subscription: Stripe.Subscription, event: Stripe.Event, lease?: { token: string; customerId: string }) {
   const customerId = typeof subscription.customer === "string" ? subscription.customer : subscription.customer.id;
-  const customer = await one<Row>(env, "SELECT * FROM billing_customers WHERE customer_id=?", customerId);
+  const customer = await one<Row>(env, "SELECT * FROM billing_accounts WHERE customer_id=?", customerId);
   if (!customer) return; // Never adopt arbitrary customer metadata as tenant ownership.
   if (customer.subscription_id && customer.subscription_id !== subscription.id && !["canceled", "incomplete_expired"].includes(String(customer.status)))
     throw new HttpError(409, "Conflicting subscription; operator reconciliation required");
@@ -125,7 +141,7 @@ export async function syncSubscription(env: Env, subscription: Stripe.Subscripti
     throw new HttpError(409, "Unrecognized subscription price; operator reconciliation required");
   // Batch is transactional. Event marker, subscription state and entitlement assignment succeed together.
   // Strictly older events cannot overwrite newer state. Each event retrieves CURRENT Stripe state.
-  let guard = "NOT EXISTS(SELECT 1 FROM billing_events WHERE event_id=?) AND EXISTS(SELECT 1 FROM billing_customers WHERE org_id=? AND event_created<=?)";
+  let guard = "NOT EXISTS(SELECT 1 FROM billing_events WHERE event_id=?) AND EXISTS(SELECT 1 FROM billing_accounts WHERE org_id=? AND event_created<=?)";
   const args: unknown[] = [event.id, customer.org_id, event.created];
   if (lease) {
     guard += " AND EXISTS(SELECT 1 FROM billing_sync_locks WHERE customer_id=? AND token=? AND expires_at>?)";
@@ -133,7 +149,7 @@ export async function syncSubscription(env: Env, subscription: Stripe.Subscripti
   }
   const stmts = [];
   if (subscription.status === "active") stmts.push(env.DB.prepare(`UPDATE organization_plans SET plan_version_id=?,assigned_at=?,reason=? WHERE org_id=? AND ${guard}`).bind(mapping.id, now(), "Verified Stripe subscription", customer.org_id, ...args));
-  stmts.push(env.DB.prepare(`UPDATE billing_customers SET subscription_id=?,status=?,price_id=?,current_period_end=?,cancel_at_period_end=?,event_created=?,updated_at=? WHERE org_id=? AND ${guard}`).bind(subscription.id, subscription.status, item.price.id, item.current_period_end * 1000, Number(subscription.cancel_at_period_end), event.created, now(), customer.org_id, ...args));
+  stmts.push(env.DB.prepare(`UPDATE billing_accounts SET subscription_id=?,status=?,price_id=?,current_period_end=?,cancel_at_period_end=?,event_created=?,updated_at=? WHERE org_id=? AND ${guard}`).bind(subscription.id, subscription.status, item.price.id, item.current_period_end * 1000, Number(subscription.cancel_at_period_end), event.created, now(), customer.org_id, ...args));
   stmts.push(env.DB.prepare(`INSERT OR IGNORE INTO billing_events SELECT ?,?,? WHERE ${lease ? "EXISTS(SELECT 1 FROM billing_sync_locks WHERE customer_id=? AND token=? AND expires_at>?)" : "1"}`).bind(event.id, event.type, now(), ...(lease ? [lease.customerId, lease.token, now()] : [])));
   await env.DB.batch(stmts);
 }
@@ -165,7 +181,7 @@ export async function stripeWebhook(req: Request, env: Env) {
   } catch (error) {
     if (error instanceof HttpError && error.status === 409 && /Unrecognized|Conflicting/.test(error.message)) {
       const sub = subscriptionId && await stripe.subscriptions.retrieve(subscriptionId);
-      if (sub) await exec(env, "UPDATE billing_customers SET risk_hold=1 WHERE customer_id=?", typeof sub.customer === "string" ? sub.customer : sub.customer.id);
+      if (sub) await exec(env, "UPDATE billing_accounts SET risk_hold=1 WHERE customer_id=?", typeof sub.customer === "string" ? sub.customer : sub.customer.id);
     }
     await billingAlert(env, `event:${event.id}`, null, "webhook_failed", event.id, "Billing webhook failed; inspect Stripe delivery and reconcile before resolving.");
     throw error;
@@ -221,7 +237,7 @@ export async function riskEvent(env: Env, stripe: Stripe, event: Stripe.Event) {
     if (!subId) continue;
     const subscription = await stripe.subscriptions.retrieve(subId);
     const customerId = typeof subscription.customer === "string" ? subscription.customer : subscription.customer.id;
-    const customer = await one<Row>(env, "SELECT org_id FROM billing_customers WHERE customer_id=?", customerId);
+    const customer = await one<Row>(env, "SELECT org_id FROM billing_accounts WHERE customer_id=?", customerId);
     if (!customer) continue;
     matched = true;
     await withCustomerLock(env, customerId, async () => {
@@ -229,7 +245,7 @@ export async function riskEvent(env: Env, stripe: Stripe, event: Stripe.Event) {
       // Refunds are recorded for review; a refund does not cancel a subscription.
       await env.DB.batch([
         env.DB.prepare("INSERT OR IGNORE INTO billing_alerts(id,org_id,kind,resource_id,summary,created_at) VALUES(?,?,?,?,?,?)").bind(`${event.id}:${subId}`, customer.org_id, event.type, charge.id, "Review Stripe charge and subscription; resolve refund or risk case with customer.", now()),
-        env.DB.prepare("UPDATE billing_customers SET risk_hold=CASE WHEN ?='charge.refunded' THEN risk_hold ELSE 1 END WHERE customer_id=?").bind(event.type, customerId),
+        env.DB.prepare("UPDATE billing_accounts SET risk_hold=CASE WHEN ?='charge.refunded' THEN risk_hold ELSE 1 END WHERE customer_id=?").bind(event.type, customerId),
       ]);
     });
   }
@@ -241,22 +257,22 @@ export async function reconcileBilling(env: Env) {
   const stripe = stripeClient(env);
   const requested = Number(env.BILLING_RECONCILE_BATCH || 10);
   const batch = Number.isSafeInteger(requested) ? Math.min(25, Math.max(1, requested)) : 10;
-  const customers = await all<Row>(env, "SELECT * FROM billing_customers ORDER BY reconcile_at LIMIT ?", batch);
+  const customers = await all<Row>(env, "SELECT * FROM billing_accounts WHERE customer_id IS NOT NULL ORDER BY reconcile_at LIMIT ?", batch);
   for (const customer of customers) {
     try {
       const subscriptions = await stripe.subscriptions.list({ customer: String(customer.customer_id), status: "all", limit: 100 });
       const current = subscriptions.data.filter(s => !["canceled", "incomplete_expired"].includes(s.status));
       if (subscriptions.has_more || current.length > 1) {
-        await exec(env, "UPDATE billing_customers SET risk_hold=1 WHERE org_id=?", customer.org_id);
+        await exec(env, "UPDATE billing_accounts SET risk_hold=1 WHERE org_id=?", customer.org_id);
         throw new HttpError(409, "Multiple subscriptions require operator review");
       }
       const id = current[0]?.id || customer.subscription_id;
       if (id) await refreshSubscription(env, String(id), { id: `reconcile:${crypto.randomUUID()}`, type: "customer.subscription.updated", created: Math.floor(now() / 1000), livemode: !env.STRIPE_SECRET_KEY!.includes("_test_") } as Stripe.Event);
-      else await exec(env, "UPDATE billing_customers SET updated_at=? WHERE org_id=?", now(), customer.org_id);
+      else await exec(env, "UPDATE billing_accounts SET updated_at=? WHERE org_id=?", now(), customer.org_id);
     } catch {
       await billingAlert(env, `reconcile:${customer.org_id}:${new Date().toISOString().slice(0, 10)}`, String(customer.org_id), "reconciliation_failed", String(customer.customer_id), "Subscription reconciliation failed; review Stripe and local plan mapping.");
     } finally {
-      await exec(env, "UPDATE billing_customers SET reconcile_at=? WHERE org_id=?", now(), customer.org_id);
+      await exec(env, "UPDATE billing_accounts SET reconcile_at=? WHERE org_id=?", now(), customer.org_id);
     }
   }
   await deliverBillingAlerts(env);

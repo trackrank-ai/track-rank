@@ -15,7 +15,7 @@ export async function operations(req: Request, env: Env) {
   if (req.method === "GET" && path === "/api/operations/readiness") {
     const stripe = stripeClient(env);
     const account = await stripe.accounts.retrieveCurrent();
-    const stats = await one(env, "SELECT (SELECT count(*) FROM organizations) AS organizations,(SELECT count(*) FROM runs) AS runs,(SELECT count(*) FROM billing_customers) AS billing_customers,(SELECT count(*) FROM billing_alerts WHERE resolved_at IS NULL) AS unresolved_alerts");
+    const stats = await one(env, "SELECT (SELECT count(*) FROM organizations) AS organizations,(SELECT count(*) FROM runs) AS runs,(SELECT count(*) FROM billing_accounts) AS billing_accounts,(SELECT count(*) FROM billing_alerts WHERE resolved_at IS NULL) AS unresolved_alerts");
     const cron = await one(env, "SELECT succeeded_at FROM operations_health WHERE name='cron'");
     const queue = await one(env, "SELECT sum(CASE WHEN status='queued' THEN 1 ELSE 0 END) AS queued,min(CASE WHEN status='queued' THEN created_at END) AS oldest_queued_at,sum(CASE WHEN status='uncertain' THEN 1 ELSE 0 END) AS uncertain,sum(CASE WHEN status='submitted' AND created_at<? THEN 1 ELSE 0 END) AS stuck,sum(CASE WHEN status='failed' AND updated_at>? THEN 1 ELSE 0 END) AS recent_failures FROM runs",now()-24*3600000,now()-15*60000);
     const month = calendarMonth();

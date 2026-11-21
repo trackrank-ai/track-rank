@@ -138,3 +138,19 @@ curl --fail-with-body "$TRACKRANK_URL/api/v1/workspaces" \
 No Google credentials are needed by agents. DataForSEO credentials are only needed for real collection and are configured separately in organization Settings. MCP and REST enforce the same scopes and customer limits.
 
 See [authentication and invitations](AUTHENTICATION.md) for Google/password reconciliation, recipient verification, and explicit acceptance. Invitation creation does not send email automatically.
+
+### Searchable history entitlement
+
+Plan `limits.searchable_history_days`, when present, restricts `GET /runs` (including research filters), `GET /export`, and equivalent MCP tools to runs created within the rolling window. Direct run/evidence endpoints remain available under normal tenant and entitlement checks; no automatic deletion occurs. Settings and MCP context expose the assigned limit. Legacy revisions without this field retain unrestricted history.
+
+## Billing accounts and delegated access
+
+- `GET /billing`: account ID, access status, offers, `has_stripe_customer`, `can_manage_billing`, and `owner`; scoped to the selected organization, including while unpaid. Available to read-scoped API keys.
+- `GET /billing/admins`: owner-only member/delegation inventory, available while unpaid.
+- `PATCH /billing/admins`: interactive owner only, `{user_ids: string[1..100], action: "grant" | "revoke"}`. Validates the whole selection before mutation; foreign members reject the batch; owners inherently retain access. Membership deletion cascades grants.
+- `POST /billing/checkout` and `/billing/portal`: interactive owner or delegated billing admin only. A viewer with billing delegation can manage payments but cannot mutate workspace content.
+- `GET /billing/handoff`: authorized billing manager's sign-in-required app URL, never a Stripe bearer URL.
+- `GET /billing/admin-handoff`: owner-only sign-in-required delegation URL.
+- MCP `get_billing`, `billing_management_handoff`, `billing_admin_handoff` mirror these read/recovery paths, including when product entitlement is paused. Keys cannot mutate billing permissions or create payment sessions; interactive confirmation is required.
+
+One organization has one account/subscription. Plan allowances and user roles are independent; custom enterprise terms use the existing versioned-plan operator workflow.

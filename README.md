@@ -107,3 +107,19 @@ Owners/admins generate scoped, expiring, revocable keys in **API & agents**. Age
 ## Account identity and team invitations
 
 Google and password methods share a verified same-email user identity. Google-only users can add a password through mailbox-verified reset; duplicate signup never installs a password. Invitations are recipient-email-bound and require explicit acceptance, without merging existing accounts or organizations. See [authentication behavior and release checks](docs/AUTHENTICATION.md). Migration `0005` expires old unclaimed bearer invitations; regenerate named links after upgrading.
+
+## Hosted subscription tiers
+
+| Plan | USD/month before tax | Checks/month | Searchable history |
+|---|---:|---:|---:|
+| Starter | $10 | 10,000 | 30 days |
+| Agency | $39 | 60,000 | 90 days |
+| Scale | $99 | 250,000 | 180 days |
+
+Apply migration `0021` before deploying these entitlements. Searchable history covers run lists, research and CSV exports, not automatic data deletion. Direct evidence links remain accessible with authorized product access. This prelaunch deployment uses one supported billing-account model. All three live offers are launched through the D1 billing catalog, as authorized by the owner. See [billing operations](docs/BILLING-OPERATIONS.md).
+
+## Team billing
+
+Each organization owns one billing account, Stripe Customer and subscription; workspaces share its allowance without per-seat fees. Owners can bulk grant/revoke billing access under **Settings → Billing administrators**, including when product access is paused. Delegation never changes workspace permissions, and removing membership revokes billing access. Billing admins can select a plan or manage payment details/invoices in the hosted portal. Agent billing tools return verified sign-in handoffs instead of payment-session bearer URLs.
+
+Apply migration `0022` under maintenance before deploying: it replaces the old billing table without a compatibility adapter. Hosted trials use `trial-v2` (10,000 monthly checks, 30-day searchable history). Checkout follows the approved hosted configuration with automatic tax disabled; no tax registrations are changed. Cross-organization invoice consolidation and SSO/SCIM are not implemented. See [remaining Stripe setup](STRIPE_INTEGRATION_TODO.md).

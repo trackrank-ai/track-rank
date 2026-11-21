@@ -220,3 +220,39 @@ test("prompt tags are workspace-scoped, editable and filterable through REST and
   assert.deepEqual((await get("prompt")).tags, ["alternatives", "seattle location"]);
   assert.equal((await get("alt")).tags.length, 20);
 });
+
+
+test("tier search windows apply to REST, research, export and MCP without deleting evidence", async () => {
+  const { sql, env, call } = setup();
+  const { mcp } = await import("../src/server/mcp");
+  const { hashToken } = await import("../src/server/crypto");
+  const { organizationPlan } = await import("../src/server/plans");
+  const key = "trk_history_fixture";
+  sql.prepare(`INSERT INTO api_keys(id,org_id,user_id,name,prefix,token_hash,scopes,expires_at,created_at)
+    VALUES('history-key','org','owner','Agent','trk',?,'["read"]',?,0)`).run(await hashToken(key), Date.now()+60000);
+  const insert = sql.prepare(`INSERT INTO runs(id,org_id,prompt_id,workspace_id,prompt_text,config,status,has_answer,citations,idempotency_key,created_at,updated_at)
+    VALUES(?,'org','prompt','source','Question','{}','succeeded',1,'[{"domain":"example.test"}]',?,?,?)`);
+  for (const [revision,days,checks] of [["starter-v2",30,10000],["agency-v1",90,60000],["scale-v1",180,250000]] as const) {
+    const price = "price_"+revision;
+    sql.prepare("INSERT INTO billing_prices VALUES(?,?,0)").run(price,revision);
+    sql.prepare("UPDATE organization_plans SET plan_version_id=? WHERE org_id='org'").run(revision);
+    sql.prepare("UPDATE billing_accounts SET status='active',price_id=?,updated_at=? WHERE org_id='org'").run(price,Date.now());
+    sql.exec("DELETE FROM runs");
+    const boundary = Date.now()-days*86400000;
+    insert.run("inside","inside-"+revision,boundary+60000,boundary+60000);
+    insert.run("outside","outside-"+revision,boundary-60000,boundary-60000);
+    assert.equal((await organizationPlan(env,'org')).limits.runs_per_month,checks);
+    for (const query of ["", "?research_type=domain&research_value=example.test"]) {
+      const data = await (await call("/runs"+query)).json() as {runs:{id:string}[]};
+      assert.deepEqual(data.runs.map(r=>r.id),["inside"]);
+    }
+    const csv=await (await call("/export")).text();
+    assert.match(csv,/inside/); assert.doesNotMatch(csv,/outside/);
+    assert.equal((await call("/runs/outside")).status,200,"direct evidence links are preserved");
+    const request=new Request("https://example.test/mcp",{method:"POST",headers:{Authorization:`Bearer ${key}`,"Content-Type":"application/json",Accept:"application/json, text/event-stream"},body:JSON.stringify({jsonrpc:"2.0",id:1,method:"tools/call",params:{name:"list_runs",arguments:{}}})});
+    const payload=await (await mcp(request,env,{waitUntil(){}} as any)).json() as any;
+    assert.equal(payload.result.isError,false,payload.result.content[0].text);
+    assert.deepEqual(JSON.parse(payload.result.content[0].text).runs.map((r:any)=>r.id),["inside"]);
+    assert.equal(sql.prepare("SELECT count(*) AS n FROM runs").get()?.n,2);
+  }
+});

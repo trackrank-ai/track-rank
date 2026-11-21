@@ -1,5 +1,18 @@
 import { z } from "zod";
 import { HttpError } from "./types";
+import { now, type Env } from "./types";
+import { organizationPlan } from "./plans";
+
+// Search visibility only: retain evidence, direct run links and admission ledgers.
+export async function searchableHistoryWhere(env: Env, org: string, params: URLSearchParams) {
+  const where = historyWhere(org, params);
+  const { limits } = await organizationPlan(env, org);
+  if (limits.searchable_history_days !== undefined) {
+    where.conditions.push("created_at>=?");
+    where.bindings.push(now() - limits.searchable_history_days * 86400000);
+  }
+  return where;
+}
 
 export const runHistoryFilters = z.object({
   engine: z.enum(["chatgpt", "gemini", "google"]).optional(),

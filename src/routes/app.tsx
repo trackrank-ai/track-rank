@@ -172,6 +172,8 @@ function App() {
   const [promptLocation, setPromptLocation] = useState("United States");
   const [promptLanguage, setPromptLanguage] = useState("en");
   const [locationQuery, setLocationQuery] = useState("");
+  const [billingMembers, setBillingMembers] = useState<Item[]>([]);
+  const [billingMemberIds, setBillingMemberIds] = useState<string[]>([]);
   const [providerChoices, setProviderChoices] = useState<Item | null>(null);
   const [providerChoicesLoading, setProviderChoicesLoading] = useState(false);
   const [promptSeparator, setPromptSeparator] = useState("auto");
@@ -220,7 +222,7 @@ function App() {
   const [editingWorkspace, setEditingWorkspace] = useState("");
   const [editingBrand, setEditingBrand] = useState<Item | null>(null);
   const orgReady = !!org && loadedOrg === org;
-  const canSubscribe = billing.owner && (!billing.status || ["none", "canceled", "incomplete_expired"].includes(billing.status));
+  const canSubscribe = billing.can_manage_billing && (!billing.status || ["none", "canceled", "incomplete_expired"].includes(billing.status));
   const workspaceReady = orgReady && !billingBlocksWorkspace(billing.access_status);
   const linkedPrompt = promptDetail?.id === search.prompt && promptDetail?.org_id === org ? promptDetail : null;
   const selectedRun = runDetail?.id === search.run && runDetail?.org_id === org ? runDetail : null;
@@ -370,6 +372,7 @@ function App() {
       mounted = false;
     };
   }, []);
+  useEffect(() => { setBillingMemberIds([]); setBillingMembers([]); }, [org]);
   const load = useCallback(async () => {
     if (!org || activeOrg.current !== org) return;
     const loadId = ++latestLoad.current;
@@ -378,6 +381,9 @@ function App() {
     try {
       const billingState = await request("/billing");
       if (!isCurrent()) return;
+      const delegates = billingState.owner ? (await request("/billing/admins")).members : [];
+      if (!isCurrent()) return;
+      setBillingMembers(delegates);
       if (billingBlocksWorkspace(billingState.access_status)) {
         setBilling(billingState);
         setLoadedOrg(org);
@@ -1036,13 +1042,28 @@ function App() {
             {billing.access_status === "free_trial" && <p>Trial access until {new Date(billing.free_trial.ends_at).toLocaleString()}. No card is on file for this trial and no automatic charge will happen at expiry.</p>}
             <p>Subscriptions are billed per organization before applicable tax. Your first paid charge is refundable within 7 days. Provider usage is billed separately.</p>
             {billing.access_status === "payment_required" && !billing.risk_hold && <p>Workspace access is paused until your subscription is active.</p>}
-            {billing.access_status === "trial_expired" && <p>Your workspace data is retained.{billing.checkout_enabled && billing.owner && " Choose a plan to restore access."}</p>}
-            {billing.status && <p>Subscription: {billing.status}{billing.cancel_at_period_end ? ". Cancels at the end of the current period." : "."}</p>}
+            {billing.access_status === "trial_expired" && <p>Your workspace data is retained.{billing.checkout_enabled && billing.can_manage_billing && " Choose a plan to restore access."}</p>}
+            {billing.status && billing.status !== "none" && <p>Subscription: {billing.status}{billing.cancel_at_period_end ? ". Cancels at the end of the current period." : "."}</p>}
             {billing.risk_hold ? <p role="alert">Paid access is paused for billing review. Contact support.</p> : null}
             {canSubscribe && billing.checkout_enabled && (billing.offers as { offer_key: string; name: string; price_cents: number; currency: string; interval: string }[]).map(offer => <Button key={offer.offer_key} disabled={busy} onClick={() => { setBusy(true); request("/billing/checkout", "POST", { offer_key: offer.offer_key }).then(r => window.location.assign(r.url)).catch(e => setError(e.message)).finally(() => setBusy(false)); }}>Choose {offer.name} — {formatBillingPrice(offer)}</Button>)}{" "}
-            {billing.owner && billing.has_billing_account && <Button variant="outline" disabled={busy} onClick={() => { setBusy(true); request("/billing/portal", "POST").then(r => window.location.assign(r.url)).catch(e => setError(e.message)).finally(() => setBusy(false)); }}>Manage billing & invoices</Button>}
+            {billing.can_manage_billing && billing.has_stripe_customer && <Button variant="outline" disabled={busy} onClick={() => { setBusy(true); request("/billing/portal", "POST").then(r => window.location.assign(r.url)).catch(e => setError(e.message)).finally(() => setBusy(false)); }}>Manage billing & invoices</Button>}
             {canSubscribe && !billing.checkout_enabled && <p>Checkout is currently unavailable. <Link to="/support">Contact support</Link> for help with billing.</p>}
-            {!billing.owner && <p>Ask your organization owner to choose a plan or manage billing.</p>}
+            {!billing.can_manage_billing && <p>Ask your organization owner or billing administrator to choose a plan or manage billing.</p>}
+            {billing.owner && <details><summary>Billing administrators</summary>
+              <p className="data-note">Billing access permits plan purchases, invoice access and payment changes without changing workspace roles. Only owners can delegate it.</p>
+              <label><input type="checkbox" aria-label="Select all non-owner members for billing access" checked={billingMembers.some(m => m.role !== "owner") && billingMembers.filter(m => m.role !== "owner").every(m => billingMemberIds.includes(m.user_id))} onChange={e => setBillingMemberIds(e.target.checked ? billingMembers.filter(m => m.role !== "owner").map(m => m.user_id) : [])} /> Select all</label>
+              {billingMembers.filter(m => m.role !== "owner").map(m => <label className="member-row" key={m.user_id}>
+                <input type="checkbox" checked={billingMemberIds.includes(m.user_id)} onChange={e => setBillingMemberIds(ids => e.target.checked ? [...ids,m.user_id] : ids.filter(id => id !== m.user_id))} />
+                <span>{m.name} — {m.email}</span><Badge variant="outline">{m.billing_admin ? "Billing admin" : "No billing access"}</Badge>
+              </label>)}
+              {!billingMembers.some(m => m.role !== "owner") && <p>No other members yet. Invite teammates from Team.</p>}
+              {(["grant", "revoke"] as const).map(operation => <Button key={operation} variant="outline" disabled={busy || !billingMemberIds.length} onClick={() => action(async () => {
+                await request("/billing/admins", "PATCH", {user_ids: billingMemberIds, action: operation});
+                setBillingMembers((await request("/billing/admins")).members);
+                setBillingMemberIds([]);
+              })}>{operation === "grant" ? "Grant billing access" : "Revoke billing access"} ({billingMemberIds.length})</Button>)}
+            </details>}
+
           </CardContent></Card>}
 
           {tab === "settings" && (
@@ -2498,6 +2519,7 @@ function App() {
                             <small>{m.email}</small>
                           </span>
                           <Badge variant="secondary">{m.role}</Badge>
+                          {(m.billing_admin || m.role === "owner") ? <Badge variant="outline">Billing access</Badge> : null}
                           {isAdmin &&
                             m.role !== "owner" &&
                             m.user_id !== session.user.id && (
@@ -2644,6 +2666,7 @@ function App() {
                         <p className="data-note">Plan allowances are shared by all organization members and API keys.</p>
                         <p>{settings.plan.limits.api_per_minute.toLocaleString()} API operations/minute · {settings.plan.limits.provider_per_minute.toLocaleString()} Standard/Priority batch requests/minute · {settings.plan.limits.provider_per_minute.toLocaleString()} Live requests/minute</p>
                         <p>{Number(settings.monthly_usage?.runs || 0).toLocaleString()} / {settings.plan.limits.runs_per_month.toLocaleString()} monthly runs</p>
+                        {settings.plan.limits.searchable_history_days && <p>{settings.plan.limits.searchable_history_days} days of searchable history</p>}
                         <p className="data-note">The run allowance resets at midnight UTC on the first day of each month.</p>
                       </CardContent>
                     </Card>

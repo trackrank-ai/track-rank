@@ -75,6 +75,8 @@ function fixture() {
   sql.exec(readFileSync(new URL("../migrations/0018_remove_monthly_api_and_concurrency_caps.sql", import.meta.url), "utf8"));
   sql.exec(readFileSync(new URL("../migrations/0019_durable_dispatch.sql", import.meta.url), "utf8"));
   sql.exec(readFileSync(new URL("../migrations/0020_prompt_tags.sql", import.meta.url), "utf8"));
+  sql.exec(readFileSync(new URL("../migrations/0021_three_tier_plans.sql", import.meta.url), "utf8"));
+  sql.exec(readFileSync(new URL("../migrations/0022_billing_accounts.sql", import.meta.url), "utf8"));
   const db = {
     prepare: (s: string) => new Statement(sql, s),
     batch: async (stmts: Statement[]) => {
@@ -785,26 +787,26 @@ test("provider actions share the general API rate and retain submission override
   assert.equal(requestLimit("45", 120), 45);
 });
 
-test("plan versions are immutable; retired customers are grandfathered and defaults affect only new organizations", async () => {
+test("plan versions are immutable; assignments use explicit commercial terms independent of roles", async () => {
   const { env, sql } = fixture();
   const a = await organization(env);
   assert.equal(sql.prepare("SELECT plan_version_id FROM organization_plans WHERE org_id=?").get(a.id)!.plan_version_id, "beta-v1");
   assert.throws(() => sql.exec("UPDATE plan_versions SET price_cents=2000 WHERE id='beta-v1'"), /new plan version/);
   assert.throws(() => sql.exec("DELETE FROM plan_versions WHERE id='pro-v1'"), /Retire/);
-  sql.exec("UPDATE plan_versions SET status='draft' WHERE id='starter-v1'");
-  assert.throws(() => sql.prepare("UPDATE organization_plans SET plan_version_id='starter-v1' WHERE org_id=?").run(a.id), /active plan/);
-  sql.exec("UPDATE plan_versions SET status='active' WHERE id='starter-v1'");
-  env.DEFAULT_PLAN_VERSION = 'starter-v1';
+  sql.exec("UPDATE plan_versions SET status='draft' WHERE id='starter-v2'");
+  assert.throws(() => sql.prepare("UPDATE organization_plans SET plan_version_id='starter-v2' WHERE org_id=?").run(a.id), /active plan/);
+  sql.exec("UPDATE plan_versions SET status='active' WHERE id='starter-v2'");
+  env.DEFAULT_PLAN_VERSION = 'starter-v2';
   const b = await organization(env, 'bob');
-  sql.exec("UPDATE plan_versions SET status='retired' WHERE id='starter-v1'");
+  sql.exec("UPDATE plan_versions SET status='retired' WHERE id='starter-v2'");
   env.BILLING_ENABLED = "true";
   env.STRIPE_SECRET_KEY = "sk_test_fixture";
-  sql.prepare("INSERT INTO billing_customers(org_id,customer_id,status,price_id,updated_at) VALUES(?,'cus_bob','active','price_bob',?)").run(b.id,Date.now());
-  sql.exec("INSERT INTO billing_prices VALUES('price_bob','starter-v1',0)");
+  sql.prepare("UPDATE billing_accounts SET customer_id='cus_bob',status='active',price_id='price_bob',updated_at=? WHERE org_id=?").run(Date.now(),b.id);
+  sql.exec("INSERT INTO billing_prices VALUES('price_bob','starter-v2',0)");
   const settings = await (await call(env, { userId: 'bob' }, '/settings' , 'GET', undefined, b.id)).json() as any;
-  assert.equal(settings.plan.version, 'starter-v1');
+  assert.equal(settings.plan.version, 'starter-v2');
   assert.equal(settings.plan.price_cents, 1000);
-  assert.equal(settings.plan.limits.runs_per_month, 6000);
+  assert.equal(settings.plan.limits.runs_per_month, 10000);
   assert.equal(sql.prepare("SELECT plan_version_id FROM organization_plans WHERE org_id=?").get(a.id)!.plan_version_id, 'beta-v1');
   delete env.BILLING_ENABLED;
   await assert.rejects(organization(env, 'eve'), /Default plan/);
@@ -820,7 +822,7 @@ test("hosted organizations start one card-free trial while checkout is paused", 
 
   const first = await organization(env);
   const settings = await (await call(env, { userId: "alice" }, "/settings", "GET", undefined, first.id)).json() as any;
-  assert.equal(settings.plan.version, "trial-v1");
+  assert.equal(settings.plan.version, "trial-v2");
   const second = await organization(env);
   await assert.rejects(call(env, { userId: "alice" }, "/workspaces", "GET", undefined, second.id), (error: any) => error.status === 402);
   const billing = await (await call(env, { userId: "alice" }, "/billing", "GET", undefined, second.id)).json() as any;
@@ -833,7 +835,7 @@ test("hosted organizations start one card-free trial while checkout is paused", 
   const repeat = await call(env, { userId: "bob" }, "/onboarding/trial", "POST", {});
   assert.deepEqual(await repeat.json(), onboarded);
   assert.equal(sql.prepare("SELECT COUNT(*) AS n FROM organization_trials").get()!.n, 2);
-  assert.equal(sql.prepare("SELECT COUNT(*) AS n FROM billing_customers").get()!.n, 0);
+  assert.equal(sql.prepare("SELECT COUNT(*) AS n FROM billing_accounts WHERE customer_id IS NOT NULL").get()!.n, 0);
 });
 
 test("REST and MCP report the same rate and run limits, and API access resumes next minute", async (t) => {

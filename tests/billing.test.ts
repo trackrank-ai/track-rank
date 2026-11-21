@@ -11,15 +11,15 @@ const event=(id='evt_1',created=100)=>({id,created,type:'customer.subscription.u
 test('subscription activates exact revision, deduplicates, rejects stale events, suspends and recovers',async()=>{
  const {sql,env}=fixture();
  await syncSubscription(env,sub(),event());
- assert.equal((await organizationPlan(env,'org')).version,'starter-v1');
+ assert.equal((await organizationPlan(env,'org')).version,'starter-v2');
  await syncSubscription(env,sub('canceled'),event());
- assert.equal((await organizationPlan(env,'org')).version,'starter-v1');
+ assert.equal((await organizationPlan(env,'org')).version,'starter-v2');
  await syncSubscription(env,sub('past_due'),event('evt_2',200));
  await assert.rejects(organizationPlan(env,'org'),/Subscription payment required/);
  await syncSubscription(env,sub(),event('evt_old',150));
  await assert.rejects(organizationPlan(env,'org'),/Subscription payment required/);
  await syncSubscription(env,sub(),event('evt_3',300));
- assert.equal((await organizationPlan(env,'org')).version,'starter-v1');
+ assert.equal((await organizationPlan(env,'org')).version,'starter-v2');
  await syncSubscription(env,sub('canceled'),event('evt_4',400));
  await assert.rejects(organizationPlan(env,'org'),/Subscription payment required/);
  assert.equal(sql.prepare('SELECT count(*) AS n FROM plan_assignment_history').get()!.n,2);
@@ -39,8 +39,8 @@ test('billing management survives suspension but rejects API keys and non-owner 
  const p={userId:'alice',orgId:'org',role:'owner'};
  const response=await billingRoute(new Request('https://example.test'),env,p,'/billing');
  assert.equal(((await response.json()) as any).status,'past_due');
- await assert.rejects(billingRoute(new Request('https://example.test',{method:'POST'}),env,{...p,role:'member'},'/billing/checkout'),/owner/);
- await assert.rejects(billingRoute(new Request('https://example.test'),env,{...p,keyId:'key'},'/billing'),/Sign in/);
+ await assert.rejects(billingRoute(new Request('https://example.test',{method:'POST'}),env,{...p,userId:'not-a-member',role:'member'},'/billing/checkout'),/owner/);
+ await assert.rejects(billingRoute(new Request('https://example.test',{method:'POST'}),env,{...p,keyId:'key'},'/billing/portal'),/Sign in/);
 });
 test('webhook verifies raw signature, timestamp and test/live environment before accepting',async()=>{
  const {env}=fixture();
@@ -54,13 +54,22 @@ test('webhook verifies raw signature, timestamp and test/live environment before
  const live=JSON.stringify({...JSON.parse(payload),livemode:true});
  await assert.rejects(stripeWebhook(req(live,sign(live)),env),/environment mismatch/);
 });
-test('sandbox: real checkout and portal creation through application routes', {skip:!process.env.TRACKRANK_STRIPE_SMOKE}, async()=>{
+test('sandbox: real checkout and portal creation through application routes', {skip:!process.env.TRACKRANK_STRIPE_SMOKE}, async(t)=>{
  const {env,sql}=fixture();
  const vars=Object.fromEntries(readFileSync('.dev.vars.stripe','utf8').trim().split('\n').map(l=>{const i=l.indexOf('=');return [l.slice(0,i),l.slice(i+1)]}));
  Object.assign(env,vars,{BASE_URL:'http://localhost:3000'});
- sql.exec('DELETE FROM billing_customers;');
+ assert.ok(env.STRIPE_SECRET_KEY?.includes("_test_"), "External smoke must use TEST credentials");
+ const realStripe = new Stripe(env.STRIPE_SECRET_KEY!);
+ t.after(async () => {
+   const account=sql.prepare("SELECT customer_id FROM billing_accounts WHERE org_id='org'").get();
+   if(account?.customer_id) {
+     for await(const session of realStripe.checkout.sessions.list({customer:String(account.customer_id),status:"open"})) await realStripe.checkout.sessions.expire(session.id);
+     await realStripe.customers.del(String(account.customer_id));
+   }
+ });
+ sql.exec("UPDATE billing_accounts SET customer_id=NULL WHERE org_id='org';");
  const { price_id: priceId } = JSON.parse(readFileSync("docs/stripe-sandbox.json", "utf8"));
- sql.prepare("INSERT INTO billing_prices VALUES(?,'starter-v1',0)").run(priceId);
+ sql.prepare("INSERT INTO billing_prices VALUES(?,'starter-v2',0)").run(priceId);
  sql.prepare("INSERT INTO billing_offers VALUES('starter-monthly',0,?)").run(priceId);
  const p={userId:'alice',orgId:'org',role:'owner'};
  const checkoutForStarter=()=>billingRoute(new Request('http://localhost:3000/api/v1/billing/checkout',{method:'POST',body:JSON.stringify({offer_key:'starter-monthly'})}),env,p,'/billing/checkout');
@@ -88,8 +97,8 @@ test('Stripe trials do not grant access and stale paid subscriptions can recover
  await syncSubscription(env, sub('trialing'), event());
  await assert.rejects(organizationPlan(env, 'org'), /Choose a plan/);
  await syncSubscription(env, sub('active'), event('evt_paid', 200));
- assert.equal((await organizationPlan(env, 'org')).version, 'starter-v1');
- sql.exec("UPDATE billing_customers SET updated_at=0 WHERE org_id='org'");
+ assert.equal((await organizationPlan(env, 'org')).version, 'starter-v2');
+ sql.exec("UPDATE billing_accounts SET updated_at=0 WHERE org_id='org'");
  await assert.rejects(organizationPlan(env, 'org'), /Subscription payment required/);
  const state = await billingRoute(new Request('https://example.test'), env, { userId: 'alice', orgId: 'org', role: 'owner' }, '/billing');
  assert.equal((await state.json() as { access_status: string }).access_status, 'payment_required');
@@ -107,16 +116,16 @@ test('risk events use Charge → PaymentIntent → Invoice Payment → Subscript
  const risk={...event('evt_risk'),type:'charge.dispute.created',data:{object:{id:'dp_risk',charge:'ch_risk'}}} as unknown as Stripe.Event;
  await riskEvent(env,stripe,risk);
  assert.ok(traversed);
- assert.equal(sql.prepare("SELECT risk_hold FROM billing_customers WHERE org_id='org'").get()!.risk_hold,1);
+ assert.equal(sql.prepare("SELECT risk_hold FROM billing_accounts WHERE org_id='org'").get()!.risk_hold,1);
  await syncSubscription(env,sub(),event('evt_after',200));
  await assert.rejects(organizationPlan(env,'org'),/Subscription payment required/,'later active webhook must not clear risk hold');
  await riskEvent(env,stripe,risk);
  assert.equal(sql.prepare('SELECT count(*) AS n FROM billing_alerts').get()!.n,1);
- sql.exec('UPDATE billing_customers SET risk_hold=0');
+ sql.exec('UPDATE billing_accounts SET risk_hold=0');
  await riskEvent(env,stripe,{...risk,id:'evt_refund',type:'charge.refunded',data:{object:{id:'ch_risk',payment_intent:'pi_risk'}}} as Stripe.Event);
- assert.equal(sql.prepare("SELECT risk_hold FROM billing_customers WHERE org_id='org'").get()!.risk_hold,0,'refunds get reviewed, do not silently cancel or hold');
+ assert.equal(sql.prepare("SELECT risk_hold FROM billing_accounts WHERE org_id='org'").get()!.risk_hold,0,'refunds get reviewed, do not silently cancel or hold');
  await riskEvent(env,stripe,{...risk,id:'evt_fraud',type:'radar.early_fraud_warning.created'} as Stripe.Event);
- assert.equal(sql.prepare("SELECT risk_hold FROM billing_customers WHERE org_id='org'").get()!.risk_hold,1);
+ assert.equal(sql.prepare("SELECT risk_hold FROM billing_accounts WHERE org_id='org'").get()!.risk_hold,1);
 });
 
 test('withdrawing an offer pauses checkout while preserving the portal and price mapping', async (t) => {
@@ -137,16 +146,16 @@ test('withdrawing an offer pauses checkout while preserving the portal and price
   return Response.json({ url: 'https://billing.stripe.com/example' });
  });
  assert.equal((await post('/billing/portal')).status, 200);
- assert.equal(sql.prepare("SELECT plan_version_id FROM billing_prices WHERE price_id='price_test'").get()?.plan_version_id, 'starter-v1');
+ assert.equal(sql.prepare("SELECT plan_version_id FROM billing_prices WHERE price_id='price_test'").get()?.plan_version_id, 'starter-v2');
  await syncSubscription(env, sub(), event());
- assert.equal((await organizationPlan(env, 'org')).version, 'starter-v1');
+ assert.equal((await organizationPlan(env, 'org')).version, 'starter-v2');
 });
 
 test('checkout uses published offers in its Stripe mode and can switch offers in either direction', async (t) => {
  const { env, sql } = fixture();
  env.BASE_URL = 'https://example.test';
  sql.exec(`UPDATE plan_versions SET status='active' WHERE id='pro-v1';
-  INSERT INTO billing_prices VALUES('price_pro','pro-v1',0),('price_live','starter-v1',1);
+  INSERT INTO billing_prices VALUES('price_pro','pro-v1',0),('price_live','starter-v2',1);
   INSERT INTO billing_offers VALUES('starter-monthly',0,'price_test'),('agency-monthly',0,'price_pro'),('live-only',1,'price_live');`);
  const principal = { userId: 'alice', orgId: 'org', role: 'owner' };
  const sessions: { id: string; url: string; status: string; metadata: Record<string, string>; automatic_tax: { enabled: boolean } }[] = [];

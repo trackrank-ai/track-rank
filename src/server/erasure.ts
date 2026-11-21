@@ -29,7 +29,7 @@ export async function eraseData(env: Env, data: {kind?:string; id?:string; confi
     const state=await instance.status();
     if(!['complete','errored','terminated'].includes(state.status))throw new HttpError(409,'Terminate all organization Workflow instances before erasure');
   }
-  const billing=await one<{customer_id:string;subscription_id:string|null;status:string}>(env,'SELECT customer_id,subscription_id,status FROM billing_customers WHERE org_id=?',id);
+  const billing=await one<{customer_id:string;subscription_id:string|null;status:string}>(env,'SELECT customer_id,subscription_id,status FROM billing_accounts WHERE org_id=?',id);
   if(billing && !['none','canceled','incomplete_expired'].includes(billing.status))throw new HttpError(409,'Cancel billing and reconcile before erasure');
   if(billing?.customer_id && env.BILLING_ENABLED==='true') {
     // Avoid a new Checkout reopening billing after local erasure. Cancel/expire in Stripe first.

@@ -4,7 +4,7 @@ import { bulkRunSchema, bulkScheduleSchema, bulkToggleSchema, updateBulkSchedule
 import { assertProviderOptions, providerOptions } from "./provider-options";
 import { MAX_PROMPT_BATCH_BYTES, promptBatchSchema, savePromptBatch } from "./prompt-batch";
 import { listSavedPrompts } from "./prompt-library";
-import { historyWhere } from "./run-history";
+import { searchableHistoryWhere } from "./run-history";
 import { requireWorkspaceBrand } from "./workspace-brands";
 import { archivePrompts, archiveWorkspace, deleteBrand } from "./resource-archive";
 import { createOrganization } from "./organization-create";
@@ -158,7 +158,7 @@ export async function api(
       : path.includes("/run") || path.includes("/analyze")
         ? "run"
         : "write";
-  const t = await tenant(env, p, u.searchParams.get("org"), scope),
+  const t = await tenant(env, p, u.searchParams.get("org"), path.startsWith("/billing") ? "read" : scope),
     org = t.orgId;
   if (path === "/billing" || path.startsWith("/billing/")) return billingRoute(req, env, t, path);
   await customerLimit(env, org);
@@ -481,7 +481,7 @@ export async function api(
       throw new HttpError(400, "Invalid run history cursor");
     }
     if (w) await belongs(env, "workspaces", org, w, true);
-    const { conditions, bindings } = historyWhere(org, u.searchParams);
+    const { conditions, bindings } = await searchableHistoryWhere(env, org, u.searchParams);
     if (timestamp !== null) {
       conditions.push("(created_at,id)<(?,?)");
       bindings.push(before, beforeId);
@@ -696,7 +696,7 @@ export async function api(
     return json({
       members: await all(
         env,
-        "SELECT m.user_id,m.role,u.name,u.email,u.emailVerified FROM memberships m JOIN user u ON u.id=m.user_id WHERE m.org_id=?",
+        "SELECT m.user_id,m.role,u.name,u.email,u.emailVerified,EXISTS(SELECT 1 FROM billing_account_admins ba WHERE ba.org_id=m.org_id AND ba.user_id=m.user_id) AS billing_admin FROM memberships m JOIN user u ON u.id=m.user_id WHERE m.org_id=?",
         org,
       ),
     });
@@ -807,7 +807,7 @@ export async function api(
   if (path === "/export" && method === "GET") {
     const workspace = u.searchParams.get("workspace");
     if (workspace) await belongs(env, "workspaces", org, workspace, true);
-    const { conditions, bindings } = historyWhere(org, u.searchParams);
+    const { conditions, bindings } = await searchableHistoryWhere(env, org, u.searchParams);
     const rows = await all<Row>(
       env,
       "SELECT id,prompt_text,status,config,mentions,citations,grounding_queries,provider_cost,created_at FROM runs WHERE " +

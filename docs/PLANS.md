@@ -14,16 +14,19 @@ Hosted checkout uses `billing_offers` for the offers currently on sale and
 point to a new Price for future purchases. Withdrawing an offer leaves its Price
 mapping available for renewals and reconciliation. See [billing operations](BILLING-OPERATIONS.md#publish-and-withdraw-offers).
 
-## Initial revisions
+## Supported revisions
 
-| Revision | State | Price metadata | API/min | Provider requests/min per budget | Runs/month |
-|---|---|---|---:|---:|---:|
-| beta-v1 | active | $0/month | 120 | 10 | 1,000,000 |
-| starter-v1 | active | $10/month | 120 | 10 | 6,000 |
-| trial-v1 | active | $0/month | 120 | 10 | 6,000 |
-| pro-v1 | draft | $30/month | 360 | 30 | 18,000 |
+| Revision | State | USD/month | API/min | Provider requests/min per budget | Checks/month | Searchable days |
+|---|---|---:|---:|---:|---:|---:|
+| beta-v1 (local/self-hosted) | active | $0 | 120 | 10 | 1,000,000 | unrestricted |
+| starter-v2 | active | $10 | 120 | 10 | 10,000 | 30 |
+| agency-v1 | active | $39 | 120 | 10 | 60,000 | 90 |
+| scale-v1 | active | $99 | 120 | 10 | 250,000 | 180 |
+| trial-v2 | active | $0 | 120 | 10 | 10,000 | 30 |
 
-Hosted signup starts in the trial flow. Local and self-hosted installations default to the free plan. Pro's limits are examples for a future offer.
+The prelaunch cutover retires the unused starter-v1/pro-v1/trial-v1 revisions.
+Historical migrations remain ordered SQL, not supported runtime compatibility paths.
+Hosted signup starts the 14-day no-card trial; local/self-hosted signup uses beta.
 
 ## Operator commands
 
@@ -72,3 +75,9 @@ and proration are separate work.
 ## Deliberately not implemented
 
 An operator web console, customer-scheduled plan changes, automatic result expiry, and provider spending guarantees are separate work. Apply migration `0011` before deploying the admission ledger. It seeds this month's usage and preserves existing replay keys. Future expiry must keep these keys and counters until organization erasure or an explicit accounting-retention change. Once automatic expiry is enabled, roll back only to code that reads the durable counters.
+
+## Three-tier revisions
+
+Migration `0021` adds Starter `starter-v2` ($10, 10,000 checks, 30-day searchable history), Agency `agency-v1` ($39, 60,000 checks, 90 days), and Scale `scale-v1` ($99, 250,000 checks, 180 days). All retain 120 API operations/minute and 10 provider requests/minute per budget. Check allowances reset by UTC calendar month. `searchable_history_days` is optional for legacy/self-hosted revisions; absence preserves unrestricted history. Windows use run creation time, are enforced server-side for lists/research/CSV across REST and MCP, and do not delete stored evidence or change direct run access. The prelaunch billing-account migration cuts trial assignments to trial-v2 without resetting trial dates. Stripe mappings are immutable; Starter v2 therefore uses a new $10 Price under the existing Starter Product. See `stripe-tier-catalog.json` for live identifiers.
+
+Migration0022 retires the unused starter-v1/pro-v1/trial-v1 catalog entries; the supported hosted catalog is Starter v2, Agency v1, Scale v1 and Trial v2. No legacy adapter is needed. Commercial revisions are distinct from organization roles and billing administrator grants.

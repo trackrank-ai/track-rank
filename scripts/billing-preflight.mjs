@@ -25,7 +25,7 @@ const [query]=JSON.parse(execFileSync(process.execPath,['node_modules/wrangler/b
 if(!query?.success)throw Error('Unable to read the billing catalog from the target D1 database.');
 const mappedPrices=query.results;
 if(!mappedPrices.length)throw Error('No eligible mapped Stripe Prices. Pass --price to verify a mapped candidate before publishing it.');
-const automaticTax=!test||config.vars.STRIPE_AUTOMATIC_TAX==='true';
+const automaticTax=false; // Explicit Checkout Studio configuration approved by deployment owner.
 const tax=automaticTax ? await stripe.tax.settings.retrieve() : null;
 const registrations=automaticTax ? await stripe.tax.registrations.list({status:'active',limit:100}) : null;
 for(const mapping of mappedPrices){
