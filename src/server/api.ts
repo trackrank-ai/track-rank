@@ -454,21 +454,33 @@ export async function api(
   if (path === "/schedules/bulk" && method === "POST") return json(await createBulkSchedules(env,org,await body(req,bulkScheduleSchema)),201);
   if (path === "/schedules/bulk" && method === "PATCH") return json(await updateBulkSchedules(env, org, await body(req,bulkScheduleUpdateSchema)));
   if (path === "/runs" && method === "GET") {
-    const w = u.searchParams.get("workspace"),
-      before = Number(u.searchParams.get("before") || now() + 1);
+    const w = u.searchParams.get("workspace");
+    const timestamp = u.searchParams.get("before");
+    const before = Number(timestamp || now() + 1);
+    const beforeId = u.searchParams.get("before_id");
+    if (!Number.isFinite(before) || (beforeId !== null &&
+      (!timestamp || !Number.isSafeInteger(before) || !id.safeParse(beforeId).success))) {
+      throw new HttpError(400, "Invalid run history cursor");
+    }
     if (w) await belongs(env, "workspaces", org, w);
+    const pageSize = 100;
     const runs = await all(
       env,
-      "SELECT id,prompt_id,workspace_id,prompt_text,config,status,mentions,citations,grounding_queries,has_answer,error,provider_cost,created_at,updated_at FROM runs WHERE org_id=? AND created_at<?" +
+      "SELECT id,prompt_id,workspace_id,prompt_text,config,status,mentions,citations,grounding_queries,has_answer,error,provider_cost,created_at,updated_at FROM runs WHERE org_id=?" +
+        (beforeId === null ? " AND created_at<?" : " AND (created_at,id)<(?,?)") +
         (w ? " AND workspace_id=?" : "") +
-        " ORDER BY created_at DESC LIMIT 100",
+        " ORDER BY created_at DESC,id DESC LIMIT ?",
       org,
       before,
+      ...(beforeId === null ? [] : [beforeId]),
       ...(w ? [w] : []),
+      pageSize + 1,
     );
+    const last = runs.length > pageSize ? runs[pageSize - 1] : null;
     return json({
-      runs: runs.map(decodeRun),
-      next_before: runs.length === 100 ? runs[99].created_at : null,
+      runs: runs.slice(0, pageSize).map(decodeRun),
+      next_before: last?.created_at ?? null,
+      next_before_id: last?.id ?? null,
     });
   }
   const runMatch = path.match(/^\/runs\/([^/]+)(?:\/(raw|refresh|analyze))?$/);

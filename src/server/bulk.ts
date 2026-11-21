@@ -49,6 +49,12 @@ export async function createBulkSchedules(env:Env,org:string,input:unknown){
 export const bulkScheduleUpdateSchema=z.object({ids,enabled:z.boolean().optional(),preset:z.enum(['daily','weekly','mwf','custom']).optional(),days:z.array(z.number().int().min(0).max(6)).min(1).max(7).optional(),times:z.array(z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/)).min(1).max(8).optional(),timezone:z.string().min(1).max(100).optional(),repetitions:z.number().int().min(1).max(10).optional()}).strict().refine(b=>Object.keys(b).length>1,'Choose settings to update');
 export async function updateBulkSchedules(env:Env,org:string,input:unknown){
  const b=bulkScheduleUpdateSchema.parse(input);const rows=await selectedRows(env,org,'schedules',b.ids);
+ if (b.enabled !== undefined && Object.keys(b).length === 2) {
+  await env.DB.batch(rows.map(row =>
+   env.DB.prepare('UPDATE schedules SET enabled=? WHERE org_id=? AND id=?').bind(Number(b.enabled),org,row.id),
+  ));
+  return {updated:rows.length};
+ }
  if(b.timezone)try{new Intl.DateTimeFormat('en',{timeZone:b.timezone}).format();}catch{throw new HttpError(400,'Choose a valid timezone');}
  const {localSlot}=await import('./scheduler');
  await env.DB.batch(rows.map(row=>{

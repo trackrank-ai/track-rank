@@ -194,16 +194,18 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
     "list_runs",
     {
       description:
-        "List run history with status, citations, grounding queries and mentions.",
+        "List run history with status, citations, grounding queries and mentions. Continue with next_before and next_before_id.",
       inputSchema: {
         workspace_id: z.string().optional(),
         before: z.number().optional(),
+        before_id: z.string().min(1).max(100).optional(),
       },
     },
     async (args) => {
       const q = new URLSearchParams();
       if (args.workspace_id) q.set("workspace", args.workspace_id);
-      if (args.before) q.set("before", String(args.before));
+      if (args.before !== undefined) q.set("before", String(args.before));
+      if (args.before_id !== undefined) q.set("before_id", args.before_id);
       return invoke("/runs?" + q);
     },
   );

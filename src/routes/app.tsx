@@ -153,6 +153,14 @@ function CopyValue({
     </Button>
   );
 }
+type RunHistoryCursor = { before: number; beforeId: string };
+type PendingRunBatch = {
+  prompt_ids: string[];
+  repetitions: number;
+  batch_key: string;
+  accepted?: number;
+};
+
 function App() {
   const [selectedPromptIds,setSelectedPromptIds]=useState<string[]>([]);
   const [selectedScheduleIds,setSelectedScheduleIds]=useState<string[]>([]);
@@ -197,9 +205,22 @@ function App() {
     [editPrompt, setEditPrompt] = useState<Item | null>(null),
     [promptText, setPromptText] = useState(""),
     [ideas, setIdeas] = useState<string[]>([]),
-    [nextBefore, setNextBefore] = useState<number | null>(null);
+    [nextRunCursor, setNextRunCursor] = useState<RunHistoryCursor | null>(null),
+    [pendingBatch, setPendingBatch] = useState<{ scope: string; batch: PendingRunBatch } | null>(null);
+  const batchInFlight = useRef(false);
+  const batchScope = org && session ? `trackrank:pending-run:${session.user.id}:${org}` : "";
+  const pendingRun = pendingBatch?.scope === batchScope ? pendingBatch.batch : null;
   const activeOrg = useRef(org);
   activeOrg.current = org;
+  useEffect(() => {
+    if (!batchScope) return;
+    try {
+      const saved = sessionStorage.getItem(batchScope);
+      setPendingBatch(saved ? { scope: batchScope, batch: JSON.parse(saved) as PendingRunBatch } : null);
+    } catch {
+      setPendingBatch(null);
+    }
+  }, [batchScope]);
   const isAdmin = ["owner", "admin"].includes(settings.role),
     canWrite = settings.role !== "viewer";
   const request = useCallback(
@@ -298,7 +319,9 @@ function App() {
       setBrands(results[1].brands);
       setPrompts(results[2].prompts);
       setRuns(results[3].runs);
-      setNextBefore(results[3].next_before);
+      setNextRunCursor(results[3].next_before_id
+        ? { before: results[3].next_before, beforeId: results[3].next_before_id }
+        : null);
       setSchedules(results[4].schedules);
       setSettings(results[5]);
       setWorkspace((current) =>
@@ -479,21 +502,64 @@ function App() {
       setTab("runs");
     });
   }
-  async function queuePromptBatch(ids:string[],samples:number) {
-    if (!ids.length || !confirm(`Queue ${ids.length * samples} independent provider runs (${ids.length} saved prompts × ${samples} samples)? Each engine variant and sample consumes its own run and DataForSEO charges.`)) return;
-    await action(async () => {
-      const result=await request("/runs/bulk","POST",{prompt_ids:ids,repetitions:samples,batch_key:crypto.randomUUID()});
-      setNotice(`${result.runs.length} of ${result.requested} runs queued. Existing concurrency and spending guardrails apply.`);
-      if(result.error)setError(result.error);
-      await load();if(result.runs.length)setTab("runs");
-    });
+  function savePendingRun(batch: PendingRunBatch | null) {
+    if (batch) sessionStorage.setItem(batchScope, JSON.stringify(batch));
+    else sessionStorage.removeItem(batchScope);
+    if (activeOrg.current === org) setPendingBatch(batch ? { scope: batchScope, batch } : null);
+  }
+  async function submitRunBatch(batch: PendingRunBatch) {
+    if (!batchScope || batchInFlight.current) return;
+    batchInFlight.current = true;
+    try {
+      await action(async () => {
+        savePendingRun(batch);
+        const { prompt_ids, repetitions, batch_key } = batch;
+        const result = await request("/runs/bulk", "POST", { prompt_ids, repetitions, batch_key });
+        savePendingRun(result.complete ? null : { ...batch, accepted: result.runs.length });
+        if (activeOrg.current !== org) return;
+        setNotice(`${result.runs.length} of ${result.requested} runs queued. Existing concurrency and spending guardrails apply.`);
+        if (result.error) setError(result.error);
+        await load();
+        if (result.complete && activeOrg.current === org) setTab("runs");
+      });
+    } finally {
+      batchInFlight.current = false;
+    }
+  }
+  async function queuePromptBatch(ids: string[], samples: number) {
+    if (!ids.length || !batchScope || batchInFlight.current) return;
+    if (ids.length * samples > 100) {
+      setError("Select at most 100 runs per batch. Reduce the selection or samples per prompt.");
+      return;
+    }
+    try {
+      const saved = sessionStorage.getItem(batchScope);
+      if (saved) {
+        setPendingBatch({ scope: batchScope, batch: JSON.parse(saved) as PendingRunBatch });
+        setError("Resolve the pending batch before starting another.");
+        return;
+      }
+    } catch {
+      setError("Enable browser session storage before queueing runs so an interrupted batch can be retried safely.");
+      return;
+    }
+    if (!confirm(`Queue ${ids.length * samples} independent provider runs (${ids.length} saved prompts × ${samples} samples)? Each engine variant and sample consumes its own run and DataForSEO charges.`)) return;
+    await submitRunBatch({ prompt_ids: ids, repetitions: samples, batch_key: crypto.randomUUID() });
   }
   async function runPrompt(p: Item) { await queuePromptBatch([p.id],1); }
   async function moreRuns() {
+    if (!nextRunCursor) return;
     await action(async () => {
-      const d = await request("/runs?before=" + nextBefore);
+      const query = new URLSearchParams({
+        before: String(nextRunCursor.before),
+        before_id: nextRunCursor.beforeId,
+      });
+      const d = await request("/runs?" + query);
+      if (activeOrg.current !== org) return;
       setRuns((current) => [...current, ...d.runs]);
-      setNextBefore(d.next_before);
+      setNextRunCursor(d.next_before_id
+        ? { before: d.next_before, beforeId: d.next_before_id }
+        : null);
     });
   }
   if (initializing)
@@ -1041,6 +1107,30 @@ function App() {
               )}
               {tab === "prompts" && (
                 <>
+                  {pendingRun && canWrite && (
+                    <Card>
+                      <CardContent>
+                        <h2>Pending run batch</h2>
+                        <p>
+                          {pendingRun.accepted === undefined
+                            ? "The batch has no confirmed result. Retry to check its status and queue only missing runs."
+                            : `${pendingRun.accepted} of ${pendingRun.prompt_ids.length * pendingRun.repetitions} runs queued. Retry with the original key to resume the batch.`}
+                        </p>
+                        <div className="form-actions">
+                          <Button disabled={busy} onClick={() => submitRunBatch(pendingRun)}>
+                            Retry pending batch
+                          </Button>
+                          <Button variant="outline" disabled={busy} onClick={() => {
+                            if (confirm("Discard this retry? Previously queued runs will continue, and queueing a new batch may incur additional provider charges.")) {
+                              void action(async () => savePendingRun(null));
+                            }
+                          }}>
+                            Discard retry
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
                   <Card>
                     <CardContent>
                       <div className="panel-title">
@@ -1230,7 +1320,7 @@ function App() {
                       </div>
                       {visiblePrompts.length>0 && canWrite && <div className="bulk-toolbar">
                         <label className="check-field"><input type="checkbox" aria-label="Select all saved prompts in this workspace" checked={selectedPromptIds.length>0 && visiblePrompts.every(p=>selectedPromptIds.includes(p.id))} onChange={e=>setSelectedPromptIds(e.target.checked?visiblePrompts.map(p=>p.id):[])} /> Select all shown ({visiblePrompts.length})</label><span>{selectedPromptIds.length} selected</span>
-                        <Button disabled={busy||!selectedPromptIds.length} onClick={()=>queuePromptBatch(selectedPromptIds,runSamples)}>Run selected — {selectedPromptIds.length*runSamples} runs</Button>
+                        <Button disabled={busy||!!pendingRun||!selectedPromptIds.length} onClick={()=>queuePromptBatch(selectedPromptIds,runSamples)}>Run selected — {selectedPromptIds.length*runSamples} runs</Button>
                         <Button variant="outline" disabled={!selectedPromptIds.length} onClick={()=>{setEditingScheduleSelection(false);setTab("schedules");}}>Schedule selected</Button>
                         <Button variant="outline" disabled={busy||!selectedPromptIds.length} onClick={()=>action(async()=>{await request("/prompts/bulk-settings","PATCH",{ids:selectedPromptIds,enabled:true});await load();setNotice("Selected prompts enabled.");})}>Enable selected</Button>
                         <Button variant="outline" disabled={busy||!selectedPromptIds.length} onClick={()=>action(async()=>{await request("/prompts/bulk-settings","PATCH",{ids:selectedPromptIds,enabled:false});await load();setNotice("Selected prompts paused; history retained.");})}>Pause selected</Button>
@@ -1271,6 +1361,7 @@ function App() {
                                       size="sm"
                                       disabled={
                                         busy ||
+                                        !!pendingRun ||
                                         !p.enabled ||
                                         !settings.dataforseo_configured
                                       }
@@ -2647,7 +2738,7 @@ function App() {
                     {runs.length} organization runs loaded. Charts and research
                     aggregate only loaded runs in the selected filters.
                   </p>
-                  {nextBefore && (
+                  {nextRunCursor && (
                     <Button
                       variant="outline"
                       size="sm"
