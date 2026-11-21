@@ -9,11 +9,8 @@ export function stripeClient(env: Env) {
   return new Stripe(env.STRIPE_SECRET_KEY, { httpClient: Stripe.createFetchHttpClient(), maxNetworkRetries: 2, timeout: 15000 });
 }
 export function paidStatus(status: string) { return status === "active" || status === "trialing"; }
-function checkoutEnabled(env: Env) {
-  return env.BILLING_ENABLED === "true" &&
-    env.BILLING_CHECKOUT_ENABLED === "true" &&
-    !!env.STRIPE_SECRET_KEY &&
-    (env.STRIPE_SECRET_KEY.includes("_test_") || env.BILLING_TAX_REVIEWED === "true");
+export function checkoutConfigured(env: Env) {
+  return env.BILLING_ENABLED === "true" && !!env.STRIPE_SECRET_KEY && !!env.STRIPE_STARTER_PRICE_ID?.trim();
 }
 export async function billingRoute(req: Request, env: Env, p: Principal, path: string) {
   if (p.keyId) throw new HttpError(403, "Sign in to manage billing");
@@ -25,7 +22,7 @@ export async function billingRoute(req: Request, env: Env, p: Principal, path: s
     const assignment = await one<Row>(env, "SELECT p.family FROM organization_plans a JOIN plan_versions p ON p.id=a.plan_version_id WHERE a.org_id=?", org);
     const freeTrial = assignment?.family === "trial";
     const claimed = await one(env, "SELECT user_id FROM account_trial_claims WHERE user_id=?", p.userId);
-    return json({ enabled: env.BILLING_ENABLED === "true", checkout_enabled: checkoutEnabled(env), ...state, has_billing_account: !!state, free_trial: trial, trial_eligible: !claimed && !state?.trial_used && assignment?.family === "pending", access_status: freeTrial ? Number(trial?.ends_at) > now() ? "free_trial" : "trial_expired" : assignment?.family === "pending" ? "choose_plan" : "assigned", owner: p.role === "owner" });
+    return json({ enabled: env.BILLING_ENABLED === "true", checkout_enabled: checkoutConfigured(env), ...state, has_billing_account: !!state, free_trial: trial, trial_eligible: !claimed && !state?.trial_used && assignment?.family === "pending", access_status: freeTrial ? Number(trial?.ends_at) > now() ? "free_trial" : "trial_expired" : assignment?.family === "pending" ? "choose_plan" : "assigned", owner: p.role === "owner" });
   }
   if (p.role !== "owner") throw new HttpError(403, "Only the organization owner can manage billing");
   if (req.method === "GET" && path === "/billing/alerts") return json({ alerts: await all(env, "SELECT id,kind,summary,created_at FROM billing_alerts WHERE org_id=? AND resolved_at IS NULL ORDER BY created_at DESC LIMIT 50", org) });
@@ -41,14 +38,14 @@ export async function billingRoute(req: Request, env: Env, p: Principal, path: s
     return json({ url: session.url });
   }
   if (path !== "/billing/checkout") throw new HttpError(404, "Not found");
-  if (!checkoutEnabled(env)) throw new HttpError(503, "New subscriptions are temporarily paused; existing billing management remains available");
-  const priceId = env.STRIPE_STARTER_PRICE_ID;
+  if (!checkoutConfigured(env)) throw new HttpError(503, "New subscriptions are temporarily paused; existing billing management remains available");
+  const priceId = env.STRIPE_STARTER_PRICE_ID?.trim();
   const mapping = priceId && await one<Row>(env, `SELECT p.* FROM billing_prices b JOIN plan_versions p ON p.id=b.plan_version_id WHERE b.price_id=? AND b.livemode=? AND p.status='active'`, priceId, Number(!env.STRIPE_SECRET_KEY?.includes('_test_')));
   if (!mapping || mapping.id !== "starter-v1") throw new HttpError(503, "Starter billing price is not configured");
   const price = await stripe.prices.retrieve(priceId!);
   if (!price.active || price.unit_amount !== mapping.price_cents || price.currency !== mapping.currency || price.recurring?.interval !== mapping.interval || price.recurring?.interval_count !== 1)
     throw new HttpError(503, "Stripe price does not match the plan revision");
-  const automaticTax = env.STRIPE_AUTOMATIC_TAX === "true";
+  const automaticTax = price.livemode || env.STRIPE_AUTOMATIC_TAX === "true";
   if (automaticTax) {
     const settings = await stripe.tax.settings.retrieve();
     const registrations = await stripe.tax.registrations.list({ status: "active", limit: 1 });

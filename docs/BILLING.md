@@ -5,9 +5,8 @@
 TrackRank is a direct SaaS merchant, not a Connect marketplace. Initial scope:
 14-day no-card application-managed trial; explicit paid upgrade to USD10/month Starter per organization, not per seat. Use Stripe-hosted Checkout
 (Payments + Billing), recurring subscription invoices and the customer portal
-(Invoicing). No standalone invoice editor is needed for this launch. Keep
-Stripe Tax configurable only after verified setup. Self-hosted deployment needs
-no Stripe account or keys and retains the free beta default.
+(Invoicing). Live Checkout always uses Stripe Tax with a verified registration
+and product tax code. Self-hosted deployment needs no Stripe account or keys.
 
 The requested Claude plugin marketplace installation failed. Added the Stripe
 HTTP MCP definition to Claude's local configuration; OAuth connection is not
@@ -83,12 +82,9 @@ Real test-card lifecycle and actual Stripe-signed CLI webhook evidence is under
 failed renewal, payment recovery, a real TEST refund, cancellation and repairing
 local drift. It is not a live payment and is not a production backup drill.
 
-Still external/live-blocked: live credentials/catalog/account activation,
-actual Tax registration decisions/settings and product tax code, a monitored
-operator alert recipient plus verified sender/delivery drill, support inbox
-receipt, production backup/restore and real auth/provider beta acceptance.
-Automatic tax remains disabled; no tax registrations were invented. Self-hosting
-remains free and independent. Checkout can be paused without disabling recovery.
+See the [billing operations runbook](BILLING-OPERATIONS.md) for live setup,
+acceptance and rollback. An empty Starter Price binding pauses new Checkout
+sessions while existing customers retain access to billing management.
 
 ## Verification
 

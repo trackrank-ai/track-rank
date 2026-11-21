@@ -113,26 +113,23 @@ test('risk events use Charge → PaymentIntent → Invoice Payment → Subscript
  assert.equal(sql.prepare("SELECT risk_hold FROM billing_customers WHERE org_id='org'").get()!.risk_hold,1);
 });
 
-test('paused checkout leaves portal and recovery status available',async()=>{
- const {env}=fixture();env.BILLING_CHECKOUT_ENABLED='false';
- const req=new Request('https://example.test',{method:'POST'});
- await assert.rejects(billingRoute(req,env,{userId:'alice',orgId:'org',role:'owner'},'/billing/checkout'),/temporarily paused/);
- assert.equal((await billingRoute(new Request('https://example.test'),env,{userId:'alice',orgId:'org',role:'owner'},'/billing')).status,200);
-});
-
-test('live checkout requires a documented tax review', async () => {
+test('missing Starter price pauses checkout while the customer portal stays available', async (t) => {
  const { env } = fixture();
- env.STRIPE_SECRET_KEY = 'sk_live_fixture';
  const principal = { userId: 'alice', orgId: 'org', role: 'owner' };
  const getState = async () => (await billingRoute(new Request('https://example.test'), env, principal, '/billing')).json() as Promise<{ checkout_enabled: boolean }>;
- const checkout = () => billingRoute(new Request('https://example.test', { method: 'POST' }), env, principal, '/billing/checkout');
+ const post = (path: string) => billingRoute(new Request('https://example.test', { method: 'POST' }), env, principal, path);
 
  assert.equal((await getState()).checkout_enabled, false);
- await assert.rejects(checkout(), /temporarily paused/);
-
- env.BILLING_TAX_REVIEWED = 'true';
+ await assert.rejects(post('/billing/checkout'), /temporarily paused/);
+ env.BASE_URL = 'https://example.test';
+ env.STRIPE_PORTAL_CONFIGURATION = 'bpc_test';
+ t.mock.method(globalThis, 'fetch', async (input: string) => {
+  assert.equal(new URL(input).pathname, '/v1/billing_portal/sessions');
+  return Response.json({ url: 'https://billing.stripe.com/example' });
+ });
+ assert.equal((await post('/billing/portal')).status, 200);
+ env.STRIPE_STARTER_PRICE_ID = 'price_test';
  assert.equal((await getState()).checkout_enabled, true);
- await assert.rejects(checkout(), /Starter billing price is not configured/);
 });
 
 test('expired sync lease cannot commit status, entitlement or event marker',async()=>{

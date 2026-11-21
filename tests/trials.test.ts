@@ -27,14 +27,16 @@ test('paid upgrade Checkout has no second trial and requires immediate payment, 
  try{const r=await billingRoute(new Request('https://test.example',{method:'POST'}),env,{userId:'owner',orgId:'org',role:'owner'},'/billing/checkout');assert.equal(r.status,200);assert.ok(checkoutBody);assert.equal(checkoutBody!.get('subscription_data[trial_period_days]'),null);assert.equal(checkoutBody!.get('payment_method_collection'),'always');assert.equal(checkoutBody!.get('metadata[trackrank_checkout_revision]'),'paid-after-trial-v3');assert.equal((await organizationPlan(env,'org')).version,'trial-v1','creating checkout is not proof of payment');}finally{globalThis.fetch=old;}
 });
 
-test('automatic tax checkout uses actual Stripe registration status', async (t) => {
- const { env } = setup();
- env.STRIPE_AUTOMATIC_TAX = 'true';
+test('live checkout uses automatic tax and checks actual Stripe registration status', async (t) => {
+ const { env, sql } = setup();
+ env.STRIPE_SECRET_KEY = 'sk_live_fixture';
+ env.STRIPE_STARTER_PRICE_ID = 'price_live';
+ sql.exec("INSERT INTO billing_prices VALUES('price_live','starter-v1',1)");
  let registered = false;
  let checkoutUsesTax = false;
  t.mock.method(globalThis, 'fetch', async (input: string, init?: RequestInit) => {
   const path = new URL(input).pathname;
-  if (path === '/v1/prices/price_test') return Response.json({ active: true, unit_amount: 1000, currency: 'usd', recurring: { interval: 'month', interval_count: 1 }, tax_behavior: 'exclusive', product: 'prod_test' });
+  if (path === '/v1/prices/price_live') return Response.json({ livemode: true, active: true, unit_amount: 1000, currency: 'usd', recurring: { interval: 'month', interval_count: 1 }, tax_behavior: 'exclusive', product: 'prod_test' });
   if (path === '/v1/tax/settings') return Response.json({ status: 'active' });
   if (path === '/v1/tax/registrations') return Response.json({ data: registered ? [{ id: 'taxreg_test' }] : [] });
   if (path === '/v1/products/prod_test') return Response.json({ tax_code: 'txcd_test' });

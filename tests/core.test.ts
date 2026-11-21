@@ -772,7 +772,6 @@ test("plan versions are immutable; retired customers are grandfathered and defau
 test("hosted organizations start one card-free trial while checkout is paused", async () => {
   const { env, sql } = fixture();
   env.BILLING_ENABLED = "true";
-  env.BILLING_CHECKOUT_ENABLED = "false";
   env.DEFAULT_PLAN_VERSION = "beta-v1";
 
   const first = await organization(env);

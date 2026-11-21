@@ -36,10 +36,9 @@ Primary sources checked:
 3. Configure Stripe's matching actual registration, business address and correct
    product tax code, then verify exclusive-price tax/address behavior in sandbox.
    Review B&O/reporting obligations separately from checkout sales-tax calculation.
-4. Only after the decision is documented set BILLING_TAX_REVIEWED=true. If using
-   Stripe automatic tax, verify active settings and registrations, then set
-   STRIPE_AUTOMATIC_TAX=true. Keep the $10 base price
-   exclusive of tax. Do not make up a tax code, registration date or exemption.
+4. Document the tax decision and confirm Stripe Tax settings and registrations
+   are active. Live Checkout uses Stripe Tax with the $10 base price exclusive
+   of tax. Verify the product tax code and registration effective dates.
 5. Complete the real-account production acceptance gates, then enable checkout
    for a controlled real-card Starter upgrade. Payment is due at checkout. The
    preceding 14-day TrackRank trial requires no card and ends without a charge.

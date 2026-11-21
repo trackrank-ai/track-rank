@@ -24,10 +24,8 @@ BILLING_ENABLED="false"
 # STRIPE_WEBHOOK_SECRET="" # Worker secret; separate per endpoint
 # STRIPE_STARTER_PRICE_ID=""
 # STRIPE_PORTAL_CONFIGURATION=""
-# Pause NEW checkouts without disabling webhooks, portal or reconciliation.
-BILLING_CHECKOUT_ENABLED="false"
 # Operational alert destination, separate from customer emails. Configure deliberately.
 # BILLING_ALERT_EMAIL=""
 BILLING_RECONCILE_BATCH="10"
-# Automatic tax requires verified business registrations, tax code and exclusive price.
+# Optional automatic tax for Stripe test mode. Live Checkout always uses automatic tax.
 STRIPE_AUTOMATIC_TAX="false"

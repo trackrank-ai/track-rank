@@ -88,7 +88,7 @@ Configure app-level Google/Resend/auth/encryption values as described at [/setup
 
 DataForSEO/OpenRouter credentials belong in **organization Settings**, not Worker bindings. Never use a shared platform-funded provider key as the default for customer workloads.
 
-Hosted billing starts a 14-day no-card trial for eligible new organizations. Local and self-hosted organizations use their configured plan. Paid checkout stays paused until the documented pre-enable checks pass. Verify the first controlled live upgrade separately using the [billing and release runbook](docs/BILLING-OPERATIONS.md).
+Hosted billing starts a 14-day no-card trial for eligible new organizations. Local and self-hosted organizations use their configured plan. For paid checkout, verify Stripe Tax and the candidate live `STRIPE_STARTER_PRICE_ID` before deploying it. An empty price binding pauses new Checkout sessions while billing management stays available. Follow the [billing and release runbook](docs/BILLING-OPERATIONS.md) for cutover and the first controlled purchase.
 
 ## License
 

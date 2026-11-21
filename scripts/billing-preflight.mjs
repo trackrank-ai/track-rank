@@ -13,7 +13,9 @@ const expectedLive=!!process.env.STRIPE_LIVE_SECRET_KEY || !key.includes('_test_
 const origin=new URL(config.vars.BASE_URL).origin;
 const results=[];
 const check=(name,passed,detail='')=>{results.push({name,passed,detail});};
-const price=await stripe.prices.retrieve(config.vars.STRIPE_STARTER_PRICE_ID,{expand:['product']});
+const priceId=config.vars.STRIPE_STARTER_PRICE_ID?.trim();
+if(!priceId)throw Error('Set STRIPE_STARTER_PRICE_ID in the candidate release configuration before running checkout preflight.');
+const price=await stripe.prices.retrieve(priceId,{expand:['product']});
 check('Price is USD10/month',price.unit_amount===1000&&price.currency==='usd'&&price.recurring?.interval==='month'&&price.recurring?.interval_count===1);
 const test=!price.livemode;
 check('Price matches key environment',price.livemode===expectedLive);
@@ -26,10 +28,9 @@ check('Enabled webhook endpoint exists',Boolean(endpoint));
 const required=['customer.subscription.created','customer.subscription.updated','customer.subscription.deleted','invoice.paid','invoice.payment_failed','checkout.session.completed','checkout.session.async_payment_succeeded','charge.refunded','charge.dispute.created','radar.early_fraud_warning.created'];
 check('Webhook covers lifecycle and risk events',Boolean(endpoint&&required.every(e=>endpoint.enabled_events.includes(e)||endpoint.enabled_events.includes('*'))));
 for(const path of ['/api/health','/pricing','/terms','/privacy']){const response=await fetch(origin+path);check(`Deployed ${path}`,response.status===200);}
-const tax=await stripe.tax.settings.retrieve();
-const registrations=await stripe.tax.registrations.list({status:'active',limit:100});
-check('Tax obligations reviewed',config.vars.BILLING_TAX_REVIEWED==='true',`Stripe Tax: ${tax.status}; active registrations: ${registrations.data.length}. Confirm the selling entity’s actual registration and collection obligations.`);
-if(config.vars.STRIPE_AUTOMATIC_TAX==='true'){
+if(!test||config.vars.STRIPE_AUTOMATIC_TAX==='true'){
+ const tax=await stripe.tax.settings.retrieve();
+ const registrations=await stripe.tax.registrations.list({status:'active',limit:100});
  const product=price.product;
  check('Automatic tax configured',tax.status==='active'&&registrations.data.length>0&&price.tax_behavior==='exclusive'&&typeof product!=='string'&&!product.deleted&&!!product.tax_code,`Settings: ${tax.status}; active registrations: ${registrations.data.length}. Requires a tax-exclusive Price and explicit Product tax code.`);
 }

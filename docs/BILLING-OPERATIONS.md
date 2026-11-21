@@ -32,30 +32,26 @@ confirmed. No invented registrations, head-office address or product tax code.
 4. Obtain live restricted credentials via the deployment's secret store; confirm
    Stripe account charges/payouts eligibility and required business details.
 5. Create live Product/Price (USD 10 monthly, tax-exclusive) and portal (invoices,
-   payment update and at-period-end cancellation). Confirm configured tax code
-   and real registrations before enabling automatic tax. Set BILLING_TAX_REVIEWED=true
-   only after reviewing actual obligations; if automatic tax is disabled, record
-   why no collection is currently required. Absence of registrations alone is not
-   evidence that collection is unnecessary. Test-mode IDs cannot be used.
-6. Insert live Price → starter-v1 mapping with livemode=1. Configure live Price
-   and portal IDs, live secret and unique production webhook signing secret.
+   payment update and at-period-end cancellation). Document tax obligations and
+   verify the product tax code and active registrations. Live Checkout always
+   uses Stripe Tax. Use live Price and portal IDs.
+6. Insert live Price → starter-v1 mapping with livemode=1. Configure the live
+   portal ID, live secret and unique production webhook signing secret.
 7. Register production `/api/billing/webhook` for the lifecycle, checkout and risk
    events listed in BILLING.md at SDK API version 2026-11-18.endive.
-8. Deploy with BILLING_ENABLED=true and BILLING_CHECKOUT_ENABLED=false; this keeps
-   recovery, webhooks and reconciliation online while new enrollments are paused.
+8. Deploy with hosted billing enabled and `STRIPE_STARTER_PRICE_ID=""` to keep
+   recovery, webhooks and reconciliation online while new Checkout sessions are paused.
 9. Set BILLING_ALERT_EMAIL to a monitored operator recipient and configure the
    existing verified email sender/Resend secret. Test delivery and retries with
    a benign billing alert. Do not send customer content, payment data or secrets.
 10. Publish/verify pricing, terms and privacy. Checkout requires terms consent and
     links to this deployment's terms/privacy. Confirm support inbox receipt.
-11. Run `npm run billing:preflight -- wrangler.jsonc` with the live key injected
-    by the deployment owner. It checks the candidate configuration before checkout
-    is enabled. Confirm the production journey in `production-journey.json`.
-    Checkout also requires `BILLING_TAX_REVIEWED=true` with a live key. To use
-    automatic tax, configure and verify Stripe first, then set
-    `STRIPE_AUTOMATIC_TAX=true`. Checkout checks the live Stripe registration,
-    product tax code, and tax-exclusive price.
-12. Once the live gates are cleared, enable paid checkouts and perform an explicitly
+11. Put the verified live Price ID from `stripe-live.json` into the candidate
+    production config. Run `npm run billing:preflight -- wrangler.jsonc` with the
+    live key injected by the deployment owner, before deploying that change.
+    Confirm legal tax obligations separately from the Stripe API checks. Record
+    the production journey in `production-journey.json`.
+12. Once the live gates are cleared, deploy the configured Price and perform an explicitly
     authorized real-card purchase. Paid upgrade charges immediately: no second
     Stripe trial. Verify signed-webhook entitlements, invoice and cancellation.
     Record the result in `production-journey.json` and run
@@ -121,8 +117,9 @@ follow Stripe's dispute process rather than independently issuing a duplicate re
 
 ## Rollback
 
-Pause NEW checkout with BILLING_CHECKOUT_ENABLED=false; do not disable portal,
-webhooks or reconciliation. Keep migrations/mappings/events and stable encryption
+Pause new Checkout sessions by deploying with `STRIPE_STARTER_PRICE_ID=""`. Expire
+already-open Stripe Checkout sessions if they must also stop accepting payments.
+Keep the portal, webhooks, reconciliation, migrations and mappings, and stable encryption
 keys. Do not roll back to code that treats a plan assignment as proof of payment.
 Reconcile all paid customers after recovery. Never restore a stale billing DB
 snapshot without reconciling Stripe state and preserving events since the snapshot.
@@ -148,7 +145,7 @@ HTTP402 for paid settings/API while the billing portal still returned HTTP200.
 No real funds, production user records or live subscription were involved.
 
 Edwin confirmed November 21, 2026: TrackRank has no sales-tax registrations yet.
-Automatic tax and the tax-review flag remained off at that time.
+Automatic tax was off at that time.
 No registrations were created. This fact alone does not establish that collection
 is unnecessary; actual registration/collection obligations still need review
 before live launch. Do not invent registrations or mark the tax preflight passed.
@@ -159,7 +156,9 @@ Live catalog IDs are recorded in `stripe-live.json`. The protected live key and
 signing secret are configured in the Worker. Charges/payouts are enabled on the
 merchant account; no live subscription or payment was created by setup.
 `BILLING_ENABLED=true` keeps billing management and reconciliation online;
-**`BILLING_CHECKOUT_ENABLED=false` keeps paid purchases paused**; eligible new organizations still receive a no-card trial.
+Paid purchases were paused at the time of this deployment. The current release
+uses an empty `STRIPE_STARTER_PRICE_ID` to pause new sessions; eligible new
+organizations still receive a no-card trial.
 
 Backups: the production database export was independently restored into SQLite
 with integrity checks. Original authentication/encryption secrets were exported
