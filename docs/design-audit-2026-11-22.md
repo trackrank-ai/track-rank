@@ -45,7 +45,7 @@ The Impeccable source scan returned one warning for Geist. The project explicitl
 ## Follow-up checks on the working branch
 
 - Browser checks confirmed that a sample field could be cleared and retyped as 5, valid bounds were accepted, invalid values were blocked, and bulk actions retained the selected variants.
-- The gap between the prompt filters and bulk controls increased from 0 to 12 px at widths from 320 to 1440 px. At 768 px, the schedule editor increased from 277 to 434 px and Research tabs no longer clipped.
+- The gap between an expanded engine variant’s settings and its Run and Delete actions increased from 0 to 12 px at widths from 320 to 1440 px. At 768 px, the engine settings editor widened from 277 to 434 px and the Research toolbar fit within the viewport.
 - Contrast, target sizing and public reflow are tracked against the baseline above. The audit score has not been recalculated for changes made during implementation.
 
 ## Recommended actions

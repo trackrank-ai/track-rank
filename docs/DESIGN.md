@@ -1,5 +1,7 @@
 # TrackRank design system
 
+The [November 2026 technical audit](design-audit-2026-11-22.md) records measured contrast, spacing and responsive behavior across the public site and authenticated app.
+
 ## Foundation
 
 Use shadcn/ui (New York / neutral, CSS-variable theming) and Tailwind CSS v4. Components are owned source in `src/components/ui`, added from the official registry using `npx shadcn@latest add <component>`. Configuration lives in `components.json`. Prefer these components over one-off primitives; use `cn` for class composition.
