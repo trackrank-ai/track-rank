@@ -338,7 +338,7 @@ export async function api(
   if (path === "/prompts" && method === "GET") {
     const w = u.searchParams.get("workspace");
     if (w) await belongs(env, "workspaces", org, w);
-    if (u.searchParams.get("view") === "library" || u.searchParams.has("tag") || u.searchParams.has("set"))
+    if (u.searchParams.get("view") === "library" || u.searchParams.has("tag") || u.searchParams.has("set") || u.searchParams.has("question_id"))
       return json(await listSavedPrompts(env, org, u.searchParams));
     return json({
       prompts: (await all(
@@ -503,6 +503,9 @@ export async function api(
       throw new HttpError(400, "Invalid run history cursor");
     }
     const { conditions, bindings } = await searchableHistoryWhere(env, org, u.searchParams);
+    const total = u.searchParams.has("research_type")
+      ? await one<{ count: number }>(env, "SELECT count(*) AS count FROM runs WHERE " + conditions.join(" AND "), ...bindings)
+      : undefined;
     if (timestamp !== null) {
       conditions.push("(created_at,id)<(?,?)");
       bindings.push(before, beforeId);
@@ -518,6 +521,7 @@ export async function api(
     const last = runs.length > pageSize ? runs[pageSize - 1] : null;
     return json({
       runs: runs.slice(0, pageSize).map(decodeRun),
+      ...(total ? { total_matches: total.count } : {}),
       next_before: last?.created_at ?? null,
       next_before_id: last?.id ?? null,
     });

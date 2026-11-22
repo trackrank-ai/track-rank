@@ -28,9 +28,38 @@ test("return paths stay inside the app and accept only supported navigation fiel
 test("filtered analytics and metric links retain their scope through sign-in", () => {
   const original = new URLSearchParams({
     org: "agency", workspace: "client", tab: "runs", set: "local-discovery", tags: "consideration,chicago-market",
-    location: "Chicago", engine: "google", from: "2026-11-01", to: "2026-11-20", trackedBrand: "client-brand", metric: "mention",
+    location: "Chicago", engine: "google", from: "2026-11-01", to: "2026-11-20", trackedBrand: "client-brand", compareBrand: "competitor",
+    metric: "compare_citation", trendMetric: "citation", evidenceDay: "2026-11-13",
   });
   const login = new URL(appLoginPath("?" + original, ""), "https://trackrank.invalid");
   const result = new URL(login.searchParams.get("next")!, login).searchParams;
   assert.deepEqual(Object.fromEntries(result), { ...Object.fromEntries(original), tags: "chicago-market,consideration" });
+});
+
+test("research groups and organization settings destinations survive sign-in", () => {
+  const cases: Record<string, string>[] = [
+    { org: "agency", workspace: "client", tab: "research", researchGroup: "page", researchType: "page", researchValue: "https://example.test/a", engine: "google" },
+    { org: "agency", tab: "settings", settingsSection: "billing" },
+  ];
+  for (const original of cases) {
+    const login = new URL(appLoginPath("?" + new URLSearchParams(original), ""), "https://trackrank.invalid");
+    const search = new URL(login.searchParams.get("next")!, login).searchParams;
+    assert.deepEqual(Object.fromEntries(search), original);
+  }
+});
+
+test("question detail and its filters survive the sign-in return", () => {
+  const original = new URLSearchParams({
+    org: "agency", workspace: "client", tab: "prompts", question: "question-123", questionView: "answers",
+    q: "first question", promptEngine: "gemini", promptSchedule: "active", promptBrand: "client", brand: "client",
+    from: "2026-11-01", to: "2026-11-20",
+  });
+  for (const search of [
+    original,
+    new URLSearchParams({ ...Object.fromEntries(original), tab: "runs", run: "answer-123", evidence: "citations" }),
+  ]) {
+    const login = new URL(appLoginPath("?" + search, ""), "https://trackrank.invalid");
+    const result = new URL(login.searchParams.get("next")!, login).searchParams;
+    assert.deepEqual(Object.fromEntries(result), Object.fromEntries(search));
+  }
 });

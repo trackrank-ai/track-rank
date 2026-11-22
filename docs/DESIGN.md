@@ -48,7 +48,7 @@ Use the shared bulk selection control for lists with bulk actions. Show the sele
 
 ## Shareable app navigation
 
-Give each authenticated section and shareable record a stable URL. Use the existing app search parameters for organization, workspace, section, and record identity. Add to that contract when creating a new destination. Use real links for navigation and keep loading and permission errors in the destination view. A shared URL must survive refresh, browser history, and sign-in. The server still checks membership and resource ownership. Keep credentials, invitation tokens, and other secrets out of shareable app queries.
+Give each authenticated section and shareable record a stable URL. Use the existing app search parameters for organization, workspace, section, and record identity. Add to that contract when creating a new destination. Use real links for navigation and keep loading and permission errors in the destination view. A shared URL must survive refresh, browser history, and sign-in. The server still checks membership and resource ownership. Keep credentials, invitation tokens, and other secrets out of shareable app queries. Sources and matching answers retain the workspace, report filters and selected research group. Organization settings links address a section of the owning organization and work independently of the selected workspace.
 
 ## Pricing and active trials
 
@@ -58,7 +58,7 @@ Active hosted trials show a nondismissible sticky accent banner above the app to
 
 ## Prompt creation and collection
 
-Default to one question per line. Show the parsed wording, repeated-line count, and per-engine matches before saving. Show a saved question once with its tracked engines. Saved wording is fixed. Keep engine settings available for individual variants and offer partial changes to execution mode, location and language for a selection. Make saved variants and recurring schedules distinct from one-time checks. Start with weekly timing and one sample, with timing changes and extra samples available on demand. Put schedule creation on Prompts and use Schedules to manage existing monitoring. A save receipt and a run batch each have a shareable organization/workspace URL. Run lists and CSV use the same URL-backed filters.
+Default to one question per line. Show the parsed wording, repeated-line count, and per-engine matches before saving. Lead with the saved question library and a **Create prompts** action that opens the paste and review flow. Show a saved question once with its tracked engines, most recent completed check, and an **Answers** link. Give question details shareable **Answers** and **Engine settings** views. Retain library filters through the detail links and browser history. Saved wording is fixed. Keep engine settings available for individual variants and offer partial changes to execution mode, location and language for a selection. Make saved variants and recurring schedules distinct from one-time checks. Start with weekly timing and one sample, with timing changes and extra samples available on demand. Put schedule creation on Prompts and use Schedules to manage existing monitoring. A save receipt and a run batch each have a shareable organization/workspace URL. Run lists and CSV use the same URL-backed filters.
 
 ## Design review and release · November 22, 2026
 

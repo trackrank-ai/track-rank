@@ -18,8 +18,11 @@ export type AnalyticsScope = {
   from?: string;
   to?: string;
   trackedBrand?: string;
+  compareBrand?: string;
 };
-export type AnswerMetric = "eligible" | "coverage" | "brand" | "mention" | "citation";
+export const answerMetrics = ["eligible", "coverage", "brand", "mention", "citation", "compare_mention", "compare_citation"] as const;
+export type AnswerMetric = typeof answerMetrics[number];
+export type TrendMetric = "mention" | "citation";
 
 export function analyticsScope(search: Record<string, unknown>): AnalyticsScope {
   const bounded = (value: unknown, max: number) =>
@@ -28,6 +31,8 @@ export function analyticsScope(search: Record<string, unknown>): AnalyticsScope 
   const day = (value: unknown) => typeof value === "string" && validDay(value) ? value : undefined;
   const { engine } = search;
   const tags = bounded(search.tags, 1020)?.split(",").map(normalizePromptTag);
+  const trackedBrand = id(search.trackedBrand);
+  const compareBrand = id(search.compareBrand);
   return {
     set: id(search.set),
     tags: tags && tags.length <= 20 && tags.every(validPromptTag) ? [...new Set(tags)].sort().join(",") : undefined,
@@ -35,7 +40,8 @@ export function analyticsScope(search: Record<string, unknown>): AnalyticsScope 
     location: bounded(search.location, 200),
     from: day(search.from),
     to: day(search.to),
-    trackedBrand: id(search.trackedBrand),
+    trackedBrand,
+    compareBrand: trackedBrand && trackedBrand !== compareBrand ? compareBrand : undefined,
   };
 }
 
@@ -43,7 +49,7 @@ export function analyticsQuery(scope: AnalyticsScope, workspace?: string) {
   const query = new URLSearchParams();
   if (workspace && workspace !== "all") query.set("workspace", workspace);
   for (const [key, value] of Object.entries(scope)) {
-    if (value) query.set(key === "trackedBrand" ? "tracked_brand" : key, value);
+    if (value) query.set(key === "trackedBrand" ? "tracked_brand" : key === "compareBrand" ? "compare_brand" : key, value);
   }
   return query;
 }

@@ -20,7 +20,7 @@ export async function analytics(env: Env, org: string, params: URLSearchParams) 
   const selected = currentPromptWhere(filters);
   const setWorkspace = filters.set ? "AND p.workspace_id=(SELECT workspace_id FROM prompt_sets WHERE org_id=p.org_id AND id=?)" : "";
   const rows = await all<{
-    kind: "total" | "day" | "brand" | "domain";
+    kind: "total" | "day" | "brand" | "domain" | "paired_day";
     key: string;
     samples: number;
     eligible_answers: number;
@@ -28,6 +28,8 @@ export async function analytics(env: Env, org: string, params: URLSearchParams) 
     citations: number;
     covered_prompts: number;
     selected_prompts: number;
+    compare_mentions: number;
+    compare_citations: number;
   }>(env, `WITH scoped AS MATERIALIZED (
       SELECT runs.id, runs.prompt_id, runs.workspace_id, runs.created_at, runs.config, runs.mentions, runs.citations,
         (${eligibleAnswer}) AS eligible
@@ -41,23 +43,31 @@ export async function analytics(env: Env, org: string, params: URLSearchParams) 
         ${brandOutcome(brandSnapshotId, "cited")} AS cited
       FROM scoped runs, ${brandSnapshot} AS snapshot WHERE runs.eligible AND ${brandSnapshotId} IS NOT NULL
     )
+    SELECT 'paired_day' AS kind,date(primary_sample.created_at/1000,'unixepoch') AS key,count(*) AS samples,
+      sum(primary_sample.mentioned) AS mentions,sum(primary_sample.cited) AS citations,
+      0 AS eligible_answers,0 AS covered_prompts,0 AS selected_prompts,
+      sum(other_sample.mentioned) AS compare_mentions,sum(other_sample.cited) AS compare_citations
+    FROM samples primary_sample JOIN samples other_sample ON other_sample.id=primary_sample.id
+    WHERE primary_sample.brand_id=? AND other_sample.brand_id=?
+    GROUP BY date(primary_sample.created_at/1000,'unixepoch')
+    UNION ALL
     SELECT 'total' AS kind,'' AS key,count(*) AS samples,0 AS mentions,0 AS citations,coalesce(sum(eligible),0) AS eligible_answers,
       count(DISTINCT CASE WHEN eligible THEN selected.question_id END) AS covered_prompts,
-      (SELECT count(DISTINCT question_id) FROM selected) AS selected_prompts
+      (SELECT count(DISTINCT question_id) FROM selected) AS selected_prompts,0,0
     FROM scoped LEFT JOIN selected ON selected.id=scoped.prompt_id AND selected.workspace_id=scoped.workspace_id
     UNION ALL
-    SELECT 'day',date(created_at/1000,'unixepoch'),count(*),sum(mentioned),sum(cited),0,0,0
+    SELECT 'day',date(created_at/1000,'unixepoch'),count(*),sum(mentioned),sum(cited),0,0,0,0,0
       FROM samples WHERE brand_id=? GROUP BY date(created_at/1000,'unixepoch')
     UNION ALL
-    SELECT 'brand',brand_id,count(*),sum(mentioned),sum(cited),0,0,0 FROM samples GROUP BY brand_id
+    SELECT 'brand',brand_id,count(*),sum(mentioned),sum(cited),0,0,0,0,0 FROM samples GROUP BY brand_id
     UNION ALL
-    SELECT 'domain',domain,answers,0,0,0,0,0 FROM (
+    SELECT 'domain',domain,answers,0,0,0,0,0,0,0 FROM (
       SELECT ${citationDomain} AS domain,count(DISTINCT runs.id) AS answers
       FROM scoped runs,${citations} AS citation WHERE runs.eligible AND domain IS NOT NULL AND domain<>''
       GROUP BY domain ORDER BY answers DESC,domain LIMIT 6
     )
     ORDER BY kind,key`, ...bindings, org, ...(filters.workspace ? [filters.workspace] : []),
-    ...(filters.set ? [filters.set] : []), ...selected.bindings, filters.tracked_brand ?? null);
+    ...(filters.set ? [filters.set] : []), ...selected.bindings, filters.tracked_brand ?? null, filters.compare_brand ?? null, filters.tracked_brand ?? null);
   const total = rows.find(row => row.kind === "total")!;
   const unrestricted = await searchableHistoryWhere(env, org, new URLSearchParams(filters.workspace ? { workspace: filters.workspace } : {}));
   const [outcomes, workspaceTotals] = await Promise.all([
@@ -80,6 +90,9 @@ export async function analytics(env: Env, org: string, params: URLSearchParams) 
     brands: rows.filter(row => row.kind === "brand").map(({ key, samples, mentions, citations }) => ({ id: key, samples, mentions, citations })),
     domains: rows.filter(row => row.kind === "domain").map(({ key, samples }) => ({ domain: key, answers: samples }))
       .sort((a, b) => b.answers - a.answers || a.domain.localeCompare(b.domain)),
+    comparison_daily: rows.filter(row => row.kind === "paired_day")
+      .map(({ key, samples, mentions, citations, compare_mentions, compare_citations }) =>
+        ({ day: key, samples, mentions, citations, compare_mentions, compare_citations })),
     daily: rows.filter(row => row.kind === "day").map(({ key, samples, mentions, citations }) => ({ day: key, samples, mentions, citations })),
   };
 }

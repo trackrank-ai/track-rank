@@ -65,6 +65,8 @@ The prompt library spans the organization when `workspace` is omitted. It suppor
 The first non-selection page of the prompt library and schedule list returns `total` for the current filters. Set `limit` to 1–100 for prompts or 1–500 for schedules to choose the page size. To gather every matching selection, keep the same filters and use `selection=1` for compact pages of up to 1,000 matches. Prompt selection groups contain variants reduced to `id` and `workspace_id`. Schedule selection rows include IDs and settings used to prefill shared edits. Forward both fields of `next_cursor` until it is null. Selection reads do not apply changes. Split large prompt settings, tags, move, and delete actions into requests of up to 100 IDs each.
 
 The prompt library and MCP `list_prompts` group matching variants by question. Each group contains `id` (the stable question ID), `workspace_id`, `text`, `created_at`, and `variants`. Saving identical wording in a workspace attaches the variants to the same question. Filters apply to variants before grouping, and totals and cursors count groups. Pass the variant IDs to existing bulk actions. Question wording is immutable. Save revised wording as a new prompt. You can archive the old variants and remove their schedules while keeping access to their runs.
+Use `GET /prompts?view=library&question_id=<id>&workspace=<id>` or `list_prompts` with `question_id` and `workspace_id` to read a question and its saved engine settings. A foreign question or mismatched workspace returns 404. Each full variant includes `latest_completed_at`, the most recent successful completion timestamp in searchable history, or null.
+
 
 Manual and scheduled runs share the organization's monthly allowance.
 
@@ -76,7 +78,7 @@ Provider-specific deletion preserves the other provider. Credential saves and pr
 
 Run history and CSV export support `workspace`, `engine`, `prompt_id`, `status`, `q` for prompt text or answer text, and `brand_id` for mentions or citations in eligible collected answers. Use the same filters on every page. CSV exports up to 1,000 matching runs.
 
-Research drill-downs use `research_type=domain|page|query` and an exact `research_value`. They match citations or grounding queries in collected AI answers.
+Research drill-downs use `research_type=domain|page|query` and an exact `research_value`. They match citations or grounding queries in eligible collected AI answers. `GET /runs` and MCP `list_runs` include `total_matches` for these filters. The total counts all matching runs before cursor pagination. Export uses the same matching rules and keeps its 1,000-row limit.
 
 Moving prompts preserves their IDs and schedules. The associated brand follows the prompt when the destination tracks it. Each queued or completed run retains the workspace it had when it was created.
 
@@ -85,6 +87,8 @@ Deleting a prompt or workspace archives its metadata for existing runs and remov
 Create a brand with `workspace_id` to track it in that workspace immediately. New runs match the brands explicitly tracked in their workspace. Listing schedules accepts an optional `workspace` filter.
 
 Run history sorts by creation timestamp and run ID, newest first. To get the next page, pass both `next_before` as `before` and `next_before_id` as `before_id`, with the same workspace filter. The MCP `list_runs` tool accepts the same cursor fields. Both response fields are null at the end. Provide both cursor parameters together.
+To open a question’s evidence, pass `question_id` to `GET /runs`, `GET /export`, `list_runs`, or `export_runs`. Run searches match current variants and their recorded workspace. The usual history, date, engine, set, and tag restrictions apply. Use `metric=eligible` for AI answers or `metric=brand&tracked_brand=<id>` for eligible answers that tracked the selected brand. `prompt_schedule=active|inactive` and `prompt_brand=<id>` optionally mirror the library’s variant filters. Open each record with `GET /runs/<id>` or `get_run` to inspect the full answer and citations. Historical evidence remains available from the general run history after a variant is moved or archived.
+
 
 Run requests replay the original admission without consuming more quota. Single-run keys reserve the `bulk:` and `schedule:` prefixes for internal use. Bulk admission accepts an optional `expected_workspace_id` from readiness to detect a move after review and an optional `receipt_id` to attach the batch to that save receipt. If the original run or a recorded batch sample has been removed, retrying its idempotency key returns HTTP 410.
 
@@ -162,8 +166,8 @@ Plan `limits.searchable_history_days`, when present, restricts Overview, researc
 - `GET /billing/admins`: owner-only member/delegation inventory, available while unpaid.
 - `PATCH /billing/admins`: interactive owner only, `{user_ids: string[1..100], action: "grant" | "revoke"}`. Validates the whole selection before mutation; foreign members reject the batch; owners inherently retain access. Membership deletion cascades grants.
 - `POST /billing/checkout` and `/billing/portal`: interactive owner or delegated billing admin only. A viewer with billing delegation can manage payments but cannot mutate workspace content.
-- `GET /billing/handoff`: authorized billing manager's sign-in-required app URL, never a Stripe bearer URL.
-- `GET /billing/admin-handoff`: owner-only sign-in-required delegation URL.
+- `GET /billing/handoff`: authorized billing manager's sign-in-required link to the organization’s Billing section, without a Stripe bearer URL.
+- `GET /billing/admin-handoff`: owner-only sign-in-required link to the organization’s Billing section for delegation.
 - MCP `get_billing`, `billing_management_handoff`, `billing_admin_handoff` mirror these read/recovery paths, including when product entitlement is paused. Keys cannot mutate billing permissions or create payment sessions; interactive confirmation is required.
 
 One organization has one account/subscription. Plan allowances and user roles are independent; custom enterprise terms use the existing versioned-plan operator workflow.
@@ -177,15 +181,19 @@ One organization has one account/subscription. Plan allowances and user roles ar
 | PATCH | `/prompt-sets/:id` | Rename with `{name}`. |
 | DELETE | `/prompt-sets/:id` | Delete the set and memberships. Prompts, schedules, runs and evidence remain. |
 | PATCH | `/prompt-sets/:id/members` | Update with `{action: "add" or "remove", prompt_ids}`. |
-| GET | `/analytics` | Full-period run and eligible-answer totals, prompt coverage, per-brand counts and selected-brand daily trends. |
+| GET | `/analytics` | Full-period run and eligible-answer totals, prompt coverage, per-brand counts, selected-brand daily trends and optional common-cohort comparison. |
 | GET | `/analytics/locations` | Up to 500 recorded collection locations in scope, ignoring the active location filter. |
-| GET | `/research` | Eligible answer total and up to 100 matching domains, pages, queries and detected brands per kind, ranked by distinct answers. |
+| GET | `/research` | Eligible answer total and up to 100 matching domains, pages, queries and detected brands per kind, ranked by distinct answers. A repeated domain, page, or query counts once per eligible answer. |
 
 Use `GET /prompts?view=library&set=<id>` for paginated members, including compact selection reads. Names are 1–100 characters. Create and membership updates accept up to 500 prompt IDs per request. Membership is unique per set and changes are idempotent. Every selected prompt must be active and in the set's workspace and organization before a request writes anything. For larger selections, follow creation with membership updates using the returned set ID. Read scope permits inspection and write scope is required for mutations.
 
 Analytics, research, run history and export share `workspace`, `set`, `tags` (comma-separated, all must match), `engine`, `location` (exact recorded location, case insensitive), and inclusive UTC `from` / `to` dates (`YYYY-MM-DD`). Dates use the run's recorded creation timestamp. Analytics and research default to 30 UTC dates ending today. Pass those same dates to history and export for reconciliation. All search endpoints apply the organization's rolling history limit. Set and tag filters use current prompts in the run's recorded workspace. Retagging and membership edits immediately affect historical results. Moving a prompt clears its set memberships. Unfiltered workspace aggregates include its earlier runs in their original workspace.
 
 `tracked_brand` selects the brand for daily trends. Brand totals count successful samples with an AI answer and that brand in the recorded run configuration. Mention and citation counts use the recorded match outcomes. Prompt coverage counts current selected prompts with at least one eligible answer in scope. Its denominator is the current set/tag selection across the workspace. Recorded engine, location and date narrow the evidence for coverage. History and export accept `metric=eligible|coverage|brand|mention|citation` to retrieve the contributing runs. `brand`, `mention`, and `citation` also require `tracked_brand`. The existing history `brand_id` matches eligible runs that mentioned or cited a brand. Research item filters continue to use `research_type` and `research_value` on run history.
+
+Pass a distinct `compare_brand` with `tracked_brand` to get `comparison_daily`. Each day reports `samples` (eligible answers that tracked both brands at collection time), `mentions` and `citations` for the selected brand, and `compare_mentions` and `compare_citations` for the comparison brand. Days without a shared eligible answer are omitted. `daily`, `brands`, and collection outcomes keep their original cohorts. In history and export, use both brand parameters with `metric=brand` for the shared denominator, `metric=mention|citation` for the selected brand’s numerators, or `metric=compare_mention|compare_citation` for the comparison brand’s numerators. Use the report dates or an individual UTC day when following a trend point. A zero numerator with a positive denominator measures 0%; an empty denominator represents no eligible answers.
+
+The Overview `organic` outcome links to `outcome=organic` for completed runs that recorded organic results without an AI answer. Its `no_answer` outcome links to `outcome=no_evidence` for completed runs with neither.
 
 MCP mirrors these endpoints with `list_prompt_sets`, `create_prompt_set`, `rename_prompt_set`, `delete_prompt_set`, `update_prompt_set_members`, `get_overview`, `list_collection_locations`, `get_research_summary`, `list_runs` and `export_runs`. MCP uses `workspace_id` for workspace, `set` for the set filter, `set_id` for mutations and a string array for `tags`. Confirm with the user before deleting a set.
 
@@ -207,4 +215,4 @@ For a combined submission send `prompts` with the save fields and UUID `operatio
 
 Schedule creation accepts `only_unscheduled: true` to skip prompts that have an existing schedule. Bulk schedule edits apply only supplied fields. Use `first_time` to update the first local time and keep other slots, or `times` to replace the entire list. Use the stored schedule IDs to resume paused monitoring explicitly.
 
-Run history and CSV accept `outcome=pending|failed|uncertain|organic|no_answer|eligible`. Organic-only results are included in `no_answer` and excluded from eligible answer metrics. Overview reports outcome counts, plus whether searchable runs exist in the workspace without report filters. The prompt library accepts `tracked_brand` and optional `from` / `to` dates for mention fractions and returns the latest collection in the searchable window. Only eligible runs with that brand in their snapshot contribute to the fraction.
+Run history and CSV accept `outcome=pending|failed|uncertain|organic|no_answer|no_evidence|eligible`. Organic-only results are included in `no_answer` and excluded from eligible answer metrics. Overview reports outcome counts, plus whether searchable runs exist in the workspace without report filters. The prompt library accepts `tracked_brand` and optional `from` / `to` dates for mention fractions and returns the latest collection in the searchable window. Only eligible runs with that brand in their snapshot contribute to the fraction.

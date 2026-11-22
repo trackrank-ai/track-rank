@@ -411,7 +411,7 @@ test("full-period analytics reconciles with paged run history, research, and CSV
       JSON.stringify({ engine: "google", location_name: location, brands: tracked ? [{ id: "client" }] : [] }),
       "succeeded", hasAnswer,
       JSON.stringify([{ brand_id: "client", mentioned: mention, cited }]),
-      JSON.stringify([{ domain: "example.test", url: "https://example.test/", title: "Example" }]),
+      JSON.stringify([{ domain: "example.test", url: "https://example.test/", title: "Example" }, { domain: "example.test", url: "https://example.test/another" }]),
       '["chicago","chicago"]', id);
   for (let index = 0; index < 102; index++) write("sample-" + index, { mention: index < 101, cited: index === 101 });
   write("untracked", { tracked: false });
@@ -441,7 +441,16 @@ test("full-period analytics reconciles with paged run history, research, and CSV
   const summary = await get("/research?" + filters);
   assert.equal(summary.answers, 103);
   assert.equal(summary.items.find((item: any) => item.kind === "query").count, 103);
-  assert.equal((await get("/runs?" + filters + "&research_type=domain&research_value=example.test")).runs.length, 100);
+  const sourceMatches = filters + "&research_type=domain&research_value=example.test";
+  const firstSourcePage = await get("/runs?" + sourceMatches);
+  const lastSourcePage = await get("/runs?" + sourceMatches + `&before=${firstSourcePage.next_before}&before_id=${firstSourcePage.next_before_id}`);
+  const domainCount = summary.items.find((item: any) => item.kind === "domain" && item.value === "example.test").count;
+  assert.equal(firstSourcePage.runs.length, 100);
+  assert.equal(firstSourcePage.runs.length + lastSourcePage.runs.length, domainCount);
+  assert.equal(firstSourcePage.total_matches, domainCount);
+  assert.equal(lastSourcePage.total_matches, domainCount);
+  const sourceCsv = await (await call("/export?" + sourceMatches)).text();
+  assert.equal(sourceCsv.split("\r\n").length - 1, domainCount);
   assert.equal((await get("/analytics?workspace=source&from=" + start)).total_runs, 105);
   await call("/prompts/bulk-tags", { ids: ["prompt"], tags: ["chicago-market"], action: "remove" }, undefined, "PATCH");
   assert.equal((await get("/analytics?" + filters)).total_runs, 0);
@@ -451,4 +460,115 @@ test("full-period analytics reconciles with paged run history, research, and CSV
   assert.equal((await get("/analytics?workspace=target")).total_runs, 1);
   await assert.rejects(call("/analytics?workspace=foreign"), { status: 404 });
   await assert.rejects(call("/analytics?from=2026-02-30"), { status: 400 });
+});
+
+test("comparison rates, outcome counts and matching evidence use recorded run cohorts across REST and MCP", async () => {
+  const { sql, env, call } = setup();
+  const { mcp } = await import("../src/server/mcp");
+  const { hashToken } = await import("../src/server/crypto");
+  const key = "trk_comparison_fixture";
+  sql.prepare(`INSERT INTO api_keys(id,org_id,user_id,name,prefix,token_hash,scopes,expires_at,created_at)
+    VALUES('comparison-key','org','owner','Agent','trk',?,'["read"]',?,0)`).run(await hashToken(key), Date.now() + 60000);
+  const later = Date.now();
+  const earlier = later - 86400000;
+  const from = new Date(earlier).toISOString().slice(0, 10);
+  const to = new Date(later).toISOString().slice(0, 10);
+  const insert = sql.prepare(`INSERT INTO runs(id,org_id,prompt_id,workspace_id,prompt_text,config,status,
+    has_answer,mentions,organic_results,idempotency_key,created_at,updated_at)
+    VALUES(?,'org','prompt','source','Question',?,?,?,?,?,?,?,?)`);
+  function run(id: string, time: number, {
+    status = "succeeded", answer = 1, organic = false, competitor = true, engine = "google",
+    mention = false, cite = false, competitorCite = false,
+  } = {}) {
+    const brands = [{ id: "client" }, ...(competitor ? [{ id: "rival" }] : [])];
+    const mentions = [{ brand_id: "client", mentioned: mention, cited: cite }, { brand_id: "rival", cited: competitorCite }];
+    insert.run(id, JSON.stringify({ engine, brands }), status, answer, JSON.stringify(mentions), organic ? "[{}]" : "[]", id, time, time);
+  }
+  run("before-rival", earlier, { competitor: false, mention: true, competitorCite: true });
+  run("both-cited", later, { cite: true, competitorCite: true });
+  run("both-unmentioned", later);
+  run("organic-only", later, { answer: 0, organic: true });
+  run("no-answer", later, { answer: 0 });
+  run("failed", later, { status: "failed" });
+  run("other-engine", later, { engine: "gemini" });
+  const filters = { workspace: "source", from, to, engine: "google", tracked_brand: "client", compare_brand: "rival" };
+  const rest = (path: string, extra: Record<string, string> = {}) => call(path + "?" + new URLSearchParams({ ...filters, ...extra }));
+  async function tool(name: string, extra: Record<string, string> = {}) {
+    const { workspace, ...args } = filters;
+    const request = new Request("https://example.test/mcp", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: { workspace_id: workspace, ...args, ...extra } } }),
+    });
+    const payload = await (await mcp(request, env, { waitUntil() {} } as any)).json() as any;
+    assert.equal(payload.result.isError, false, payload.result.content[0].text);
+    return payload.result.content[0].text;
+  }
+  const report = await (await rest("/analytics")).json() as any;
+  assert.deepEqual(JSON.parse(await tool("get_overview")), report);
+  assert.deepEqual(report.outcomes, { eligible: 3, failed: 1, no_answer: 1, organic: 1 });
+  assert.equal(report.total_runs, 6);
+  assert.equal(report.daily.reduce((sum: number, day: any) => sum + day.samples, 0), 3);
+  assert.deepEqual(report.comparison_daily, [{
+    day: to, samples: 2, mentions: 0, citations: 1, compare_mentions: 0, compare_citations: 1,
+  }]);
+  for (const [metric, ids] of Object.entries({
+    brand: ["both-unmentioned", "both-cited"], mention: [],
+    citation: ["both-cited"], compare_citation: ["both-cited"],
+  })) {
+    const history = await (await rest("/runs", { metric })).json() as any;
+    assert.deepEqual(history.runs.map((row: any) => row.id), ids);
+    assert.deepEqual(JSON.parse(await tool("list_runs", { metric })), history);
+    const csv = await (await rest("/export", { metric })).text();
+    assert.equal(await tool("export_runs", { metric }), csv);
+    assert.equal(csv.split("\r\n").length, ids.length + 1);
+  }
+  for (const [outcome, id] of [["organic", "organic-only"], ["no_evidence", "no-answer"], ["failed", "failed"]]) {
+    const { runs } = await (await rest("/runs", { outcome })).json() as any;
+    assert.deepEqual(runs.map((row: any) => row.id), [id]);
+  }
+  const missing = await (await rest("/runs", { outcome: "no_answer" })).json() as any;
+  assert.deepEqual(new Set(missing.runs.map((row: any) => row.id)), new Set(["organic-only", "no-answer"]));
+  assert.deepEqual((await (await rest("/analytics", { to: from })).json() as any).comparison_daily, []);
+  await assert.rejects(rest("/analytics", { compare_brand: "client" }), { status: 400 });
+  await assert.rejects(rest("/runs", { compare_brand: "", metric: "compare_mention" }), { status: 400 });
+  await assert.rejects(rest("/runs", { workspace: "foreign", metric: "brand" }), { status: 404 });
+});
+
+test("question answers reconcile with the library while remaining scoped to current workspace variants", async () => {
+  const { sql, call } = setup();
+  sql.exec(`INSERT INTO prompts(id,org_id,workspace_id,text,engine,created_at,updated_at,tags) VALUES
+    ('gemini','org','source','First question','gemini',1,1,'["research"]'),
+    ('copy','org','target','First question','gemini',1,1,'["research"]');
+    UPDATE prompts SET tags='["research"]' WHERE id='prompt';`);
+  const now = Date.now();
+  const day = new Date(now).toISOString().slice(0, 10);
+  const insert = sql.prepare(`INSERT INTO runs(id,org_id,prompt_id,workspace_id,prompt_text,config,status,answer_text,citations,mentions,has_answer,idempotency_key,created_at,updated_at)
+    VALUES(?,'org',?,?,'First question',?,?,'Recorded answer','[{"url":"https://example.test/source"}]',?,?,?,?,?)`);
+  function run(id: string, prompt: string, workspace: string, engine: string, brand: string, mentioned: boolean, status = "succeeded", hasAnswer = 1) {
+    insert.run(id, prompt, workspace, JSON.stringify({ engine, brands: [{ id: brand, name: "Client" }] }), status,
+      JSON.stringify([{ brand_id: brand, mentioned }]), hasAnswer, id, now, now);
+  }
+  run("match-chatgpt", "prompt", "source", "chatgpt", "client", false);
+  run("match-gemini", "gemini", "source", "gemini", "client", true);
+  run("legacy", "gemini", "source", "gemini", "other", false);
+  run("failed", "gemini", "source", "gemini", "client", true, "failed");
+  run("no-answer", "gemini", "source", "gemini", "client", true, "succeeded", 0);
+  run("other-question", "alt", "source", "gemini", "client", true);
+  run("wrong-workspace", "gemini", "target", "gemini", "client", true);
+  run("workspace-copy", "copy", "target", "gemini", "client", true);
+  const question = sql.prepare("SELECT question_id FROM prompts WHERE id='prompt'").get()?.question_id;
+  const foreign = sql.prepare("SELECT question_id FROM prompts WHERE id='foreign-prompt'").get()?.question_id;
+  const library = await (await call(`/prompts?question_id=${question}&workspace=source&engine=gemini&tracked_brand=client&from=${day}&to=${day}`, undefined, "viewer")).json() as any;
+  assert.equal(library.prompts.length, 1);
+  assert.equal(library.prompts[0].variants[0].latest_completed_at, now);
+  assert.deepEqual(library.prompts[0].variants[0].brand_period, { samples: 1, mentions: 1 });
+  const query = `?question_id=${question}&engine=gemini&workspace=source&metric=brand&tracked_brand=client&tags=research&from=${day}&to=${day}`;
+  const answers = await (await call("/runs" + query, undefined, "viewer")).json() as any;
+  assert.deepEqual(answers.runs.map((row: any) => row.id), ["match-gemini"]);
+  assert.equal(answers.runs[0].citations[0].url, "https://example.test/source");
+  assert.match(await (await call("/export" + query)).text(), /match-gemini/);
+  await assert.rejects(call(`/runs?question_id=${question}&workspace=target`), { status: 404 });
+  await assert.rejects(call(`/runs?question_id=${foreign}`), { status: 404 });
+  await assert.rejects(call(`/prompts?question_id=${foreign}`), { status: 404 });
 });

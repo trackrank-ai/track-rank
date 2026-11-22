@@ -1,4 +1,4 @@
-import { brandOutcome, brandSnapshot, brandSnapshotId, eligibleAnswer } from "./run-history";
+import { activePromptSchedule, associatedPromptBrand, brandOutcome, brandSnapshot, brandSnapshotId, eligibleAnswer } from "./run-history";
 import { organizationPlan } from "./plans";
 import { defaultPeriod, DAY_MS, validDay } from "../lib/analytics-filters";
 import { promptSetPredicate, requirePromptSet, setId } from "./prompt-sets";
@@ -9,6 +9,7 @@ import { all, one, now, HttpError, type Env, type Row } from "./types";
 export const listPageLimit = z.number().int().min(1);
 const libraryFilters = z.object({
   workspace: z.string().min(1).max(100).optional(),
+  question_id: setId.optional(),
   q: z.string().trim().max(200).default(""),
   engine: z.enum(["chatgpt", "gemini", "google"]).optional(),
   schedule: z.enum(["active", "inactive"]).optional(),
@@ -35,6 +36,13 @@ export async function listSavedPrompts(env: Env, org: string, params: URLSearchP
     conditions.push("p.workspace_id=?");
     values.push(filters.workspace);
   }
+  if (filters.question_id) {
+    const question = await one(env, `SELECT id FROM prompt_questions WHERE org_id=? AND id=?${filters.workspace ? " AND workspace_id=?" : ""}`,
+      org, filters.question_id, ...(filters.workspace ? [filters.workspace] : []));
+    if (!question) throw new HttpError(404, "Question not found");
+    conditions.push("p.question_id=?");
+    values.push(filters.question_id);
+  }
   if (filters.set) {
     await requirePromptSet(env, org, filters.set, filters.workspace);
     conditions.push(promptSetPredicate("p"));
@@ -55,14 +63,11 @@ export async function listSavedPrompts(env: Env, org: string, params: URLSearchP
     values.push(filters.engine);
   }
   if (filters.brand) {
-    conditions.push(`(p.brand_id=? OR (p.brand_id IS NULL AND EXISTS(
-      SELECT 1 FROM workspaces w WHERE w.org_id=p.org_id AND w.id=p.workspace_id AND w.brand_id=?
-    )))`);
+    conditions.push(associatedPromptBrand);
     values.push(filters.brand, filters.brand);
   }
-  const activeSchedule = "EXISTS(SELECT 1 FROM schedules s WHERE s.org_id=p.org_id AND s.prompt_id=p.id AND s.enabled=1)";
-  if (filters.schedule === "active") conditions.push(activeSchedule);
-  if (filters.schedule === "inactive") conditions.push("NOT (" + activeSchedule + ")");
+  if (filters.schedule === "active") conditions.push(activePromptSchedule);
+  if (filters.schedule === "inactive") conditions.push("NOT (" + activePromptSchedule + ")");
   const scope = conditions.join(" AND ");
   const total = filters.before === undefined && !filters.selection
     ? one<{ total: number }>(env,
@@ -79,15 +84,17 @@ export async function listSavedPrompts(env: Env, org: string, params: URLSearchP
   const runScope = "runs.org_id=p.org_id AND runs.prompt_id=p.id AND runs.workspace_id=p.workspace_id";
   const columns = filters.selection
     ? "p.id, p.workspace_id, p.created_at"
-    : `p.*, (${activeSchedule}) AS actively_scheduled,
+    : `p.*, (${activePromptSchedule}) AS actively_scheduled,
        (SELECT json_object('id',id,'status',status,'has_answer',has_answer,'has_organic',json_array_length(organic_results)>0,'created_at',created_at)
         FROM runs WHERE ${runScope} AND created_at>=? ORDER BY created_at DESC,id DESC LIMIT 1) AS latest_collection,
+       (SELECT updated_at FROM runs WHERE ${runScope} AND status='succeeded' AND created_at>=?
+         ORDER BY updated_at DESC,id DESC LIMIT 1) AS latest_completed_at,
        (SELECT id FROM runs WHERE ${runScope} AND ${eligibleAnswer} AND created_at>=?
          ORDER BY created_at DESC,id DESC LIMIT 1) AS latest_answer_id${filters.tracked_brand ? `,
        (SELECT json_object('samples',count(*),'mentions',coalesce(sum(${brandOutcome("?", "mentioned")}),0))
         FROM runs WHERE ${runScope} AND ${eligibleAnswer} AND created_at>=? AND created_at<?
         AND EXISTS (SELECT 1 FROM ${brandSnapshot} AS snapshot WHERE ${brandSnapshotId}=?)) AS brand_period` : ""}`;
-  const historyParams = filters.selection ? [] : [historyFloor, historyFloor, ...(filters.tracked_brand
+  const historyParams = filters.selection ? [] : [historyFloor, historyFloor, historyFloor, ...(filters.tracked_brand
     ? [filters.tracked_brand, start, end, filters.tracked_brand] : [])];
   const [rows, tags, count] = await Promise.all([
     all<Row>(env, `WITH matching AS (

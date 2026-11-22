@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { HttpError } from "./types";
 import { now, one, required, type Env } from "./types";
-import { DAY_MS, validDay } from "../lib/analytics-filters";
+import { answerMetrics, DAY_MS, validDay } from "../lib/analytics-filters";
 import { promptTags } from "./prompt-tags";
 import { promptSetPredicate, requirePromptSet, setId } from "./prompt-sets";
 import { organizationPlan } from "./plans";
@@ -13,6 +13,14 @@ export async function searchableHistoryWhere(env: Env, org: string, params: URLS
   else if (filters.workspace) required(await one(env,
     "SELECT id FROM workspaces WHERE org_id=? AND id=?", org, filters.workspace));
   const where = historyWhere(org, filters);
+  if (filters.question_id) {
+    const question = required(await one<{ workspace_id: string }>(env,
+      "SELECT workspace_id FROM prompt_questions WHERE org_id=? AND id=?" +
+        (filters.workspace ? " AND workspace_id=?" : ""),
+      org, filters.question_id, ...(filters.workspace ? [filters.workspace] : [])));
+    where.conditions.push("runs.workspace_id=?");
+    where.bindings.push(question.workspace_id);
+  }
   const { limits } = await organizationPlan(env, org);
   if (limits.searchable_history_days !== undefined) {
     where.conditions.push("runs.created_at>=?");
@@ -32,10 +40,14 @@ export const scopeFilters = z.object({
 });
 export const runHistoryFilters = scopeFilters.extend({
   workspace: setId.optional(),
-  metric: z.enum(["eligible", "coverage", "brand", "mention", "citation"]).optional(),
+  compare_brand: setId.optional(),
+  metric: z.enum(answerMetrics).optional(),
+  question_id: setId.optional(),
+  prompt_schedule: z.enum(["active", "inactive"]).optional(),
+  prompt_brand: setId.optional(),
   prompt_id: z.string().min(1).max(100).optional(),
   q: z.string().trim().max(200).optional(),
-  outcome: z.enum(["pending", "failed", "uncertain", "organic", "no_answer", "eligible"]).optional(),
+  outcome: z.enum(["pending", "failed", "uncertain", "organic", "no_answer", "no_evidence", "eligible"]).optional(),
   status: z.enum(["queued", "submitting", "submitted", "succeeded", "failed", "uncertain"]).optional(),
   brand_id: z.string().min(1).max(100).optional(),
   research_type: z.enum(["domain", "page", "query"]).optional(),
@@ -52,18 +64,27 @@ export function parseHistoryFilters(params: URLSearchParams) {
   if (filters.from && filters.to && filters.from > filters.to)
     throw new HttpError(400, "The start date must be on or before the end date");
   if (!!filters.research_type !== !!filters.research_value) throw new HttpError(400, "Choose a research item");
-  if (filters.metric && ["brand", "mention", "citation"].includes(filters.metric) && !filters.tracked_brand)
+  if ((filters.prompt_schedule || filters.prompt_brand) && !filters.question_id)
+    throw new HttpError(400, "Choose a question before filtering its variants");
+  if (filters.metric && filters.metric !== "eligible" && filters.metric !== "coverage" && !filters.tracked_brand)
     throw new HttpError(400, "Choose a tracked brand");
+  if (filters.compare_brand && (!filters.tracked_brand || filters.compare_brand === filters.tracked_brand))
+    throw new HttpError(400, "Choose two distinct tracked brands");
+  if (filters.metric?.startsWith("compare_") && !filters.compare_brand)
+    throw new HttpError(400, "Choose a comparison brand");
   return filters;
 }
 
 export const eligibleAnswer = "runs.status='succeeded' AND runs.has_answer=1";
+const missingAnswer = "runs.status='succeeded' AND runs.has_answer=0";
+const hasOrganic = "coalesce(json_array_length(runs.organic_results),0)>0";
 export const outcomePredicates = {
   pending: "runs.status IN ('queued','submitting','submitted')",
   failed: "runs.status='failed'",
   uncertain: "runs.status='uncertain'",
-  organic: "runs.status='succeeded' AND runs.has_answer=0 AND json_array_length(runs.organic_results)>0",
-  no_answer: "runs.status='succeeded' AND runs.has_answer=0",
+  organic: `${missingAnswer} AND ${hasOrganic}`,
+  no_answer: missingAnswer,
+  no_evidence: `${missingAnswer} AND NOT (${hasOrganic})`,
   eligible: eligibleAnswer,
 };
 export const runConfig = "CASE WHEN json_valid(runs.config) THEN runs.config ELSE '{}' END";
@@ -74,6 +95,12 @@ export function brandOutcome(brand: string, field: "mentioned" | "cited") {
   return `EXISTS (SELECT 1 FROM ${runMentions} AS mention WHERE CASE WHEN mention.type='object' THEN
     json_extract(mention.value,'$.brand_id')=${brand} AND json_extract(mention.value,'$.${field}')=1 END)`;
 }
+
+export const activePromptSchedule =
+  "EXISTS(SELECT 1 FROM schedules s WHERE s.org_id=p.org_id AND s.prompt_id=p.id AND s.enabled=1)";
+export const associatedPromptBrand = `(p.brand_id=? OR (p.brand_id IS NULL AND EXISTS(
+  SELECT 1 FROM workspaces w WHERE w.org_id=p.org_id AND w.id=p.workspace_id AND w.brand_id=?
+)))`;
 
 export function currentPromptWhere(filters: z.output<typeof runHistoryFilters>) {
   const conditions = ["p.archived_at IS NULL"];
@@ -96,8 +123,19 @@ function historyWhere(org: string, filters: z.output<typeof runHistoryFilters>) 
     conditions.push("runs.workspace_id=?");
     bindings.push(filters.workspace);
   }
-  if (filters.set || filters.tags?.length || filters.metric === "coverage") {
+  if (filters.question_id || filters.set || filters.tags?.length || filters.metric === "coverage") {
     const selected = currentPromptWhere(filters);
+    if (filters.question_id) {
+      selected.conditions.push("p.question_id=?");
+      selected.bindings.push(filters.question_id);
+    }
+    if (filters.prompt_schedule) {
+      selected.conditions.push(filters.prompt_schedule === "active" ? activePromptSchedule : "NOT " + activePromptSchedule);
+    }
+    if (filters.prompt_brand) {
+      selected.conditions.push(associatedPromptBrand);
+      selected.bindings.push(filters.prompt_brand, filters.prompt_brand);
+    }
     conditions.push(`EXISTS (SELECT 1 FROM prompts p WHERE p.org_id=runs.org_id AND p.id=runs.prompt_id
       AND p.workspace_id=runs.workspace_id AND ${selected.conditions.join(" AND ")})`);
     bindings.push(...selected.bindings);
@@ -119,12 +157,15 @@ function historyWhere(org: string, filters: z.output<typeof runHistoryFilters>) 
     bindings.push(Date.parse(filters.to) + DAY_MS);
   }
   if (filters.metric) conditions.push(eligibleAnswer);
-  if (filters.metric && ["brand", "mention", "citation"].includes(filters.metric)) {
-    conditions.push(`EXISTS (SELECT 1 FROM ${brandSnapshot} AS snapshot WHERE ${brandSnapshotId}=?)`);
-    bindings.push(filters.tracked_brand);
-    if (filters.metric === "mention" || filters.metric === "citation") {
-      conditions.push(brandOutcome("?", filters.metric === "mention" ? "mentioned" : "cited"));
-      bindings.push(filters.tracked_brand);
+  if (filters.metric && filters.metric !== "eligible" && filters.metric !== "coverage") {
+    for (const brand of [filters.tracked_brand, filters.compare_brand]) {
+      if (!brand) continue;
+      conditions.push(`EXISTS (SELECT 1 FROM ${brandSnapshot} AS snapshot WHERE ${brandSnapshotId}=?)`);
+      bindings.push(brand);
+    }
+    if (filters.metric !== "brand") {
+      conditions.push(brandOutcome("?", filters.metric.endsWith("mention") ? "mentioned" : "cited"));
+      bindings.push(filters.metric.startsWith("compare_") ? filters.compare_brand : filters.tracked_brand);
     }
   }
   if (filters.prompt_id) {

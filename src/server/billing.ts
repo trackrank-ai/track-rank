@@ -32,7 +32,7 @@ export async function billingRoute(req: Request, env: Env, p: Principal, path: s
     const delegation = path === "/billing/admin-handoff";
     if (delegation && !await one(env, "SELECT 1 FROM memberships WHERE org_id=? AND user_id=? AND role='owner'", org, p.userId))
       throw new HttpError(403, "Only an owner can delegate billing");
-    return json({ url: `${env.BASE_URL}/app?${new URLSearchParams({org,tab:"settings"})}`, requires_interactive_session: true });
+    return json({ url: `${env.BASE_URL}/app?${new URLSearchParams({ org, tab: "settings", settingsSection: "billing" })}`, requires_interactive_session: true });
   }
   if (path === "/billing/admins" && req.method === "PATCH")
     return json(await updateBillingAdmins(env, p, await body(req, billingAdminUpdate)));
@@ -64,7 +64,7 @@ export async function billingRoute(req: Request, env: Env, p: Principal, path: s
   if (path !== "/billing/checkout" && path !== "/billing/portal") throw new HttpError(404, "Not found");
   const stripe = stripeClient(env);
   const settingsUrl = new URL("/app", env.BASE_URL);
-  settingsUrl.search = new URLSearchParams({ org, tab: "settings" }).toString();
+  settingsUrl.search = new URLSearchParams({ org, tab: "settings", settingsSection: "billing" }).toString();
   let customer = account;
   if (path === "/billing/portal") {
     if (!customer.customer_id) throw new HttpError(409, "No Stripe customer yet");

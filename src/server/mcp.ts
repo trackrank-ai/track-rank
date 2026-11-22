@@ -181,8 +181,8 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
   }, async ({ set_id, ...args }) => invoke(`/prompt-sets/${set_id}/members`, "PATCH", args));
   const reportingInput = { ...scopeFilters.shape, ...workspaceInput };
   server.registerTool("get_overview", {
-    description: "Compute full-period visibility totals, coverage, brand rates and UTC daily trends. Pass tracked_brand for daily brand statistics.",
-    inputSchema: reportingInput,
+    description: "Compute full-period visibility totals, coverage, brand rates and UTC daily trends. Pass tracked_brand for daily brand statistics and compare_brand for their common cohort.",
+    inputSchema: { ...reportingInput, compare_brand: runHistoryFilters.shape.compare_brand },
   }, async args => invoke(filteredPath("/analytics", args)));
   server.registerTool("list_collection_locations", {
     description: "List locations recorded on runs in the reporting scope.",
@@ -200,9 +200,10 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
   server.registerTool(
     "list_prompts",
     {
-      description: "List saved questions with their matching engine variants grouped within each workspace. The first page includes the matching total. Use selection for compact ID pages and next_cursor to continue.",
+      description: "List saved questions with their matching engine variants grouped within each workspace. The first page includes the matching total. Use selection for compact ID pages and next_cursor to continue, or question_id to read one question.",
       inputSchema: {
         workspace_id: z.string().min(1).max(100).optional(),
+        question_id: setId.optional(),
         tag: promptTag.optional(),
         set: setId.optional(),
         limit: listPageLimit.max(100).optional(),
@@ -351,7 +352,7 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
     "list_runs",
     {
       description:
-        "List run history with status, citations, grounding queries and mentions. Continue with next_before and next_before_id.",
+        "List run history with status, citations, grounding queries and mentions. Filter by question_id across engine variants. Research matches include the full total_matches before pagination. Continue with next_before and next_before_id.",
       inputSchema: z.object({
         ...historyInput,
         before: z.number().int().nonnegative().optional(),

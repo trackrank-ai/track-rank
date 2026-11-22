@@ -3,6 +3,7 @@ import "@/components/app-evidence.css";
 import { EvidenceReport, EvidenceSources } from "@/components/evidence-report";
 import "./app-workspace.css";
 import { collectionVariantLabel, scheduleCadence } from "@/lib/collection-labels";
+import { QuestionAnswers } from "@/components/question-answers";
 import { RunBatch } from "@/components/run-batch";
 import { CollectionDetails, CollectionReview, type Readiness } from "@/components/collection-review";
 import { defaultMonitoringTiming, MonitoringEditor, monitoringProjection } from "@/components/monitoring-timing";
@@ -17,13 +18,14 @@ import { formatBillingPrice } from "@/lib/billing-price";
 import { MAX_COLLECTION_PROMPTS, RUNS_PER_REQUEST, SCHEDULES_PER_REQUEST } from "@/lib/collection-limits";
 import { readPendingCollection, savePendingCollection } from "@/lib/pending-collection";
 import { inspectPromptInput, MAX_PROMPT_COMBINATIONS } from "@/lib/prompt-input";
-import { appLoginPath, parseAppSearch, type AppTab as Tab } from "@/lib/app-location";
+import { appLoginPath, parseAppSearch, settingsSections, type AppSearch, type AppTab as Tab, type SettingsSection } from "@/lib/app-location";
 import { Tooltip as HelpTooltip } from "radix-ui";
 import { LegalLinks } from "@/components/legal-layout";
 import { TrialBanner } from "@/components/trial-banner";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { ProviderCredentialsCard } from "@/components/provider-credentials-card";
 import { ResearchDrilldown } from "@/components/research-drilldown";
+import { ResearchResults, type ResearchSummary } from "@/components/research-results";
 import { RunStatus, WorkspaceRunHistory } from "@/components/workspace-run-history";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
@@ -47,7 +49,6 @@ import {
   Check,
   Copy,
   Download,
-  ExternalLink,
   Fingerprint,
   KeyRound,
   Link2,
@@ -75,7 +76,6 @@ const nav: { id: Tab; label: string; Icon: typeof BarChart3 }[] = [
   { id: "runs", label: "Run history", Icon: BookOpen },
   { id: "brands", label: "Brands", Icon: Fingerprint },
   { id: "schedules", label: "Schedules", Icon: CalendarClock },
-  { id: "team", label: "Team", Icon: Users },
   { id: "settings", label: "Settings", Icon: Settings2 },
   { id: "agents", label: "API & agents", Icon: KeyRound },
 ];
@@ -235,10 +235,6 @@ function App() {
   const [providerChoices, setProviderChoices] = useState<Item | null>(null);
   const [providerChoicesLoading, setProviderChoicesLoading] = useState(false);
   const [promptSeparator, setPromptSeparator] = useState("lines");
-  const [promptSearch, setPromptSearch] = useState("");
-  const [promptEngineFilter, setPromptEngineFilter] = useState("");
-  const [promptScheduleFilter, setPromptScheduleFilter] = useState("");
-  const [promptBrandFilter, setPromptBrandFilter] = useState("");
   const [promptWorkspace, setPromptWorkspace] = useState("");
   const [workspaceData, setWorkspaceData] = useState<{ key: string; prompts: Item[] } | null>(null);
   const [session, setSession] = useState<Item | null>(null),
@@ -269,13 +265,17 @@ function App() {
     [pendingBatch, setPendingBatch] = useState<{ scope: string; batch: PendingRunBatch } | null>(null);
   const org = search.org ?? orgs[0]?.id ?? "";
   const tab = search.tab ?? "overview";
-  const paneName = tab === "workspaces" ? "Workspaces" : nav.find(item => item.id === tab)?.label;
+  const settingsTab = tab === "settings" || tab === "team";
+  const paneName = settingsTab ? "Settings" : tab === "workspaces" ? "Workspaces" : nav.find(item => item.id === tab)?.label;
   const workspaces = workspaceRecords.filter(w => !w.archived_at);
   const [editingWorkspace, setEditingWorkspace] = useState("");
   const [editingBrand, setEditingBrand] = useState<Item | null>(null);
   const orgReady = !!org && loadedOrg === org;
   const canSubscribe = billing.can_manage_billing && (!billing.status || ["none", "canceled", "incomplete_expired"].includes(billing.status));
   const workspaceReady = orgReady && !billingBlocksWorkspace(billing.access_status);
+  const settingsSection = search.settingsSection ?? (tab === "team" ? "team" : billingBlocksWorkspace(billing.access_status) ? "billing" : "providers");
+  const teamSettings = settingsTab && settingsSection === "team";
+  const researchGroup = search.researchGroup ?? search.researchType ?? "domain";
   const linkedPrompt = promptDetail?.id === search.prompt && promptDetail?.org_id === org ? promptDetail : null;
   const selectedRun = runDetail?.id === search.run && runDetail?.org_id === org ? runDetail : null;
   const workspace = search.workspace ?? linkedPrompt?.workspace_id ?? selectedRun?.workspace_id ?? ALL_WORKSPACES;
@@ -287,6 +287,10 @@ function App() {
   const workspaceName = allWorkspaces ? "All workspaces" : workspaceNames[workspace] || "this workspace";
   const archivedHistory = tab === "runs" && workspaceRecords.some(w => w.id === workspace && w.archived_at);
   const unavailableWorkspace = workspaceReady && !allWorkspaces && !archivedHistory && !workspaces.some(w => w.id === workspace);
+  const { q: promptSearch = "", promptEngine: promptEngineFilter, promptSchedule: promptScheduleFilter,
+    promptBrand: promptBrandFilter } = search;
+  const showingQuestion = tab === "prompts" && !!search.question;
+  const creatingPrompts = tab === "prompts" && search.promptView === "create" && !showingQuestion;
   const libraryQuery = new URLSearchParams({ view: "library" });
   if (workspaceId) libraryQuery.set("workspace", workspaceId);
   if (promptSearch.trim()) libraryQuery.set("q", promptSearch.trim());
@@ -304,7 +308,7 @@ function App() {
   const mixedWorkspaceSelection = new Set([...promptSelection.values()].map(prompt => prompt.workspace_id)).size > 1;
   const runSampleCount = parseSampleCount(runSamples);
   const selectedRunCount = runSampleCount === undefined ? null : savedSelection.length * runSampleCount;
-  const promptFilterCount = [promptEngineFilter, promptScheduleFilter, promptBrandFilter, search.tag].filter(Boolean).length;
+  const promptFilterCount = [promptScheduleFilter, promptBrandFilter, search.tag].filter(Boolean).length;
   const filteredPrompts = !!(promptSearch.trim() || promptEngineFilter || promptScheduleFilter || promptBrandFilter || search.tag || search.set);
   const promptInput = useMemo(() => inspectPromptInput(promptText, promptSeparator), [promptText, promptSeparator]);
   const promptCombinations = promptInput.prompts.length * promptEngineChoices.length;
@@ -324,15 +328,31 @@ function App() {
   const isScopedHistory = tab === "runs" && Object.values(linkScope).some(Boolean);
   const reportScope = {
     ...defaultPeriod(), ...Object.fromEntries(Object.entries(linkScope).filter(([, value]) => value !== undefined)),
-    trackedBrand: linkScope.trackedBrand || scopeBrands.find(b => b.kind !== "competitor")?.id || scopeBrands[0]?.id,
+    compareBrand: tab === "research" ? undefined : linkScope.compareBrand,
+    trackedBrand: tab === "research" ? undefined : linkScope.trackedBrand || scopeBrands.find(b => b.kind !== "competitor")?.id || scopeBrands[0]?.id,
   } as AnalyticsScope;
   const sectionSearch = (nextTab: Tab) => ({
     ...((nextTab === "overview" || nextTab === "research" || nextTab === "runs") && (reportTab || isScopedHistory)
       ? reportTab ? reportScope : linkScope : {}),
     org: org || undefined, workspace, tab: nextTab,
-    ...(nextTab === "prompts" && tab === "prompts" ? { tag: search.tag, set: search.set, brand: search.brand, from: search.from, to: search.to } : {}),
-    ...(nextTab === "runs" && tab === "runs" ? { metric: search.metric, researchType: search.researchType, researchValue: search.researchValue } : {}),
+    ...(nextTab === "prompts" && tab === "prompts" ? { tag: search.tag, set: search.set, brand: search.brand, from: search.from, to: search.to,
+      q: search.q, promptEngine: search.promptEngine, promptSchedule: search.promptSchedule, promptBrand: search.promptBrand } : {}),
+    ...(nextTab === "research" && tab === "research" ? { researchGroup } : {}),
+    ...((nextTab === "overview" || nextTab === "runs") ? { trendMetric: search.trendMetric } : {}),
+    ...(nextTab === "runs" && tab === "runs" ? { metric: search.metric, evidenceDay: search.evidenceDay,
+      q: search.q, outcome: search.outcome, status: search.status, brand: search.brand,
+      researchGroup: search.researchGroup, researchType: search.researchType, researchValue: search.researchValue } : {}),
   });
+  const settingsSearch = (section: SettingsSection) => ({ org, workspace, tab: "settings" as const, settingsSection: section });
+  const closeRun: AppSearch = search.question
+    ? { ...search, org, workspace, tab: "prompts", run: undefined, evidence: undefined, questionView: "answers" }
+    : search.researchType ? {
+    ...sectionSearch("research"), researchGroup, researchType: search.researchType, researchValue: search.researchValue,
+  } : { ...sectionSearch("runs"), runPrompt: search.runPrompt, batch: search.batch, receipt: search.receipt };
+  const closeRunLabel = search.question ? "Back to question answers" : search.researchType ? "Back to matching answers" : "Close run";
+  function updatePromptFilters(filters: Partial<AppSearch>) {
+    void navigate({ search: { ...sectionSearch("prompts"), ...filters }, replace: true });
+  }
   function filterByTag(tag: string) {
     setPromptSelection(new Map());
     void navigate({ search: { ...sectionSearch("prompts"), prompt: search.prompt, tag: tag || undefined } });
@@ -343,13 +363,13 @@ function App() {
     void navigate({ search: { ...sectionSearch("prompts"), set: set || undefined } });
   }
   function setTab(nextTab: Tab) {
-    if (nextTab !== tab || search.prompt || search.run) void navigate({ search: sectionSearch(nextTab) });
+    if (nextTab !== tab || search.prompt || search.question || search.promptView || search.run) void navigate({ search: sectionSearch(nextTab) });
   }
   function setOrg(next: string, replace = false) {
-    void navigate({ search: { org: next, tab }, replace, hash: "" });
+    void navigate({ search: settingsTab ? { ...settingsSearch(settingsSection), org: next, workspace: undefined } : { org: next, tab }, replace, hash: "" });
   }
   function setWorkspace(next: string) {
-    void navigate({ search: { org, workspace: next, tab } });
+    void navigate({ search: { org, workspace: next, tab, ...(tab === "research" ? { ...reportScope, set: undefined, researchGroup } : {}), ...(settingsTab ? { settingsSection } : {}) } });
   }
   const batchInFlight = useRef(false);
   const batchScope = org && session ? `trackrank:pending-run:${session.user.id}:${org}` : "";
@@ -427,7 +447,7 @@ function App() {
     request(path, "GET", undefined, org, true, signal), [org, request]);
   const canLoadBulkPages = workspaceReady && !unavailableWorkspace;
   const promptLibraryRevision = useMemo(() => ({ prompts, setRevision }), [prompts, setRevision]);
-  const promptPages = useBulkPages(canLoadBulkPages && tab === "prompts" ? libraryPath : null, "prompts", readBulkPage, promptLibraryRevision);
+  const promptPages = useBulkPages(canLoadBulkPages && (tab === "prompts" || (tab === "runs" && search.question)) ? libraryPath : null, "prompts", readBulkPage, promptLibraryRevision);
   const savedPrompts = promptPages.current?.rows ?? [];
   const workspaceTags = promptPages.current?.tags ?? [];
   const tagOptions = search.tag && !workspaceTags.includes(search.tag) ? [search.tag, ...workspaceTags] : workspaceTags;
@@ -529,17 +549,13 @@ function App() {
     return () => { canceled = true; };
   }, [workspaceReady, workspaceId, unavailableWorkspace, workspaceKey, prompts, request, tab]);
   useEffect(() => {
-    setPromptSearch("");
-    setPromptEngineFilter("");
-    setPromptScheduleFilter("");
-    setPromptBrandFilter("");
     setPromptWorkspace("");
     setEditingWorkspace("");
     setEditingBrand(null);
   }, [org, workspace]);
   useEffect(() => {
     if (initializing || pendingInvite || !org || search.trial || !orgReady) return;
-    const defaultWorkspace = search.prompt || search.run
+    const defaultWorkspace = settingsTab ? undefined : search.prompt || search.run
       ? linkedPrompt?.workspace_id ?? selectedRun?.workspace_id
       : workspace;
     if (!search.org || (!search.workspace && defaultWorkspace) || !search.tab) {
@@ -548,7 +564,7 @@ function App() {
         replace: true,
       });
     }
-  }, [initializing, pendingInvite, org, orgReady, search, workspace, linkedPrompt?.workspace_id, selectedRun?.workspace_id, tab, navigate]);
+  }, [initializing, pendingInvite, org, orgReady, search, workspace, linkedPrompt?.workspace_id, selectedRun?.workspace_id, tab, settingsTab, navigate]);
   const promptDetailVersion = search.prompt ? prompts : null;
   useEffect(() => {
     setDetailError("");
@@ -617,11 +633,11 @@ function App() {
     else setLoading(false);
   }, [org, load]);
   useEffect(() => {
-    if (!workspaceReady || !["team", "agents"].includes(tab)) return;
+    if (!workspaceReady || !(teamSettings || tab === "agents")) return;
     let canceled = false;
     (async () => {
       try {
-        if (tab === "team") {
+        if (teamSettings) {
           const d = await request("/members");
           if (!canceled) setMembers(d.members);
           if (isAdmin) {
@@ -641,7 +657,7 @@ function App() {
     return () => {
       canceled = true;
     };
-  }, [tab, workspaceReady, isAdmin, request]);
+  }, [tab, teamSettings, workspaceReady, isAdmin, request]);
   useEffect(() => {
     setPromptText("");
     setPromptTagInput("");
@@ -755,6 +771,36 @@ function App() {
       ? "/prompt-sets?" + analyticsQuery({}, workspace) : "", request, promptLibraryRevision,
   );
   const promptSets = setResult?.data?.sets ?? [];
+  const questionItemQuery = new URLSearchParams({ view: "library" });
+  if (search.question) questionItemQuery.set("question_id", search.question);
+  if (workspaceId) questionItemQuery.set("workspace", workspaceId);
+  const questionResult = useReport<{ prompts: Item[] }>(
+    workspaceReady && !unavailableWorkspace && showingQuestion ? "/prompts?" + questionItemQuery : "",
+    request, prompts,
+  );
+  const question = questionResult?.data?.prompts[0];
+  const hasQuestionCollections = !!question?.variants.some((variant: Item) => variant.latest_collection);
+  const questionPeriod = { from: search.from ?? defaultPeriod().from, to: search.to ?? defaultPeriod().to };
+  const answersQuery = question ? analyticsQuery({
+    ...questionPeriod, engine: search.promptEngine, trackedBrand: search.brand, tags: search.tag, set: search.set,
+  }, question.workspace_id) : new URLSearchParams();
+  if (question) answersQuery.set("question_id", question.id);
+  answersQuery.set("metric", search.brand ? "brand" : "eligible");
+  if (search.promptSchedule) answersQuery.set("prompt_schedule", search.promptSchedule);
+  if (search.promptBrand) answersQuery.set("prompt_brand", search.promptBrand);
+  const answersPath = "/runs?" + answersQuery;
+  const selectedMetricBrand = scopeBrands.find(brand => brand.id === search.brand);
+  const filteredQuestionQuery = new URLSearchParams(libraryQuery);
+  if (search.question) filteredQuestionQuery.set("question_id", search.question);
+  filteredQuestionQuery.delete("tracked_brand");
+  filteredQuestionQuery.delete("from");
+  filteredQuestionQuery.delete("to");
+  filteredQuestionQuery.set("selection", "1");
+  const filteredQuestion = useReport<{ prompts: Item[] }>(
+    canLoadBulkPages && showingQuestion && canWrite && filteredPrompts ? "/prompts?" + filteredQuestionQuery : "",
+    request, promptLibraryRevision,
+  );
+  const questionSelection: Item[] = (filteredPrompts ? filteredQuestion?.data?.prompts[0] : question)?.variants ?? [];
   const receiptResult = useReport<Item>(workspaceReady && search.receipt && tab === "prompts"
     ? "/prompts/receipts/" + search.receipt : "", request, prompts);
   const receipt = receiptResult?.data;
@@ -767,15 +813,10 @@ function App() {
   const draftRunError = draftSampleCount === undefined ? sampleCountError : !settings.dataforseo_configured ? "Connect DataForSEO to run now or start monitoring."
     : draftAvailable !== undefined && previewNew * draftSampleCount > draftAvailable ? "The requested checks exceed your remaining monthly allowance." : "";
 
-  const research = useReport<{ answers: number; items: { kind: string; value: string; title: string; count: number }[] }>(
+  const research = useReport<ResearchSummary>(
     workspaceReady && !unavailableWorkspace && tab === "research" && !search.researchValue
       ? "/research?" + analyticsQuery(reportScope, workspace) : "", request, prompts,
   );
-  const sources = {
-    domains: research?.data?.items.filter(item => item.kind === "domain") ?? [],
-    pages: research?.data?.items.filter(item => item.kind === "page") ?? [],
-    queries: research?.data?.items.filter(item => item.kind === "query") ?? [],
-  };
   const discovered = research?.data?.items.filter(item => item.kind === "brand")
     .map(item => item.value).filter(name => !brands.some(brand => brand.name.toLowerCase() === name.toLowerCase())) ?? [];
   async function savePendingRun(batch: PendingRunBatch | null, progressOnly = false) {
@@ -1047,9 +1088,9 @@ function App() {
               key={id}
               to="/app"
               search={sectionSearch(id)}
-              className={tab === id ? "active" : ""}
+              className={(id === "settings" ? settingsTab : tab === id) ? "active" : ""}
               onClick={() => setError("")}
-              aria-current={tab === id ? "page" : undefined}
+              aria-current={(id === "settings" ? settingsTab : tab === id) ? "page" : undefined}
             >
               <Icon size={17} />
               <span>{label}</span>
@@ -1058,7 +1099,7 @@ function App() {
         </nav>
         <label className="app-field app-section-chooser">
           <span>Section</span>
-          <select value={tab} onChange={event => { setError(""); setTab(event.target.value as Tab); }}>
+          <select value={settingsTab ? "settings" : tab} onChange={event => { setError(""); setTab(event.target.value as Tab); }}>
             {nav.map(({ id, label }) => <option key={id} value={id}>{label}</option>)}
             <option value="workspaces">Workspaces</option>
           </select>
@@ -1093,7 +1134,7 @@ function App() {
       </aside>
       <div className="app-main">
         {orgReady && billing.access_status === "free_trial" && Number.isFinite(Number(billing.free_trial?.ends_at)) && <TrialBanner endsAt={Number(billing.free_trial.ends_at)}>
-          <Link to="/app" search={sectionSearch("settings")} className="trial-banner-link">{billing.can_manage_billing ? "Choose a subscription →" : "View billing / ask your billing admin →"}</Link>
+          <Link to="/app" search={settingsSearch("billing")} className="trial-banner-link">{billing.can_manage_billing ? "Choose a subscription →" : "View billing / ask your billing admin →"}</Link>
         </TrialBanner>}
         <header className="app-topbar">
           <div>
@@ -1106,7 +1147,7 @@ function App() {
           </div>
           <div className="topbar-actions">
           <ThemeToggle />
-          {org && isAdmin && <Button className="invite-shortcut" size="sm" variant="outline" onClick={() => setTab("team")}><Users size={14} /> Invite teammates</Button>}
+          {org && isAdmin && <Button className="invite-shortcut" size="sm" variant="outline" asChild><Link to="/app" search={settingsSearch("team")}><Users size={14} /> Invite teammates</Link></Button>}
           <Button
             className="app-mobile-signout"
             variant="ghost"
@@ -1144,9 +1185,21 @@ function App() {
           </div>
         </header>
         <main className="app-content">
-          {tab === "settings" && org && (
-            <Card><CardContent>
-              <h2>Organization</h2>
+          {settingsTab && org && (
+            <div className="app-page-heading"><div>
+              <h1>Settings</h1>
+              <p>{orgs.find(organization => organization.id === org)?.name ?? "Unavailable organization"}</p>
+            </div></div>
+          )}
+          {settingsTab && org && <nav className="app-subnav" aria-label="Organization settings">
+            {(Object.keys(settingsSections) as SettingsSection[]).map(section =>
+              <Button key={section} variant={settingsSection === section ? "secondary" : "ghost"} size="sm" asChild>
+                <Link to="/app" search={settingsSearch(section)} aria-current={settingsSection === section ? "page" : undefined}>{settingsSections[section]}</Link>
+              </Button>)}
+          </nav>}
+          {settingsTab && org && (
+            <details className="advanced-settings">
+              <summary>Manage organizations</summary>
               <p className="data-note">Team access, billing, credentials, and usage limits are shared across its workspaces.</p>
               <label className="org-switcher">
                 <span>Switch organization</span>
@@ -1202,10 +1255,10 @@ function App() {
                   </Button>
                 </form>
               </details>
-            </CardContent></Card>
+            </details>
           )}
-          {tab === "settings" && orgReady && billing.enabled && <Card><CardContent>
-            <p className="section-eyebrow">Billing</p>
+          {settingsTab && settingsSection === "billing" && orgReady && !billing.enabled && <Card><CardContent><h2>Billing</h2><p>Hosted billing is disabled for this installation.</p></CardContent></Card>}
+          {settingsTab && settingsSection === "billing" && orgReady && billing.enabled && <Card><CardContent>
             <h2>{billing.access_status === "trial_expired" ? "Your free trial has ended" : billing.access_status === "free_trial" ? "Your 14-day free trial is active" : "Plan & billing"}</h2>
             {billing.access_status === "free_trial" && <p>Trial access until {new Date(billing.free_trial.ends_at).toLocaleString()}. No card is on file for this trial and no automatic charge will happen at expiry.</p>}
             <p>Subscriptions are billed per organization before applicable tax. Your first paid charge is refundable within 7 days. Provider usage is billed separately.</p>
@@ -1235,7 +1288,7 @@ function App() {
 
           </CardContent></Card>}
 
-          {tab === "settings" && (
+          {settingsTab && settingsSection === "team" && (
             <details className="app-structure-guide">
               <summary>When to use a workspace or an organization</summary>
               <p>Give each client a workspace inside your agency organization. A workspace holds its prompts, schedules, run history, and tracked brands. Your agency team, provider credentials, billing, and usage allowance are shared across those workspaces.</p>
@@ -1301,12 +1354,12 @@ function App() {
               {error ? <p>Use Refresh to try loading this organization again.</p> : <p role="status">Loading organization…</p>}
             </CardContent></Card>
           ) : billingBlocksWorkspace(billing.access_status) ? (
-            tab === "settings" ? null : <Card><CardContent>
+            settingsTab && settingsSection === "billing" ? null : <Card><CardContent>
               <h2>Workspace access paused</h2>
               <p>Open billing settings to see your plan and payment options. Your existing data stays in this organization.</p>
-              <Button asChild><Link to="/app" search={sectionSearch("settings")}>Open billing settings</Link></Button>
+              <Button asChild><Link to="/app" search={settingsSearch("billing")}>Open billing settings</Link></Button>
             </CardContent></Card>
-          ) : unavailableWorkspace ? (
+          ) : unavailableWorkspace && !settingsTab ? (
             <Card><CardContent>
               <h2>Workspace unavailable</h2>
               <p>Check the link or ask your team for access.</p>
@@ -1314,30 +1367,33 @@ function App() {
             </CardContent></Card>
           ) : (
             <>
-              {!(tab === "runs" && selectedRun) && <div className="app-page-heading">
+              {!settingsTab && !showingQuestion && !(tab === "runs" && selectedRun) && <div className="app-page-heading">
                 <div>
                   <h1>{paneName}</h1>
-                  {tab === "prompts" && <p>{allWorkspaces
-                    ? "Prompts across your organization. Choose a workspace when saving new prompts."
-                    : `New prompts and future runs belong to ${workspaceName}.`}</p>}
+                  {tab === "prompts" && <p>{workspaceName}</p>}
                 </div>
-
+                {tab === "prompts" && !creatingPrompts && canWrite && <Button asChild>
+                  <Link to="/app" search={{ ...sectionSearch("prompts"), promptView: "create" }}>
+                    <Plus size={16} aria-hidden /> Create prompts
+                  </Link>
+                </Button>}
+                {creatingPrompts && <Link className="small-link" to="/app" search={sectionSearch("prompts")}>Back to prompts</Link>}
               </div>}
               {(reportTab || tab === "prompts") && setResult?.error && <p role="alert">{setResult.error}</p>}
               {reportTab && (() => {
                 const filters = <OverviewFilters
                   key={JSON.stringify([org, workspace, tab, search, reportScope])}
-                  org={org} workspace={workspace} workspaceNames={workspaceNames} scope={reportScope} sets={promptSets}
+                  org={org} workspace={workspace} workspaceNames={workspaceNames} scope={reportScope} sets={promptSets} summarize={tab === "research"} showBrand={tab !== "research"}
                   brands={scopeBrands as { id: string; name: string }[]} engines={engines} request={request} revision={prompts}
                   onChange={scope => void navigate({ search: { org, workspace, tab, ...scope,
-                    researchType: search.researchType, researchValue: search.researchValue } })}
+                    researchGroup: tab === "research" ? researchGroup : undefined, researchType: search.researchType, researchValue: search.researchValue, trendMetric: search.trendMetric } })}
                 />;
                 return tab === "research" ? filters : <Overview org={org} workspace={workspace} workspaceName={workspaceName}
                   scope={reportScope} sets={promptSets} engines={engines} brands={scopeBrands as { id: string; name: string }[]}
                   hasTrackedBrand={allWorkspaces ? workspaces.some(w => brandIds(w.id).length > 0) : trackedBrandIds.size > 0}
                   brandWorkspace={workspaceId || workspaces[0]?.id || workspace}
                   credentialsConnected={!!settings.dataforseo_configured} canWrite={canWrite} canManageCredentials={isAdmin}
-                  request={request} revision={prompts} filters={filters} />;
+                  request={request} revision={prompts} filters={filters} trendMetric={search.trendMetric} />;
               })()}
               {tab === "workspaces" && (
                 <Card><CardContent>
@@ -1398,6 +1454,62 @@ function App() {
                 close={() => setReview(null)} />}
               {tab === "prompts" && (
                 <>
+                  {showingQuestion && <Card><CardContent className="form-stack">
+                    <div><Link className="small-link" to="/app" search={sectionSearch("prompts")}>Back to prompts</Link></div>
+                    {questionResult?.error ? <p role="alert">{questionResult.error}</p> : !questionResult?.data ? (
+                      <p role="status">Loading question…</p>
+                    ) : !question ? <p role="alert">This question has no saved engine variants in this workspace.</p> : <>
+                      <div className="question-heading">
+                        <h1>{question.text}</h1>
+                        <p className="data-note">{workspaceNames[question.workspace_id]} · {
+                          [...new Set((question.variants as Item[]).map(variant => engines[variant.engine]))].join(" · ")
+                        }</p>
+                      </div>
+                      <nav aria-label="Question views" className="question-row-actions">
+                        <Button size="sm" variant={search.questionView === "settings" ? "outline" : "default"} asChild>
+                          <Link to="/app" search={{ ...sectionSearch("prompts"), question: question.id, questionView: "answers" }}
+                            aria-current={search.questionView === "settings" ? undefined : "page"}>Answers</Link>
+                        </Button>
+                        <Button size="sm" variant={search.questionView === "settings" ? "default" : "outline"} asChild>
+                          <Link to="/app" search={{ ...sectionSearch("prompts"), question: question.id, questionView: "settings" }}
+                            aria-current={search.questionView === "settings" ? "page" : undefined}>Engine settings</Link>
+                        </Button>
+                      </nav>
+                      {search.questionView === "settings" ? <div className="form-stack">
+                        {(question.variants as Item[]).map(variant => <section className="prompt-variant" key={variant.id}>
+                          <div className="prompt-row-title">
+                            <span className="prompt-engine-icon"><img src={`/engine-icons/${variant.engine}.svg`} alt="" width={18} height={18} /></span>
+                            <Link to="/app" search={{ ...sectionSearch("prompts"), workspace: variant.workspace_id, prompt: variant.id }}>
+                              <strong>{engines[variant.engine]}</strong>
+                            </Link>
+                          </div>
+                          <p className="data-note">{variant.location_name} · {variant.language_code} · {variant.mode}{variant.actively_scheduled ? " · Scheduled" : ""}</p>
+                          {!!variant.tags?.length && <div className="flex flex-wrap gap-1">
+                            {(variant.tags as string[]).map(tag => <Badge key={tag} variant="secondary">{tag}</Badge>)}
+                          </div>}
+                          {canWrite && renderPromptSettings(variant)}
+                          {canWrite && <div className="form-actions">
+                            {questionSelection.some((item: Item) => item.id === variant.id) && <label className="check-field">
+                              <input type="checkbox" checked={promptSelection.has(variant.id)} disabled={bulkBusy || promptPages.loading}
+                                aria-label={`Select ${engines[variant.engine]} variant (${variant.location_name}, ${variant.language_code})`}
+                                onChange={event => setPromptSelection(current => changeSelection(current, [variant], event.target.checked))} />
+                              Select variant
+                            </label>}
+                            <Button variant="outline" size="sm" disabled={busy || !!pendingRun}
+                              onClick={() => queuePromptBatch([variant.id], 1)}>Review run</Button>
+                            <Button variant="outline" size="sm" disabled={busy} onClick={() => removePrompts([variant.id])}>Delete variant</Button>
+                          </div>}
+                        </section>)}
+                      </div> : <QuestionAnswers key={org + answersPath} path={answersPath} request={request} org={org}
+                        context={{ ...sectionSearch("prompts"), question: question.id }} engines={engines} brand={selectedMetricBrand?.name} period={questionPeriod} revision={prompts}
+                        engine={promptEngineFilter ? engines[promptEngineFilter] : undefined}
+                        hasCollections={hasQuestionCollections}
+                        emptyAction={canWrite && questionSelection.length > 0 && !hasQuestionCollections
+                          ? <div><Button disabled={busy || !!pendingRun} onClick={() => queuePromptBatch(
+                            questionSelection.map(variant => variant.id), 1,
+                          )}>Review first collection</Button></div> : undefined} />}
+                    </>}
+                  </CardContent></Card>}
                   {search.prompt && (
                     <Card>
                       <CardContent>
@@ -1518,15 +1630,11 @@ function App() {
                       </CardContent>
                     </Card>
                   )}
+                  {creatingPrompts && <>
                   <Card>
                     <CardContent>
                       <div className="panel-title">
-                        <h2>
-                          Add a research prompt
-                        </h2>
-                        <Badge variant="secondary">
-                          Scraper collection only
-                        </Badge>
+                        <h2>Create prompts</h2>
                       </div>
                       {canWrite ? (
                         <form
@@ -1779,33 +1887,36 @@ function App() {
                       </button>
                     ))}
                   </details>
-                  <Card id="prompt-library">
+                  </>}
+                  {!showingQuestion && !creatingPrompts && !search.prompt && <Card id="prompt-library">
                     <CardContent>
                       <div className="panel-title">
-                        <h2>Saved prompts</h2>
+                        <h2>Question library</h2>
                       </div>
+                      <div className="form-grid prompt-filters">
                         <FormField label="Search saved prompts">
-                          <input type="search" value={promptSearch} maxLength={200} placeholder="Search prompt text"
-                            onChange={e => { setPromptSearch(e.target.value); setPromptSelection(new Map()); }} />
+                          <input type="search" value={promptSearch} maxLength={200} placeholder="Search question text"
+                            onChange={e => updatePromptFilters({ q: e.target.value || undefined })} />
                         </FormField>
+                        <FormField label="Filter by engine">
+                          <select value={promptEngineFilter ?? ""} onChange={e => updatePromptFilters({ promptEngine: (e.target.value || undefined) as AppSearch["promptEngine"] })}>
+                            <option value="">All engines</option>
+                            {Object.entries(engines).map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+                          </select>
+                        </FormField>
+                      </div>
                       <details className="advanced-settings">
-                        <summary>Filters{promptFilterCount > 0 && ` (${promptFilterCount} active)`}</summary>
+                        <summary>More filters{promptFilterCount > 0 && ` (${promptFilterCount} active)`}</summary>
                         <div className="form-grid prompt-filters">
-                          <FormField label="Filter by engine">
-                            <select value={promptEngineFilter} onChange={e => { setPromptEngineFilter(e.target.value); setPromptSelection(new Map()); }}>
-                              <option value="">All engines</option>
-                              {Object.entries(engines).map(([id, name]) => <option key={id} value={id}>{name}</option>)}
-                            </select>
-                          </FormField>
                           <FormField label="Filter by schedule">
-                            <select value={promptScheduleFilter} onChange={e => { setPromptScheduleFilter(e.target.value); setPromptSelection(new Map()); }}>
+                            <select value={promptScheduleFilter ?? ""} onChange={e => updatePromptFilters({ promptSchedule: (e.target.value || undefined) as AppSearch["promptSchedule"] })}>
                               <option value="">All prompts</option>
                               <option value="active">Actively scheduled</option>
                               <option value="inactive">No active schedule</option>
                             </select>
                           </FormField>
                           <FormField label="Filter by brand or client" hint="Uses the prompt’s brand or its workspace’s primary brand. Switch client workspaces above.">
-                            <select value={promptBrandFilter} onChange={e => { setPromptBrandFilter(e.target.value); setPromptSelection(new Map()); }}>
+                            <select value={promptBrandFilter ?? ""} onChange={e => updatePromptFilters({ promptBrand: e.target.value || undefined })}>
                               <option value="">All brands</option>
                               {scopeBrands.map(brand => <option key={brand.id} value={brand.id}>{brand.name}</option>)}
                             </select>
@@ -1819,8 +1930,8 @@ function App() {
                         </div>
                       </details>
                       {!!scopeBrands.length && <details className="advanced-settings">
-                        <summary>Mention metrics{search.brand ? ` · ${scopeBrands.find(brand => brand.id === search.brand)?.name ?? "Brand selected"}` : ""}</summary>
-                        <form className="form-grid prompt-filters" onSubmit={event => {
+                        <summary>{selectedMetricBrand ? `Mention rate · ${selectedMetricBrand.name}` : "Choose a brand for mention rates"}</summary>
+                        <form key={JSON.stringify([search.brand, search.from, search.to])} className="form-grid prompt-filters" onSubmit={event => {
                           event.preventDefault();
                           const values = new FormData(event.currentTarget);
                           void navigate({ search: { ...sectionSearch("prompts"), brand: String(values.get("tracked_brand") || "") || undefined,
@@ -1832,7 +1943,7 @@ function App() {
                           </select></FormField>
                           <FormField label="From (UTC)"><input name="from" type="date" defaultValue={search.from ?? defaultPeriod().from} /></FormField>
                           <FormField label="To (UTC)"><input name="to" type="date" defaultValue={search.to ?? defaultPeriod().to} /></FormField>
-                          <Button variant="outline">Show mention fractions</Button>
+                          <Button variant="outline">Apply mention period</Button>
                         </form>
                       </details>}
                       {promptPages.current && (
@@ -1928,7 +2039,11 @@ function App() {
                             const variants: Item[] = group.variants;
                             const ids = variants.map(variant => variant.id);
                             const selectedCount = ids.filter(id => promptSelection.has(id)).length;
-                            return <section className="saved-prompt" data-selectable={canWrite} key={group.id}>
+                            const completed = Math.max(0, ...variants.map(variant => variant.latest_completed_at ?? 0));
+                            const samples = variants.reduce((total, variant) => total + (variant.brand_period?.samples ?? 0), 0);
+                            const mentions = variants.reduce((total, variant) => total + (variant.brand_period?.mentions ?? 0), 0);
+                            const questionLink = { ...sectionSearch("prompts"), question: group.id };
+                            return <section className="saved-prompt question-row" data-selectable={canWrite} key={group.id}>
                               {canWrite && <input type="checkbox" aria-label={`Select ${group.text}`}
                                 ref={input => { if (input) input.indeterminate = selectedCount > 0 && selectedCount < variants.length; }}
                                 checked={selectedCount === variants.length} disabled={bulkBusy || promptPages.loading}
@@ -1939,49 +2054,17 @@ function App() {
                                   {allWorkspaces && workspaceNames[group.workspace_id] && `${workspaceNames[group.workspace_id]} · `}
                                   {[...new Set(variants.map(variant => engines[variant.engine]))].join(" · ")}
                                 </small>
+                                <small>{completed ? `Latest completed check · ${date(completed)}` : "No completed check in searchable history"}</small>
+                                {selectedMetricBrand && <small>{selectedMetricBrand.name} · {samples
+                                  ? `${new Intl.NumberFormat(undefined, { style: "percent", maximumFractionDigits: 1 }).format(mentions / samples)} mentioned (${mentions} of ${samples} ${samples === 1 ? "answer" : "answers"})`
+                                  : "No eligible answers tracking this brand"}</small>}
                               </div>
-                              {canWrite && <Button className="saved-prompt-action" size="sm" disabled={busy || !!pendingRun}
-                                onClick={() => queuePromptBatch(ids, 1)}>Run {variants.length === 1 ? engines[variants[0].engine] : `all ${variants.length} variants`}</Button>}
-                              <details className="prompt-variants" open={search.brand ? true : undefined}>
-                                <summary>Engine settings and results</summary>
-                                {variants.map(p => <div className="prompt-variant" key={p.id}>
-                                  <div className="prompt-row-title">
-                                    <span className="prompt-engine-icon"><img src={`/engine-icons/${p.engine}.svg`} alt="" width={18} height={18} /></span>
-                                    <Link to="/app" search={{ ...sectionSearch("prompts"), workspace: p.workspace_id, prompt: p.id }}>
-                                      <strong>{engines[p.engine]}</strong>
-                                    </Link>
-                                  </div>
-                                  <small>
-                                    {p.location_name} ·{" "}
-                                    {p.language_code} · {p.mode}{" "}
-                                    {p.actively_scheduled ? "· Scheduled" : ""}
-                                  </small>
-                                  {!!p.tags?.length && <div className="flex flex-wrap gap-1">
-                                    {(p.tags as string[]).map(tag => <Badge key={tag} variant="secondary">{tag}</Badge>)}
-                                  </div>}
-                                  <p className="data-note">{p.latest_collection ? `Last collection ${date(p.latest_collection.created_at)} · ${p.latest_collection.status === "succeeded"
-                                    ? p.latest_collection.has_answer ? "Eligible AI answer" : "Completed without an eligible AI answer" : p.latest_collection.status}` : "No collection in searchable history"}</p>
-                                  {p.latest_collection && <Link className="small-link" to="/app" search={{ org, workspace: p.workspace_id, tab: "runs", run: p.latest_collection.id }}>
-                                    {p.latest_collection.has_answer ? "View latest answer" : p.latest_collection.has_organic ? "View organic evidence" : "View latest run"}
-                                  </Link>}
-                                  {p.latest_answer_id && p.latest_answer_id !== p.latest_collection?.id && <Link className="small-link" to="/app"
-                                    search={{ org, workspace: p.workspace_id, tab: "runs", run: p.latest_answer_id }}>View latest answer</Link>}
-                                  {p.brand_period && <p className="data-note">Mentioned in {p.brand_period.mentions} of {p.brand_period.samples} eligible answers</p>}
-                                  {canWrite && renderPromptSettings(p)}
-                                  {canWrite && <div className="bulk-selection">
-                                    {variants.length > 1 && <label className="check-field">
-                                      <input type="checkbox" checked={promptSelection.has(p.id)} disabled={bulkBusy || promptPages.loading}
-                                        aria-label={`Select ${engines[p.engine]} for ${group.text} (${p.location_name}, ${p.language_code})`}
-                                        onChange={event => setPromptSelection(current => changeSelection(current, [p], event.target.checked))} />
-                                      Select variant
-                                    </label>}
-                                    <Button variant="outline" size="sm" disabled={busy || !!pendingRun}
-                                      onClick={() => queuePromptBatch([p.id], 1)}>Run {engines[p.engine]}</Button>
-                                    <Button variant="outline" size="sm" disabled={busy}
-                                      onClick={() => removePrompts([p.id])}>Delete</Button>
-                                  </div>}
-                                </div>)}
-                              </details>
+                              <div className="question-row-actions">
+                                <Link className="small-link" to="/app" search={{ ...questionLink, questionView: "answers" }}
+                                  aria-label={`View answers for ${group.text}`}>View answers</Link>
+                                <Link className="small-link" to="/app" search={{ ...questionLink, questionView: "settings" }}
+                                  aria-label={`Engine settings for ${group.text}`}>Engine settings</Link>
+                              </div>
                             </section>;
                           })}
                         </div>
@@ -1989,104 +2072,25 @@ function App() {
                         <Empty title="No matching prompts" description="Change the filters or search another keyword." />
                       ) : (
                         <Empty
-                          title="Ask a better question."
-                          description="Save a prompt above. It won't incur charges until you run it or enable a schedule."
+                          title="No saved questions"
+                          description={canWrite ? "Create prompts to choose questions and engines for your first collection." : "Saved questions will appear here."}
                         />
                       )}
                       <BulkPageNavigation pages={promptPages} label="Prompt pages" />
                     </CardContent>
-                  </Card>
+                  </Card>}
                 </>
               )}
               {tab === "research" && (search.researchType && search.researchValue ? (
                 <ResearchDrilldown
                   key={JSON.stringify([org, workspace, reportScope, search.researchType, search.researchValue])}
-                  org={org} workspace={workspace} scope={reportScope} type={search.researchType} value={search.researchValue} request={request}
+                  org={org} workspace={workspace} scope={reportScope} group={researchGroup} type={search.researchType} value={search.researchValue}
+                  engines={engines} workspaceNames={workspaceNames} request={request}
                 />
               ) : research?.error ? <p role="alert">{research.error}</p>
                 : !research?.data ? <p role="status">Loading research…</p> : (
                 <>
-                  <Card>
-                    <CardContent>
-                      <div className="panel-title">
-                        <div>
-                          <h2>The evidence behind the answers</h2>
-                          <p>
-                            Only collected sources. Organic SERPs remain
-                            separate in each run.
-                          </p>
-                        </div>
-                      </div>
-                      <Tabs defaultValue="domains">
-                        <TabsList>
-                          <TabsTrigger value="domains">Domains</TabsTrigger>
-                          <TabsTrigger value="pages">Pages</TabsTrigger>
-                          <TabsTrigger value="queries">
-                            Grounding queries
-                          </TabsTrigger>
-                        </TabsList>
-                        <TabsContent value="domains">
-                          {sources.domains.length ? (
-                            sources.domains.map((d) => (
-                              <div className="simple-row" key={d.value}>
-                                <Link to="/app" search={{ ...sectionSearch("research"), researchType: "domain", researchValue: d.value }}>
-                                  <strong>{d.value}</strong>
-                                </Link>
-                                <span>
-                                  {d.count} / {research.data?.answers} answers
-                                </span>
-                              </div>
-                            ))
-                          ) : (
-                            <Empty
-                              title="No cited domains yet"
-                              description="Run a prompt, then return here once the result has been collected."
-                            />
-                          )}
-                        </TabsContent>
-                        <TabsContent value="pages">
-                          {sources.pages.length ? (
-                            sources.pages.map((p) => (
-                              <div className="citation-row" key={p.value}>
-                                <Link to="/app" search={{ ...sectionSearch("research"), researchType: "page", researchValue: p.value }}>
-                                  <strong>{p.title || p.value}</strong>
-                                  <span>{p.value}</span>
-                                </Link>
-                                <a className="small-link" href={p.value} target="_blank" rel="noreferrer" aria-label="Open original page">
-                                  <ExternalLink size={14} />
-                                </a>
-                                <Badge variant="secondary">
-                                  {p.count} answers
-                                </Badge>
-                              </div>
-                            ))
-                          ) : (
-                            <Empty
-                              title="No cited pages yet"
-                              description="This view lists actual cited pages, not all URLs appearing in a SERP."
-                            />
-                          )}
-                        </TabsContent>
-                        <TabsContent value="queries">
-                          {sources.queries.length ? (
-                            sources.queries.map(({ value: q, count }) => (
-                              <div className="simple-row" key={q}>
-                                <Link to="/app" search={{ ...sectionSearch("research"), researchType: "query", researchValue: q }}>{q}</Link>
-                                <Badge variant="secondary">
-                                  {count} answers
-                                </Badge>
-                              </div>
-                            ))
-                          ) : (
-                            <Empty
-                              title="No grounding queries returned"
-                              description="Grounding queries appear only when the provider includes them; missing queries are not inferred."
-                            />
-                          )}
-                        </TabsContent>
-                      </Tabs>
-                    </CardContent>
-                  </Card>
+                  <ResearchResults data={research.data} group={researchGroup} search={sectionSearch("research")} />
                   <Card>
                     <CardContent>
                       <div className="panel-title">
@@ -2140,7 +2144,8 @@ function App() {
                   {search.run && !selectedRun && (
                     <Card><CardContent>
                       {detailError ? <p role="alert">{detailError}</p> : <p role="status">Loading run…</p>}
-                      <Link to="/app" search={{ ...sectionSearch("runs"), runPrompt: search.runPrompt, batch: search.batch, receipt: search.receipt }}>Close run</Link>
+                      <Link to="/app" search={closeRun}>{closeRunLabel}</Link>
+                      {search.trendMetric && <Link to="/app" search={sectionSearch("overview")}>Back to Overview</Link>}
                     </CardContent></Card>
                   )}
                   {selectedRun && (
@@ -2148,9 +2153,12 @@ function App() {
                       <CardContent>
                         <header className="run-detail-header">
                           <h1>{selectedRun.prompt_text}</h1>
-                          <Button variant="ghost" size="sm" asChild>
-                            <Link to="/app" search={{ ...sectionSearch("runs"), runPrompt: search.runPrompt, batch: search.batch, receipt: search.receipt }}>Close run</Link>
-                          </Button>
+                          <div className="app-inline-form">
+                            {search.trendMetric && <Link to="/app" search={sectionSearch("overview")}>Back to Overview</Link>}
+                            <Button variant="ghost" size="sm" asChild>
+                              <Link to="/app" search={closeRun}>{closeRunLabel}</Link>
+                            </Button>
+                          </div>
                           <dl className="run-detail-context">
                             <div><dt>Workspace</dt><dd>{workspaceNames[selectedRun.workspace_id] ?? "Unavailable workspace"}</dd></div>
                             <div><dt>Engine</dt><dd>{engines[selectedRun.config?.engine] ?? "Unknown engine"}</dd></div>
@@ -2238,7 +2246,7 @@ function App() {
                           )}
                         </div>
                         <Tabs key={selectedRun.id} value={search.evidence ?? (!selectedRun.has_answer && selectedRun.organic_results?.length ? "organic" : "answer")}
-                          onValueChange={value => void navigate({ search: { ...search, org, workspace: selectedRun.workspace_id,
+                          onValueChange={value => void navigate({ search: { ...search, org, workspace,
                             tab: "runs", run: selectedRun.id, evidence: value as typeof search.evidence }, replace: true })}>
                           <TabsList variant="line" aria-label="Run evidence">
                             <TabsTrigger value="answer">Answer</TabsTrigger>
@@ -2337,6 +2345,7 @@ function App() {
                     canWrite={canWrite}
                     scope={linkScope}
                     metric={search.metric}
+                    trendMetric={search.trendMetric} evidenceDay={search.evidenceDay}
                     researchType={search.researchType}
                     researchValue={search.researchValue}
                     filters={search}
@@ -2642,7 +2651,7 @@ function App() {
                   </Card>
                 </>
               )}
-              {tab === "team" && (
+              {teamSettings && (
                 <>
                   <Card>
                     <CardContent>
@@ -2651,6 +2660,7 @@ function App() {
                         <Badge variant="outline">{settings.role}</Badge>
                       </div>
                       <p className="data-note">Unlimited teammates. No per-seat fees. Members share this organization’s workspaces and usage limits.</p>
+                      {!isAdmin && <p className="data-note">An organization owner or administrator can invite teammates and manage access.</p>}
                       {members.map((m) => (
                         <div className="member-row" key={m.user_id}>
                           <span>
@@ -2796,7 +2806,7 @@ function App() {
                   )}
                 </>
               )}
-              {tab === "settings" && (
+              {settingsTab && settingsSection === "billing" && (
                 <>
                   {settings.plan && (
                     <Card>
@@ -2832,6 +2842,10 @@ function App() {
                       </CardContent>
                     </Card>
                   </div>
+                </>
+              )}
+              {settingsTab && settingsSection === "providers" && (
+                <>
                   {isAdmin ? (
                     <>
                       <ProviderCredentialsCard
@@ -3112,7 +3126,7 @@ function App() {
               )}
             </>
           )}
-          {tab === "settings" && <footer className="settings-legal"><LegalLinks /></footer>}
+          {settingsTab && <footer className="settings-legal"><LegalLinks /></footer>}
         </main>
       </div>
     </div>

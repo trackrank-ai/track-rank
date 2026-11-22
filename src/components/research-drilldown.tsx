@@ -6,15 +6,18 @@ import { Card, CardContent } from "@/components/ui/card";
 import type { ResearchType } from "@/lib/app-location";
 
 type Item = Record<string, any>;
-type ResearchPage = { runs: Item[]; next_before: number | null; next_before_id: string | null };
+type ResearchPage = { total_matches: number; runs: Item[]; next_before: number | null; next_before_id: string | null };
 const researchNames = { domain: "Cited domain", page: "Cited page", query: "Grounding query" };
 
-export function ResearchDrilldown({ org, workspace, scope, type, value, request }: {
+export function ResearchDrilldown({ org, workspace, scope, group, type, value, engines, workspaceNames, request }: {
   org: string;
   workspace: string;
   scope: AnalyticsScope;
   type: ResearchType;
+  group: ResearchType;
   value: string;
+  engines: Record<string, string>;
+  workspaceNames: Record<string, string>;
   request: (path: string) => Promise<Item>;
 }) {
   const [page, setPage] = useState<ResearchPage | null>(null);
@@ -75,20 +78,28 @@ export function ResearchDrilldown({ org, workspace, scope, type, value, request 
           <p>{value}</p>
         </div>
         <Button variant="ghost" size="sm" asChild>
-          <Link to="/app" search={{ ...scope, org, workspace, tab: "research" }}>Back to research</Link>
+          <Link to="/app" search={{ ...scope, org, workspace, tab: "research", researchGroup: group }}>Back to research</Link>
         </Button>
       </div>
       {error && <p role="alert">{error}</p>}
       {!page && !error && <p role="status">Loading matching answers…</p>}
-      {page && !runs.length && <p>No matching answers in this view.</p>}
+      {page && <p role="status">
+        {page.total_matches.toLocaleString()} matching {page.total_matches === 1 ? "answer" : "answers"} · {runs.length.toLocaleString()} loaded
+      </p>}
+      {page && !runs.length && <p>Broaden the filters to find more answers.</p>}
       {runs.length > 0 && <>
         <h3>Matching answers</h3>
-        <p className="data-note">{runs.length} answers loaded. Page and brand counts cover these answers.</p>
+        <p className="data-note">Page and brand counts cover the loaded answers.</p>
+        <a className="small-link" href={"/api/v1/export?" + new URLSearchParams({ ...Object.fromEntries(query), org })}>
+          Export {page && page.total_matches > 1000 ? "latest 1,000 matches" : "matching answers"} as CSV
+        </a>
         {runs.map(run => (
-          <div className="simple-row" key={run.id}>
-            <Link to="/app" search={{ ...scope, org, workspace, tab: "runs", run: run.id, researchType: type, researchValue: value }}>
+          <div className="simple-row research-answer-row" key={run.id}>
+            <Link to="/app" search={{ ...scope, org, workspace, tab: "runs", run: run.id, researchGroup: group, researchType: type, researchValue: value }}>
               <strong>{run.prompt_text}</strong>
-              <small>{new Date(run.created_at).toLocaleString()}</small>
+              <small>
+                {engines[run.config?.engine] ?? "Unknown engine"} · {workspaceNames[run.workspace_id] ?? "Unavailable workspace"} · {new Date(run.created_at).toLocaleString()}
+              </small>
             </Link>
             <span>{(run.mentions || []).filter((brand: Item) => brand.mentioned).map((brand: Item) => brand.name).join(", ")}</span>
           </div>
@@ -99,7 +110,7 @@ export function ResearchDrilldown({ org, workspace, scope, type, value, request 
         <h3>Cited pages</h3>
         {pages.size ? [...pages.values()].map(source => (
           <div className="citation-row" key={source.url}>
-            <Link to="/app" search={{ ...scope, org, workspace, tab: "research", researchType: "page", researchValue: source.url }}>
+            <Link to="/app" search={{ ...scope, org, workspace, tab: "research", researchGroup: group, researchType: "page", researchValue: source.url }}>
               <strong>{source.title || source.url}</strong><span>{source.url}</span>
             </Link>
           </div>
