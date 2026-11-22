@@ -162,6 +162,7 @@
   font-weight: 650;
   letter-spacing: -.035em;
   text-wrap: balance;
+  overflow-wrap: anywhere;
   margin: 0 0 .9rem;
 }
 .public-product p, .public-page .pricing-intro, .public-page :is(.comparison-section, .cost-section, .public-billing-support) > p { color: var(--public-muted); line-height: 1.65; max-width: 66ch; }
@@ -185,7 +186,11 @@
   margin-block: 1.45rem .65rem;
   gap: .75rem;
 }
-.public-page .pricing-card { padding: clamp(1rem, 2.5vw, 1.75rem); border-radius: 14px; }
+.public-page .pricing-card {
+  padding: clamp(1rem, 2.5vw, 1.75rem);
+  border-radius: 14px;
+  overflow-wrap: anywhere;
+}
 .public-page .pricing-section .pricing-card :is(h2, h3) { font-size: 1rem; font-weight: 650; margin: 0; }
 .public-page .plan-price {
   font-size: clamp(1.9rem, 3.7vw, 2.65rem);
@@ -252,6 +257,9 @@
   .public-hero { grid-template-columns: minmax(0, 1fr); }
   .public-hero h1 { font-size: clamp(2.35rem, calc(1.6rem + 5.25vw), 4.5rem); }
   .public-page .pricing-standalone h1 { font-size: clamp(1.8rem, calc(1.05rem + 7.75vw), 5rem); }
+  .public-product h2, .public-page :is(.pricing-section, .cost-section, .comparison-section) h2, .public-billing-support h2 {
+    font-size: clamp(1.45rem, calc(1.15rem + 3.25vw), 2.7rem);
+  }
   .public-product { grid-template-columns: minmax(0, 1fr); gap: 1.3rem; }
   .public-comparison-table { display: none; }
   .public-comparison-list { display: block; margin-top: .65rem; }
@@ -260,6 +268,10 @@
   .public-comparison-list dl { display: grid; gap: .6rem; margin-top: .55rem; font-size: .88rem; }
   .public-comparison-list dt { color: var(--public-muted); font-size: .79rem; margin-bottom: .1rem; }
   .public-footer { align-items: flex-start; flex-direction: column; }
+}
+
+@container public-page (max-width: 43.75rem) {
+  .public-page .pricing-grid { grid-template-columns: minmax(0, 1fr); }
 }
 
 @media (max-width: 390px) {
