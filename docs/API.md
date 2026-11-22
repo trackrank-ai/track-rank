@@ -37,7 +37,7 @@ Scopes: `read` for GET, `write` for research mutations, `run` for paid execution
 | GET | `/runs/:id/raw` | Authenticated private R2 JSON download |
 | POST | `/runs/:id/refresh` | Collect the existing external task, never resubmit |
 | POST | `/runs/:id/analyze` | Interactive member: explicit paid OpenRouter analysis |
-| GET | `/schedules` | List schedules. Pass both `before` and `before_id` from `next_cursor` for the next page. |
+| GET | `/schedules` | List schedules with the associated prompt text, engine, and workspace. Pass both `before` and `before_id` from `next_cursor` for the next page. |
 | POST | `/schedules/bulk` | Schedule prompts with `{prompt_ids, preset, days, times, timezone, name?, repetitions?, enabled?, batch_id?}`. Returns `batch_id`, `schedule_ids`, `prompts`, `runs_per_time`, `runs_per_scheduled_day`, and `enabled`. Schedules are paused by default. |
 | PATCH | `/schedules/bulk` | Update selected schedule IDs with `{ids, preset?, days?, times?, timezone?, repetitions?, enabled?}` |
 | DELETE | `/schedules/:id` | Remove schedule, retain history |
@@ -108,7 +108,7 @@ Days are Sunday=0 … Saturday=6. Weekly uses the first supplied day. Enabling a
 
 A batch supports 1–10 samples per prompt per slot and up to eight local times per scheduled day. At each slot, due runs are queued in pages under the organization's monthly allowance and submitted according to the provider rate limits. MCP `create_schedules` and `update_schedules` use the same limits.
 
-Pass the same client-generated `batch_id` UUID and settings on each create request to add pages of prompts to one schedule batch. Replaying a prompt in that batch returns its original schedule ID. Change saved settings with `PATCH /schedules/bulk` or `update_schedules`. `list_schedules` supports optional `workspace_id`, `before`, and `before_id`.
+Pass the same client-generated `batch_id` UUID and settings on each create request to add pages of prompts to one schedule batch. Replaying a prompt in that batch returns its original schedule ID. Change saved settings with `PATCH /schedules/bulk` or `update_schedules`. `list_schedules` supports optional `workspace_id`, `before`, and `before_id`. Its full rows include the prompt text, engine, and workspace, just like REST.
 
 ## MCP configuration
 

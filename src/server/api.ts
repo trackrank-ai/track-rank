@@ -586,7 +586,7 @@ export async function api(
     const scope = workspace ? [org, workspace] : [org];
     const columns = selection
       ? "s.id,s.created_at,s.preset,s.days,s.times_json,s.timezone,s.repetitions,s.enabled"
-      : "s.*,p.workspace_id,p.text AS prompt_text";
+      : "s.*,p.workspace_id,p.text AS prompt_text,p.engine";
     const [rows, count] = await Promise.all([
       all(env,
         `SELECT ${columns} ${source}${before === undefined ? "" : " AND (s.created_at,s.id)<(?,?)"}
