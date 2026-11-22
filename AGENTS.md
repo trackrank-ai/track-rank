@@ -5,7 +5,7 @@ Applies to this repository. Read this before changing code. More-specific instru
 ## Start here
 
 1. Read `README.md` and `docs/ARCHITECTURE.md`; inspect `git status` and the code paths relevant to the task.
-2. Read the applicable reference: `docs/DESIGN.md`, `docs/API.md`, `docs/AUTHENTICATION.md`, `docs/PLANS.md`, or `docs/BILLING-OPERATIONS.md`.
+2. Read the applicable reference: `PRODUCT.md`, `docs/API.md`, `docs/AUTHENTICATION.md`, `docs/PLANS.md`, or `docs/BILLING-OPERATIONS.md`.
 3. Preserve existing user changes. Do not reset, discard, overwrite secrets, or rewrite unrelated files. Keep changes focused; avoid whole-file formatting during functional edits.
 4. Follow the task through implementation, appropriate verification, and a clear handoff. Distinguish implemented, locally tested, staging-verified, and deployed results. Never claim an external journey passed from mocks alone.
 5. Review and update `AGENTS.md` and `README.md` in the same change whenever deployment, local setup, self-hosting, or an app-wide convention changes. Record the convention contributors must follow in `AGENTS.md` and the steps or behavior users and operators need in `README.md`. Keep linked reference docs in sync where their instructions change. Include this review before calling the task complete.
@@ -13,7 +13,7 @@ Applies to this repository. Read this before changing code. More-specific instru
 ## Stack and code map
 
 - TypeScript / React 19 / TanStack Start and Router / Vite. Cloudflare Workers hosts the app; D1 stores metadata, private R2 stores raw evidence, Workflows executes runs, and Cron dispatches/reconciles work.
-- `src/routes/`: pages, onboarding and authenticated UI. `src/components/ui/`: shared shadcn/Radix primitives. `src/styles.css`: shared styles; follow `docs/DESIGN.md`.
+- `src/routes/`: pages, onboarding and authenticated UI. `src/components/ui/`: shared shadcn/Radix primitives. `src/styles.css`: shared styles. Use `PRODUCT.md` for audience and workflow decisions. The visual guidance in `docs/DESIGN.md` describes the provisional implementation.
 - `src/worker.ts`: HTTP routing, auth/API/MCP/webhook entry points and scheduled work. `src/server/types.ts`: environment bindings and shared helpers.
 - `src/server/api.ts`: REST routes, validation and tenant authorization. `mcp.ts`: MCP tools and agent-facing schemas.
 - `auth.ts`, `auth-schema.ts`, `local-auth.ts`: identity, roles, invitations and tightly scoped local verification bypass.
