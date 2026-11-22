@@ -1,3 +1,4 @@
+import { analyticsQuery, type AnalyticsScope } from "@/lib/analytics-filters";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -8,9 +9,10 @@ type Item = Record<string, any>;
 type ResearchPage = { runs: Item[]; next_before: number | null; next_before_id: string | null };
 const researchNames = { domain: "Cited domain", page: "Cited page", query: "Grounding query" };
 
-export function ResearchDrilldown({ org, workspace, type, value, request }: {
+export function ResearchDrilldown({ org, workspace, scope, type, value, request }: {
   org: string;
   workspace: string;
+  scope: AnalyticsScope;
   type: ResearchType;
   value: string;
   request: (path: string) => Promise<Item>;
@@ -18,8 +20,9 @@ export function ResearchDrilldown({ org, workspace, type, value, request }: {
   const [page, setPage] = useState<ResearchPage | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const query = new URLSearchParams({ research_type: type, research_value: value });
-  if (workspace !== "all") query.set("workspace", workspace);
+  const query = analyticsQuery(scope, workspace);
+  query.set("research_type", type);
+  query.set("research_value", value);
   const path = "/runs?" + query;
   useEffect(() => {
     let canceled = false;
@@ -72,7 +75,7 @@ export function ResearchDrilldown({ org, workspace, type, value, request }: {
           <p>{value}</p>
         </div>
         <Button variant="ghost" size="sm" asChild>
-          <Link to="/app" search={{ org, workspace, tab: "research" }}>Back to research</Link>
+          <Link to="/app" search={{ ...scope, org, workspace, tab: "research" }}>Back to research</Link>
         </Button>
       </div>
       {error && <p role="alert">{error}</p>}
@@ -83,7 +86,7 @@ export function ResearchDrilldown({ org, workspace, type, value, request }: {
         <p className="data-note">{runs.length} answers loaded. Page and brand counts cover these answers.</p>
         {runs.map(run => (
           <div className="simple-row" key={run.id}>
-            <Link to="/app" search={{ org, workspace: run.workspace_id, tab: "runs", run: run.id }}>
+            <Link to="/app" search={{ ...scope, org, workspace, tab: "runs", run: run.id, researchType: type, researchValue: value }}>
               <strong>{run.prompt_text}</strong>
               <small>{new Date(run.created_at).toLocaleString()}</small>
             </Link>
@@ -96,7 +99,7 @@ export function ResearchDrilldown({ org, workspace, type, value, request }: {
         <h3>Cited pages</h3>
         {pages.size ? [...pages.values()].map(source => (
           <div className="citation-row" key={source.url}>
-            <Link to="/app" search={{ org, workspace, tab: "research", researchType: "page", researchValue: source.url }}>
+            <Link to="/app" search={{ ...scope, org, workspace, tab: "research", researchType: "page", researchValue: source.url }}>
               <strong>{source.title || source.url}</strong><span>{source.url}</span>
             </Link>
           </div>

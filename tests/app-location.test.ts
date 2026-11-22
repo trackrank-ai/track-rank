@@ -24,3 +24,13 @@ test("return paths stay inside the app and accept only supported navigation fiel
   assert.equal(appReturnPath("/app?org=demo&prompt=prompt-abc&run=run-abc"), "/app?org=demo");
   assert.equal(parseAppSearch({ org: ["first", "second"], run: "../other", tab: "invalid" }).org, undefined);
 });
+
+test("filtered analytics and metric links retain their scope through sign-in", () => {
+  const original = new URLSearchParams({
+    org: "agency", workspace: "client", tab: "runs", set: "local-discovery", tags: "consideration,chicago-market",
+    location: "Chicago", engine: "google", from: "2026-11-01", to: "2026-11-20", trackedBrand: "client-brand", metric: "mention",
+  });
+  const login = new URL(appLoginPath("?" + original, ""), "https://trackrank.invalid");
+  const result = new URL(login.searchParams.get("next")!, login).searchParams;
+  assert.deepEqual(Object.fromEntries(result), { ...Object.fromEntries(original), tags: "chicago-market,consideration" });
+});

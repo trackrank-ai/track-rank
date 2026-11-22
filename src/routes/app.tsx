@@ -1,3 +1,6 @@
+import { Overview, OverviewFilters, useReport } from "@/components/overview";
+import { PromptSets, type PromptSet } from "@/components/prompt-sets";
+import { analyticsQuery, analyticsScope, defaultPeriod, type AnalyticsScope } from "@/lib/analytics-filters";
 import { BulkPageNavigation, BulkSelection, changeSelection, useBulkPages } from "@/components/bulk-selection";
 import { MAX_PROMPT_TAGS, MAX_PROMPT_TAG_LENGTH, splitPromptTags } from "@/lib/prompt-tags";
 import { formatBillingPrice } from "@/lib/billing-price";
@@ -23,7 +26,6 @@ import {
   type ReactNode,
 } from "react";
 import {
-  ArrowUpRight,
   BarChart3,
   BookOpen,
   Building2,
@@ -142,7 +144,6 @@ function CopyValue({
     </Button>
   );
 }
-type RunHistoryCursor = { before: number; beforeId: string };
 const billingBlocksWorkspace = (status: unknown) =>
   status === "trial_expired" || status === "choose_plan" || status === "payment_required";
 
@@ -199,14 +200,13 @@ function App() {
   const [promptScheduleFilter, setPromptScheduleFilter] = useState("");
   const [promptBrandFilter, setPromptBrandFilter] = useState("");
   const [promptWorkspace, setPromptWorkspace] = useState("");
-  const [workspaceData, setWorkspaceData] = useState<{ key: string; prompts: Item[]; runs: Item[]; cursor: RunHistoryCursor | null } | null>(null);
+  const [workspaceData, setWorkspaceData] = useState<{ key: string; prompts: Item[] } | null>(null);
   const [session, setSession] = useState<Item | null>(null),
     [initializing, setInitializing] = useState(true),
     [orgs, setOrgs] = useState<Item[]>([]),
     [workspaceRecords, setWorkspaces] = useState<Item[]>([]),
     [brands, setBrands] = useState<Item[]>([]),
     [prompts, setPrompts] = useState<Item[]>([]),
-    [runs, setRuns] = useState<Item[]>([]),
     [settings, setSettings] = useState<Item>({}),
     [billing, setBilling] = useState<Item>({}),
     [members, setMembers] = useState<Item[]>([]),
@@ -227,7 +227,6 @@ function App() {
     [promptText, setPromptText] = useState(""),
     [promptTagInput, setPromptTagInput] = useState(""),
     [ideas, setIdeas] = useState<string[]>([]),
-    [nextRunCursor, setNextRunCursor] = useState<RunHistoryCursor | null>(null),
     [pendingBatch, setPendingBatch] = useState<{ scope: string; batch: PendingRunBatch } | null>(null);
   const org = search.org ?? orgs[0]?.id ?? "";
   const tab = search.tab ?? "overview";
@@ -256,11 +255,12 @@ function App() {
   if (promptScheduleFilter) libraryQuery.set("schedule", promptScheduleFilter);
   if (promptBrandFilter) libraryQuery.set("brand", promptBrandFilter);
   if (search.tag) libraryQuery.set("tag", search.tag);
+  if (search.set) libraryQuery.set("set", search.set);
   const libraryPath = "/prompts?" + libraryQuery;
   const savedSelection = [...promptSelection.keys()];
   const mixedWorkspaceSelection = new Set([...promptSelection.values()].map(prompt => prompt.workspace_id)).size > 1;
   const selectedRunCount = savedSelection.length * runSamples;
-  const filteredPrompts = !!(promptSearch.trim() || promptEngineFilter || promptScheduleFilter || promptBrandFilter || search.tag);
+  const filteredPrompts = !!(promptSearch.trim() || promptEngineFilter || promptScheduleFilter || promptBrandFilter || search.tag || search.set);
   const promptInput = useMemo(() => editPrompt
     ? { prompts: promptText.trim() ? [promptText.trim()] : [], error: "" }
     : inspectPromptInput(promptText, promptSeparator), [editPrompt, promptText, promptSeparator]);
@@ -275,12 +275,29 @@ function App() {
   const promptBrandIds = new Set(brandIds(savingWorkspace));
   const scopeBrands = allWorkspaces ? brands : brands.filter(b => trackedBrandIds.has(b.id));
   const promptBrands = brands.filter(b => promptBrandIds.has(b.id));
+  const [setRevision, setSetRevision] = useState(0);
+  const reportTab = tab === "overview" || tab === "research";
+  const linkScope = analyticsScope(search);
+  const isScopedHistory = tab === "runs" && Object.values(linkScope).some(Boolean);
+  const reportScope = {
+    ...defaultPeriod(), ...Object.fromEntries(Object.entries(linkScope).filter(([, value]) => value !== undefined)),
+    trackedBrand: linkScope.trackedBrand || scopeBrands.find(b => b.kind !== "competitor")?.id || scopeBrands[0]?.id,
+  } as AnalyticsScope;
   const sectionSearch = (nextTab: Tab) => ({
-    org: org || undefined, workspace, tab: nextTab, tag: nextTab === "prompts" ? search.tag : undefined,
+    ...((nextTab === "overview" || nextTab === "research" || nextTab === "runs") && (reportTab || isScopedHistory)
+      ? reportTab ? reportScope : linkScope : {}),
+    org: org || undefined, workspace, tab: nextTab,
+    ...(nextTab === "prompts" && tab === "prompts" ? { tag: search.tag, set: search.set } : {}),
+    ...(nextTab === "runs" && tab === "runs" ? { metric: search.metric, researchType: search.researchType, researchValue: search.researchValue } : {}),
   });
   function filterByTag(tag: string) {
     setPromptSelection(new Map());
     void navigate({ search: { ...sectionSearch("prompts"), prompt: search.prompt, tag: tag || undefined } });
+  }
+  function filterBySet(set: string) {
+    if (activeWorkspace.current !== workspaceKey || activeOrg.current !== org) return;
+    setPromptSelection(new Map());
+    void navigate({ search: { ...sectionSearch("prompts"), set: set || undefined } });
   }
   function setTab(nextTab: Tab) {
     if (nextTab !== tab || search.prompt || search.run) void navigate({ search: sectionSearch(nextTab) });
@@ -354,7 +371,8 @@ function App() {
   const readBulkPage = useCallback((path: string, signal: AbortSignal) =>
     request(path, "GET", undefined, org, true, signal), [org, request]);
   const canLoadBulkPages = workspaceReady && !unavailableWorkspace;
-  const promptPages = useBulkPages(canLoadBulkPages && tab === "prompts" ? libraryPath : null, "prompts", readBulkPage, prompts);
+  const promptLibraryRevision = useMemo(() => ({ prompts, setRevision }), [prompts, setRevision]);
+  const promptPages = useBulkPages(canLoadBulkPages && tab === "prompts" ? libraryPath : null, "prompts", readBulkPage, promptLibraryRevision);
   const savedPrompts = promptPages.current?.rows ?? [];
   const workspaceTags = promptPages.current?.tags ?? [];
   const tagOptions = search.tag && !workspaceTags.includes(search.tag) ? [search.tag, ...workspaceTags] : workspaceTags;
@@ -438,7 +456,6 @@ function App() {
         request("/workspaces?include_archived=1"),
         request("/brands"),
         request("/prompts"),
-        request("/runs"),
         request("/settings"),
       ]);
       if (!isCurrent()) return;
@@ -446,11 +463,7 @@ function App() {
       setWorkspaces(results[0].workspaces);
       setBrands(results[1].brands);
       setPrompts(results[2].prompts);
-      setRuns(results[3].runs);
-      setNextRunCursor(results[3].next_before_id
-        ? { before: results[3].next_before, beforeId: results[3].next_before_id }
-        : null);
-      setSettings(results[4]);
+      setSettings(results[3]);
       setLoadedOrg(org);
     } catch (e) {
       if (isCurrent()) setError(e instanceof Error ? e.message : "Unable to load workspace");
@@ -459,20 +472,14 @@ function App() {
     }
   }, [org, request]);
   useEffect(() => {
-    if (!workspaceReady || !workspaceId || unavailableWorkspace ||
-      !["overview", "research", "prompts", "schedules"].includes(tab)) return;
-    if (tab === "research" && search.researchType && search.researchValue) return;
+    if (!workspaceReady || !workspaceId || unavailableWorkspace || !["runs", "prompts", "schedules"].includes(tab)) return;
     let canceled = false;
-    const query = "?" + new URLSearchParams({ workspace: workspaceId });
-    Promise.all([request("/prompts" + query), request("/runs" + query)])
-      .then(([promptPage, runPage]) => {
-        if (!canceled) setWorkspaceData({
-          key: workspaceKey, prompts: promptPage.prompts, runs: runPage.runs,
-          cursor: runPage.next_before_id ? { before: runPage.next_before, beforeId: runPage.next_before_id } : null,
-        });
+    request("/prompts?" + new URLSearchParams({ workspace: workspaceId }))
+      .then(page => {
+        if (!canceled) setWorkspaceData({ key: workspaceKey, prompts: page.prompts });
       }).catch(error => { if (!canceled) setError(error.message); });
     return () => { canceled = true; };
-  }, [workspaceReady, workspaceId, unavailableWorkspace, workspaceKey, prompts, request, tab, search.researchType, search.researchValue]);
+  }, [workspaceReady, workspaceId, unavailableWorkspace, workspaceKey, prompts, request, tab]);
   useEffect(() => {
     setPromptSearch("");
     setPromptEngineFilter("");
@@ -564,7 +571,6 @@ function App() {
     setSelectedRun(null);
     setEditPrompt(null);
     setPromptText("");
-    setBrand("");
     setNewKey("");
     setInvite("");
     if (org) void load();
@@ -698,77 +704,25 @@ function App() {
     });
   }
   const visiblePrompts = scoped?.prompts ?? prompts.filter(p => allWorkspaces || p.workspace_id === workspace);
-  const visibleRuns = scoped?.runs ?? runs.filter(r => allWorkspaces || r.workspace_id === workspace);
   const schedulesSelected = selectedScheduleIds.length > 0;
   const schedulePromptCount = editingScheduleSelection ? selectedScheduleIds.length : selectedPromptIds.length;
   const scheduleTimeCount = new Set(scheduleTimes).size;
-  const analysisCursor = allWorkspaces ? nextRunCursor : scoped?.cursor;
-  const [engine, setEngine] = useState("all"),
-    [brand, setBrand] = useState(""),
-    [range, setRange] = useState("30");
-  const filteredRuns = visibleRuns.filter(
-    (r) =>
-      (engine === "all" || r.config?.engine === engine) &&
-      r.created_at >= Date.now() - Number(range) * 86400000,
+  const setResult = useReport<{ sets: PromptSet[] }>(
+    workspaceReady && !unavailableWorkspace && (reportTab || tab === "prompts")
+      ? "/prompt-sets?" + analyticsQuery({}, workspace) : "", request, promptLibraryRevision,
   );
-  const successful = filteredRuns.filter(
-    (r) => r.status === "succeeded" && r.has_answer,
+  const promptSets = setResult?.data?.sets ?? [];
+  const research = useReport<{ answers: number; items: { kind: string; value: string; title: string; count: number }[] }>(
+    workspaceReady && !unavailableWorkspace && tab === "research" && !search.researchValue
+      ? "/research?" + analyticsQuery(reportScope, workspace) : "", request, prompts,
   );
-  const selectedBrand =
-    (scopeBrands.some(b => b.id === brand) && brand) || scopeBrands.find(b => b.kind !== "competitor")?.id || scopeBrands[0]?.id || "";
-  const brandStats: Item[] = scopeBrands.map((b) => {
-    const sampled = successful.filter((r) =>
-      (r.mentions || []).some((m: Item) => m.brand_id === b.id),
-    );
-    return {
-      ...b,
-      samples: sampled.length,
-      mentions: sampled.filter((r) =>
-        r.mentions.some((m: Item) => m.brand_id === b.id && m.mentioned),
-      ).length,
-      citations: sampled.filter((r) =>
-        r.mentions.some((m: Item) => m.brand_id === b.id && m.cited),
-      ).length,
-    };
-  });
-  const activeStat = brandStats.find((b) => b.id === selectedBrand),
-    percent = (n: number, d: number) =>
-      d ? Math.round((n / d) * 100) + "%" : "—";
-  const sources = useMemo(() => {
-    const pages = new Map<string, Item>(),
-      domains = new Map<string, Item>(),
-      queries = new Map<string, number>();
-    for (const r of successful) {
-      const seen = new Set<string>();
-      for (const c of r.citations || []) {
-        const p = pages.get(c.url) || { ...c, count: 0 };
-        p.count++;
-        pages.set(c.url, p);
-        if (!seen.has(c.domain)) {
-          const d = domains.get(c.domain) || { domain: c.domain, count: 0 };
-          d.count++;
-          domains.set(c.domain, d);
-          seen.add(c.domain);
-        }
-      }
-      for (const q of new Set<string>(r.grounding_queries || []))
-        queries.set(q, (queries.get(q) || 0) + 1);
-    }
-    return {
-      pages: [...pages.values()].sort((a, b) => b.count - a.count),
-      domains: [...domains.values()].sort((a, b) => b.count - a.count),
-      queries: [...queries].sort((a, b) => b[1] - a[1]),
-    };
-  }, [successful.map((r) => r.id).join(",")]);
-  const discovered = [
-    ...new Set<string>(
-      successful.flatMap((r) =>
-        (r.discovered_brands || []).map((b: Item) => String(b.name)),
-      ),
-    ),
-  ].filter(
-    (n) => !brands.some((b) => b.name.toLowerCase() === n.toLowerCase()),
-  );
+  const sources = {
+    domains: research?.data?.items.filter(item => item.kind === "domain") ?? [],
+    pages: research?.data?.items.filter(item => item.kind === "page") ?? [],
+    queries: research?.data?.items.filter(item => item.kind === "query") ?? [],
+  };
+  const discovered = research?.data?.items.filter(item => item.kind === "brand")
+    .map(item => item.value).filter(name => !brands.some(brand => brand.name.toLowerCase() === name.toLowerCase())) ?? [];
   async function savePendingRun(batch: PendingRunBatch | null, progressOnly = false) {
     if (batch && progressOnly) {
       const { batch_key, accepted, nextPrompt } = batch;
@@ -886,29 +840,6 @@ function App() {
     }
     await savePendingCollection(storageKey, null);
     setNotice(`Paused batch created for ${scheduleIds.length} prompts. It will use ${scheduleIds.length * scheduleSamples * scheduleTimeCount} runs per scheduled day. Enable selected schedules when ready.`);
-  }
-  async function moreRuns() {
-    if (!analysisCursor) return;
-    await action(async () => {
-      const query = new URLSearchParams({
-        before: String(analysisCursor.before),
-        before_id: analysisCursor.beforeId,
-      });
-      if (workspaceId) query.set("workspace", workspaceId);
-      const d = await request("/runs?" + query);
-      if (activeOrg.current !== org) return;
-      const cursor = d.next_before_id
-        ? { before: d.next_before, beforeId: d.next_before_id }
-        : null;
-      if (workspaceId) {
-        setWorkspaceData(current => current === scoped && current
-          ? { ...current, runs: [...current.runs, ...d.runs], cursor }
-          : current);
-      } else {
-        setRuns(current => [...current, ...d.runs]);
-        setNextRunCursor(cursor);
-      }
-    });
   }
   if (initializing)
     return (
@@ -1307,197 +1238,16 @@ function App() {
                 </div>
 
               </div>
-              {["overview", "research"].includes(tab) && (
-                <div className="app-filters">
-                  <label>
-                    Engine
-                    <select
-                      value={engine}
-                      onChange={(e) => setEngine(e.target.value)}
-                    >
-                      <option value="all">All engines</option>
-                      {Object.entries(engines).map(([v, l]) => (
-                        <option key={v} value={v}>
-                          {l}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    Tracked brand
-                    <select
-                      value={selectedBrand}
-                      onChange={(e) => setBrand(e.target.value)}
-                    >
-                      <option value="">No tracked brand</option>
-                      {scopeBrands.map((b) => (
-                        <option value={b.id} key={b.id}>
-                          {b.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    Time range
-                    <select
-                      value={range}
-                      onChange={(e) => setRange(e.target.value)}
-                    >
-                      <option value="7">Last 7 days</option>
-                      <option value="30">Last 30 days</option>
-                      <option value="90">Last 90 days</option>
-                    </select>
-                  </label>
-                  <span>
-                    Based on {filteredRuns.length} loaded runs ·{" "}
-                    {successful.length} successful AI answers
-                  </span>
-                </div>
-              )}
-              {tab === "overview" && (
-                <>
-                  <div className="app-metrics">
-                    {[
-                      {
-                        label: "Brand mention rate",
-                        value: percent(
-                          activeStat?.mentions || 0,
-                          activeStat?.samples || 0,
-                        ),
-                        note: `${activeStat?.mentions || 0} / ${activeStat?.samples || 0} eligible answers`,
-                      },
-                      {
-                        label: "Website citation rate",
-                        value: percent(
-                          activeStat?.citations || 0,
-                          activeStat?.samples || 0,
-                        ),
-                        note: `${activeStat?.citations || 0} / ${activeStat?.samples || 0} eligible answers`,
-                      },
-                      {
-                        label: "Tracked prompts",
-                        value: String(visiblePrompts.length),
-                        note: `${visiblePrompts.filter((p) => p.enabled).length} enabled in this workspace`,
-                      },
-                      {
-                        label: "Collected answers",
-                        value: String(successful.length),
-                        note: "Failures and absent AI Overviews excluded",
-                      },
-                    ].map((m) => (
-                      <Card className="app-stat" key={m.label}>
-                        <CardContent>
-                          <span>{m.label}</span>
-                          <strong>{m.value}</strong>
-                          <small>{m.note}</small>
-                        </CardContent>
-                      </Card>
-                    ))}
-                  </div>
-                  <Card className="app-panel">
-                    <CardContent>
-                      <div className="panel-title">
-                        <div>
-                          <h2>Visibility over time</h2>
-                          <p>
-                            Daily mention rate, based only on answers containing
-                            the tracked brand snapshot.
-                          </p>
-                        </div>
-                        <Badge variant="outline">
-                          {engine === "all" ? "All engines" : engines[engine]}
-                        </Badge>
-                      </div>
-                      <HistoryChart runs={successful} brandId={selectedBrand} />
-                    </CardContent>
-                  </Card>
-                  <div className="app-two-col">
-                    <Card>
-                      <CardContent>
-                        <div className="panel-title">
-                          <h2>Brand comparison</h2>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => setTab("brands")}
-                          >
-                            Manage <ArrowUpRight size={13} />
-                          </Button>
-                        </div>
-                        {scopeBrands.length ? (
-                          <div className="comparison-list">
-                            {brandStats.map((b) => (
-                              <div key={b.id}>
-                                <span>
-                                  <strong>{b.name}</strong>
-                                  <small>
-                                    {b.kind} · {b.samples} answers
-                                  </small>
-                                </span>
-                                <div className="brand-bar">
-                                  <i
-                                    style={{
-                                      width:
-                                        percent(b.mentions, b.samples) === "—"
-                                          ? "0%"
-                                          : percent(b.mentions, b.samples),
-                                    }}
-                                  />
-                                </div>
-                                <b>{percent(b.mentions, b.samples)}</b>
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <Empty
-                            title="Add your first brand"
-                            description="Track your brand, agency clients, and competitors. Metrics only begin when that brand is included in new runs."
-                          >
-                            <Button onClick={() => setTab("brands")} size="sm">
-                              Add brand
-                            </Button>
-                          </Empty>
-                        )}
-                      </CardContent>
-                    </Card>
-                    <Card>
-                      <CardContent>
-                        <div className="panel-title">
-                          <h2>Most-cited domains</h2>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => setTab("research")}
-                          >
-                            Explore <ArrowUpRight size={13} />
-                          </Button>
-                        </div>
-                        {sources.domains.length ? (
-                          sources.domains.slice(0, 6).map((d) => (
-                            <div className="simple-row" key={d.domain}>
-                              <span>{d.domain}</span>
-                              <Badge variant="secondary">
-                                {d.count} answers
-                              </Badge>
-                            </div>
-                          ))
-                        ) : (
-                          <Empty
-                            title="Follow the sources"
-                            description="Cited domains will appear after your first successful collection."
-                          />
-                        )}
-                      </CardContent>
-                    </Card>
-                  </div>
-                  <p className="data-note">
-                    Mention matching uses case-insensitive whole-name/alias
-                    matches. Citation matching uses the canonical brand domain
-                    and its subdomains. Google organic results are not counted
-                    as AI citations.
-                  </p>
-                </>
-              )}
+              {(reportTab || tab === "prompts") && setResult?.error && <p role="alert">{setResult.error}</p>}
+              {reportTab && <OverviewFilters
+                key={JSON.stringify([org, workspace, tab, search, reportScope])}
+                org={org} workspace={workspace} workspaceNames={workspaceNames} scope={reportScope} sets={promptSets} brands={scopeBrands as { id: string; name: string }[]}
+                engines={engines} request={request} revision={prompts}
+                onChange={scope => void navigate({ search: { org, workspace, tab, ...scope,
+                  researchType: search.researchType, researchValue: search.researchValue } })}
+              />}
+              {tab === "overview" && <Overview org={org} workspace={workspace} scope={reportScope}
+                brands={scopeBrands as { id: string; name: string }[]} request={request} revision={prompts} />}
               {tab === "workspaces" && (
                 <Card><CardContent>
                   <h2>Manage workspaces</h2>
@@ -1917,6 +1667,9 @@ function App() {
                           <Button value="remove" variant="outline" disabled={bulkBusy}>Remove tags</Button>
                         </form>
                       )}
+                      <PromptSets key={workspaceKey} org={org} workspace={workspace} workspaceNames={workspaceNames}
+                        sets={promptSets} activeSet={search.set} selection={promptSelection} canWrite={canWrite}
+                        request={request} onFilter={filterBySet} onChange={() => setSetRevision(value => value + 1)} />
                       {mixedWorkspaceSelection && <p className="data-note">Select prompts from one workspace to run them together.</p>}
                       {promptPages.error && <p role="alert">{promptPages.error}</p>}
                       {!promptPages.current ? (!promptPages.error && <p role="status">Loading saved prompts…</p>) :
@@ -1984,10 +1737,11 @@ function App() {
               )}
               {tab === "research" && (search.researchType && search.researchValue ? (
                 <ResearchDrilldown
-                  key={JSON.stringify([org, workspace, search.researchType, search.researchValue])}
-                  org={org} workspace={workspace} type={search.researchType} value={search.researchValue} request={request}
+                  key={JSON.stringify([org, workspace, reportScope, search.researchType, search.researchValue])}
+                  org={org} workspace={workspace} scope={reportScope} type={search.researchType} value={search.researchValue} request={request}
                 />
-              ) : (
+              ) : research?.error ? <p role="alert">{research.error}</p>
+                : !research?.data ? <p role="status">Loading research…</p> : (
                 <>
                   <Card>
                     <CardContent>
@@ -2011,13 +1765,12 @@ function App() {
                         <TabsContent value="domains">
                           {sources.domains.length ? (
                             sources.domains.map((d) => (
-                              <div className="simple-row" key={d.domain}>
-                                <Link to="/app" search={{ ...sectionSearch("research"), researchType: "domain", researchValue: d.domain }}>
-                                  <strong>{d.domain}</strong>
+                              <div className="simple-row" key={d.value}>
+                                <Link to="/app" search={{ ...sectionSearch("research"), researchType: "domain", researchValue: d.value }}>
+                                  <strong>{d.value}</strong>
                                 </Link>
                                 <span>
-                                  {d.count} / {successful.length} answers ·{" "}
-                                  {percent(d.count, successful.length)}
+                                  {d.count} / {research.data?.answers} answers
                                 </span>
                               </div>
                             ))
@@ -2031,12 +1784,12 @@ function App() {
                         <TabsContent value="pages">
                           {sources.pages.length ? (
                             sources.pages.map((p) => (
-                              <div className="citation-row" key={p.url}>
-                                <Link to="/app" search={{ ...sectionSearch("research"), researchType: "page", researchValue: p.url }}>
-                                  <strong>{p.title}</strong>
-                                  <span>{p.url}</span>
+                              <div className="citation-row" key={p.value}>
+                                <Link to="/app" search={{ ...sectionSearch("research"), researchType: "page", researchValue: p.value }}>
+                                  <strong>{p.title || p.value}</strong>
+                                  <span>{p.value}</span>
                                 </Link>
-                                <a className="small-link" href={p.url} target="_blank" rel="noreferrer" aria-label="Open original page">
+                                <a className="small-link" href={p.value} target="_blank" rel="noreferrer" aria-label="Open original page">
                                   <ExternalLink size={14} />
                                 </a>
                                 <Badge variant="secondary">
@@ -2053,7 +1806,7 @@ function App() {
                         </TabsContent>
                         <TabsContent value="queries">
                           {sources.queries.length ? (
-                            sources.queries.map(([q, count]) => (
+                            sources.queries.map(({ value: q, count }) => (
                               <div className="simple-row" key={q}>
                                 <Link to="/app" search={{ ...sectionSearch("research"), researchType: "query", researchValue: q }}>{q}</Link>
                                 <Badge variant="secondary">
@@ -2112,7 +1865,7 @@ function App() {
                         ))
                       ) : (
                         <p className="data-note">
-                          No untracked entities found in the loaded results.
+                          No untracked entities found in this view.
                         </p>
                       )}
                     </CardContent>
@@ -2320,7 +2073,7 @@ function App() {
                     </Card>
                   )}
                   <WorkspaceRunHistory
-                    key={org + ":" + workspace}
+                    key={JSON.stringify([org, workspace, linkScope, search.metric])}
                     org={org}
                     workspace={workspaceId}
                     workspaceName={workspaceName}
@@ -2330,7 +2083,11 @@ function App() {
                     brands={scopeBrands}
                     engines={engines}
                     request={request}
-                    refresh={runs}
+                    refresh={prompts}
+                    scope={linkScope}
+                    metric={search.metric}
+                    researchType={search.researchType}
+                    researchValue={search.researchValue}
                     onPromptChange={promptId => {
                       void navigate({ search: { ...sectionSearch("runs"), runPrompt: promptId || undefined } });
                     }}
@@ -3149,109 +2906,11 @@ function App() {
                   )}
                 </>
               )}
-              {["overview", "research"].includes(tab) && (
-                <div className="load-history">
-                  <p>
-                    {visibleRuns.length} runs loaded. Charts and research
-                    aggregate only loaded runs in the selected filters.
-                  </p>
-                  {analysisCursor && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={busy}
-                      onClick={moreRuns}
-                    >
-                      Load older runs
-                    </Button>
-                  )}
-                </div>
-              )}
             </>
           )}
           {tab === "settings" && <footer className="settings-legal"><LegalLinks /></footer>}
         </main>
       </div>
-    </div>
-  );
-}
-function HistoryChart({ runs, brandId }: { runs: Item[]; brandId: string }) {
-  const days = new Map<string, { n: number; m: number }>();
-  for (const r of runs) {
-    const b = (r.mentions || []).find((m: Item) => m.brand_id === brandId);
-    if (!b) continue;
-    const day = new Date(r.created_at).toISOString().slice(0, 10),
-      d = days.get(day) || { n: 0, m: 0 };
-    d.n++;
-    if (b.mentioned) d.m++;
-    days.set(day, d);
-  }
-  const data = [...days]
-    .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([day, v]) => ({ day, rate: (v.m / v.n) * 100, ...v }));
-  if (!data.length)
-    return (
-      <Empty
-        title="Real visibility starts here."
-        description="Add a brand, save a prompt, and collect an answer. Your history will appear here with actual sample counts."
-      />
-    );
-  const w = 800,
-    h = 180,
-    pad = 10,
-    x = (i: number) =>
-      data.length === 1 ? w / 2 : pad + (i * (w - pad * 2)) / (data.length - 1),
-    y = (v: number) => h - pad - (v * (h - pad * 2)) / 100;
-  return (
-    <div className="history-chart">
-      <div className="history-axis">
-        <span>100%</span>
-        <span>50%</span>
-        <span>0%</span>
-      </div>
-      <svg
-        viewBox={`0 0 ${w} ${h}`}
-        role="img"
-        aria-label={`Daily brand mention rate for ${data.length} collected dates`}
-      >
-        <g stroke="var(--border)" strokeDasharray="4 4">
-          <path d={`M0 ${pad}H${w}M0 ${h / 2}H${w}M0 ${h - pad}H${w}`} />
-        </g>
-        <polyline
-          points={data.map((d, i) => `${x(i)},${y(d.rate)}`).join(" ")}
-          fill="none"
-          stroke="#c3461d"
-          strokeWidth="3"
-        />
-        {data.map((d, i) => (
-          <circle
-            key={d.day}
-            cx={x(i)}
-            cy={y(d.rate)}
-            r="5"
-            fill="#c3461d"
-            tabIndex={0}
-          >
-            <title>
-              {d.day}: {Math.round(d.rate)}% · {d.m}/{d.n} answers
-            </title>
-          </circle>
-        ))}
-      </svg>
-      <div className="history-dates">
-        <span>{data[0].day}</span>
-        <span>{data[data.length - 1].day}</span>
-      </div>
-      <details>
-        <summary>View daily sample counts</summary>
-        <div className="chart-data">
-          {data.map((d) => (
-            <span key={d.day}>
-              {d.day}: {Math.round(d.rate)}% ({d.m}/{d.n})
-            </span>
-          ))}
-        </div>
-      </details>
     </div>
   );
 }

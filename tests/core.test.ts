@@ -77,6 +77,7 @@ function fixture() {
   sql.exec(readFileSync(new URL("../migrations/0020_prompt_tags.sql", import.meta.url), "utf8"));
   sql.exec(readFileSync(new URL("../migrations/0021_three_tier_plans.sql", import.meta.url), "utf8"));
   sql.exec(readFileSync(new URL("../migrations/0022_billing_accounts.sql", import.meta.url), "utf8"));
+  sql.exec(readFileSync(new URL("../migrations/0024_prompt_sets.sql", import.meta.url), "utf8"));
   const db = {
     prepare: (s: string) => new Statement(sql, s),
     batch: async (stmts: Statement[]) => {

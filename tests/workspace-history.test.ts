@@ -319,3 +319,91 @@ test("bulk selection pages keep the same tenant and filters across REST and MCP"
   assert.deepEqual(await tool("delete_prompts", { ids: [expected[1]] }), { deleted: 1 });
   assert.equal((await (await call(query + "&limit=20")).json() as { total: number }).total, 999);
 });
+
+test("prompt sets validate whole selections, support overlap and clear membership on moves and archives", async () => {
+  const { sql, call } = setup();
+  const create = (name: string, prompt_ids: string[]) => call("/prompt-sets", { name, workspace_id: "source", prompt_ids });
+  const list = async () => (await (await call("/prompt-sets?workspace=source", undefined, "viewer")).json() as any).sets;
+  await assert.rejects(create("Invalid", ["prompt", "foreign-prompt"]), { status: 404 });
+  assert.deepEqual(await list(), []);
+  const { id } = await (await create("Local discovery", ["prompt", "prompt", "alt"])).json() as any;
+  const other = await (await create("Consideration", ["prompt"])).json() as any;
+  const update = (action: string, prompt_ids: string[], user?: string) =>
+    call(`/prompt-sets/${id}/members`, { action, prompt_ids }, user, "PATCH");
+  assert.equal((await (await update("add", ["prompt"])).json() as any).changed, 0);
+  await assert.rejects(update("remove", ["alt", "foreign-prompt"]), { status: 404 });
+  await assert.rejects(update("remove", ["alt"], "viewer"), { status: 403 });
+  const library = await (await call(`/prompts?view=library&set=${id}&selection=1`, undefined, "viewer")).json() as any;
+  assert.equal(library.prompts.length, 2);
+  await assert.rejects(call(`/prompts?workspace=target&set=${id}`), { status: 404 });
+  await call(`/prompt-sets/${id}`, { name: "Renamed" }, undefined, "PATCH");
+  assert.equal((await list()).find((set: any) => set.id === id).name, "Renamed");
+  await call("/prompts/move", { ids: ["prompt"], workspace_id: "target" });
+  assert.equal((await list()).find((set: any) => set.id === other.id).member_count, 0);
+  assert.equal((await list()).find((set: any) => set.id === id).member_count, 1);
+  await assert.rejects(update("add", ["prompt"]), { status: 404 });
+  await call(`/prompt-sets/${id}`, undefined, undefined, "DELETE");
+  assert.equal(sql.prepare("SELECT count(*) AS n FROM prompts WHERE id='alt' AND archived_at IS NULL").get()?.n, 1);
+  await call("/workspaces/source", undefined, undefined, "DELETE");
+  assert.equal(sql.prepare("SELECT count(*) AS n FROM prompt_sets WHERE org_id='org'").get()?.n, 0);
+});
+
+test("full-period analytics reconciles with paged run history, research, and CSV", async () => {
+  const { sql, call } = setup();
+  sql.exec("UPDATE organization_plans SET plan_version_id='starter-v2' WHERE org_id='org'");
+  sql.exec("UPDATE billing_accounts SET status='active',price_id='price_test',updated_at=unixepoch()*1000 WHERE org_id='org'");
+  sql.exec(`UPDATE prompts SET tags='["consideration","chicago-market"]' WHERE id='prompt'`);
+  const create = (name: string) => call("/prompt-sets", { name, workspace_id: "source", prompt_ids: ["prompt", "alt"] });
+  const { id } = await (await create("Local discovery")).json() as any;
+  await create("Overlapping");
+  const fixtureRun = sql.prepare(`INSERT INTO runs(id,org_id,prompt_id,workspace_id,prompt_text,created_at,updated_at,
+    config,status,has_answer,mentions,citations,grounding_queries,idempotency_key)
+    VALUES(?,'org','prompt',?,'Recorded prompt',?,?,?,?,?,?,?,?,?)`);
+  const time = Date.now();
+  const write = (id: string, { location = "Chicago", tracked = true, mention = true, cited = false, hasAnswer = 1,
+    age = 0, workspace = "source" } = {}) =>
+    fixtureRun.run(id, workspace, time - age * 86400000, time,
+      JSON.stringify({ engine: "google", location_name: location, brands: tracked ? [{ id: "client" }] : [] }),
+      "succeeded", hasAnswer,
+      JSON.stringify([{ brand_id: "client", mentioned: mention, cited }]),
+      JSON.stringify([{ domain: "example.test", url: "https://example.test/", title: "Example" }]),
+      '["chicago","chicago"]', id);
+  for (let index = 0; index < 102; index++) write("sample-" + index, { mention: index < 101, cited: index === 101 });
+  write("untracked", { tracked: false });
+  write("no-answer", { hasAnswer: 0 });
+  write("old", { age: 45 });
+  write("elsewhere", { location: "Seattle" });
+  write("other-workspace", { workspace: "target" });
+  const start = new Date(time - 90 * 86400000).toISOString().slice(0, 10);
+  const filters = `workspace=source&set=${id}&tags=consideration,chicago-market&engine=google&location=chicago&from=${start}&tracked_brand=client`;
+  const get = async (path: string) => await (await call(path)).json() as any;
+  const report = await get("/analytics?" + filters);
+  assert.equal(report.selected_prompts, 1);
+  assert.equal(report.covered_prompts, 1);
+  assert.equal(report.total_runs, 104);
+  assert.equal(report.eligible_answers, 103);
+  assert.deepEqual(report.brands, [{ id: "client", samples: 102, mentions: 101, citations: 1 }]);
+  assert.equal(report.daily.reduce((count: number, day: any) => count + day.samples, 0), 102);
+  const matches = "/runs?" + filters + "&metric=mention";
+  const first = await get(matches);
+  const last = await get(matches + `&before=${first.next_before}&before_id=${first.next_before_id}`);
+  assert.equal(first.runs.length + last.runs.length, 101);
+  assert.equal(last.runs.length, 1);
+  assert.equal((await get("/runs?" + filters + "&metric=citation")).runs[0].id, "sample-101");
+  const csv = await (await call("/export?" + filters + "&metric=brand")).text();
+  assert.equal(csv.split("\r\n").length, 103);
+  assert.doesNotMatch(csv, /untracked|no-answer|elsewhere|other-workspace/);
+  const summary = await get("/research?" + filters);
+  assert.equal(summary.answers, 103);
+  assert.equal(summary.items.find((item: any) => item.kind === "query").count, 103);
+  assert.equal((await get("/runs?" + filters + "&research_type=domain&research_value=example.test")).runs.length, 100);
+  assert.equal((await get("/analytics?workspace=source&from=" + start)).total_runs, 105);
+  await call("/prompts/bulk-tags", { ids: ["prompt"], tags: ["chicago-market"], action: "remove" }, undefined, "PATCH");
+  assert.equal((await get("/analytics?" + filters)).total_runs, 0);
+  await call("/prompts/move", { ids: ["prompt"], workspace_id: "target" });
+  assert.equal((await get("/analytics?workspace=source&set=" + id)).total_runs, 0);
+  assert.equal((await get("/analytics?workspace=source")).total_runs, 105);
+  assert.equal((await get("/analytics?workspace=target")).total_runs, 1);
+  await assert.rejects(call("/analytics?workspace=foreign"), { status: 404 });
+  await assert.rejects(call("/analytics?from=2026-02-30"), { status: 400 });
+});
