@@ -33,20 +33,24 @@ export function PricingSection({ hosted, offers, standalone = false }: { hosted:
 }
 const usd = (n: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(n);
 export function CostCalculator({ hosted, offers }: { hosted: boolean; offers: Offer[] }) {
-  const [prompts, setPrompts] = useState(50), [engines, setEngines] = useState(3), [samples, setSamples] = useState(1), [history, setHistory] = useState(30), [rate, setRate] = useState("0.01");
-  const estimate = estimatePricing(offers, prompts, engines, samples, history, rate.trim() ? Number(rate) : NaN);
+  const [prompts, setPrompts] = useState("50");
+  const [engines, setEngines] = useState("3");
+  const [samples, setSamples] = useState("1");
+  const [history, setHistory] = useState(30);
+  const [rate, setRate] = useState("0.01");
+  const estimate = estimatePricing(offers, Number(prompts), Number(engines), Number(samples), history, rate.trim() ? Number(rate) : NaN);
   return <section className="cost-section" id="calculator" aria-labelledby="calculator-title">
     <h2 id="calculator-title">Estimate your monthly cost</h2>
     <p>A 30-day planning estimate, including your estimated provider cost. Change the inputs to match your workload.</p>
     <div className="calculator-inputs">
-      <label>Unique prompts<input type="number" min="1" max="1000000" value={prompts || ""} onChange={e => setPrompts(e.target.valueAsNumber)} /></label>
-      <label>Engines per prompt<input type="number" min="1" max="3" value={engines || ""} onChange={e => setEngines(e.target.valueAsNumber)} /></label>
-      <label>Samples per engine / day<input type="number" min="1" max="10" value={samples || ""} onChange={e => setSamples(e.target.valueAsNumber)} /></label>
+      <label>Unique prompts<input type="number" min="1" max="1000000" value={prompts} onChange={e => setPrompts(e.target.value)} /></label>
+      <label>Engines per prompt<input type="number" min="1" max="3" value={engines} onChange={e => setEngines(e.target.value)} /></label>
+      <label>Samples per engine / day<input type="number" min="1" max="10" value={samples} onChange={e => setSamples(e.target.value)} /></label>
       {hosted && <label>Searchable history<select value={history} onChange={e => setHistory(Number(e.target.value))}><option value="30">30 days</option><option value="90">90 days</option><option value="180">180 days</option></select></label>}
       <label>Estimated provider cost / run (USD)<input type="number" min="0" step="0.001" value={rate} onChange={e => setRate(e.target.value)} /></label>
     </div>
     <p className="data-note">The editable $0.01/run default is a planning assumption. Engine, execution mode, options and optional analysis affect your actual bill. The estimate excludes provider minimum deposits and taxes.</p>
-    <div className="calculator-results" aria-live="polite">{!estimate ? <p>Enter valid positive whole-number volumes and a nonnegative provider rate.</p> : <>
+    <div className="calculator-results" aria-live="polite">{!estimate ? <p>Use 1–1,000,000 prompts, 1–3 engines and 1–10 samples. Enter whole numbers for volumes and a provider rate of zero or more.</p> : <>
       <article><h3>Your workload</h3><strong>{estimate.runs.toLocaleString("en-US")}</strong><p>prompt runs over 30 days</p></article>
       {hosted && offers.length > 0 ? (
         <article><h3>TrackRank {estimate.plan?.name || "Custom"}</h3><strong>{estimate.total !== null ? usd(estimate.total) + "/mo" : "Contact us"}</strong><p>{estimate.plan ? `${usd(estimate.plan.price_cents / 100)} subscription + ${usd(estimate.provider)} estimated provider usage` : "Your workload or history needs a custom plan."}</p></article>
