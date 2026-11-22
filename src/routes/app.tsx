@@ -1834,67 +1834,78 @@ function App() {
                           {promptPages.current.total.toLocaleString()} {filteredPrompts ? "matching prompts" : "saved prompts"}
                         </p>
                       )}
-                      {(savedPrompts.length > 0 || promptSelection.size > 0) && canWrite && <div className="bulk-toolbar">
-                        <BulkSelection rows={savedPrompts} selected={promptSelection} pages={promptPages} disabled={busy}
-                          members={group => group.variants} selectionLabel="Engine variants selected"
-                          onChange={(rows, checked) => setPromptSelection(current => changeSelection(current, rows, checked))} />
-                        <Button disabled={bulkBusy || !!pendingRun || !savedSelection.length || mixedWorkspaceSelection} onClick={() => queuePromptBatch(savedSelection, runSamples)}>Run selected — {selectedRunCount} runs</Button>
-                        <Button variant="outline" disabled={bulkBusy || !savedSelection.length || mixedWorkspaceSelection}
-                          onClick={() => reviewCollection(savedSelection, 1, "schedule")}>Schedule selected</Button>
-                        <Button variant="outline" disabled={bulkBusy || !savedSelection.length}
-                          onClick={() => removePrompts(savedSelection)}>Delete selected prompts</Button>
-                        {savedSelection.length > 0 && workspaces.length > 1 && (
-                          <details>
-                            <summary>Move selected prompts</summary>
-                            <form className="app-inline-form" onSubmit={e => submit(e, async f => {
-                              const destination = f.get("workspace_id");
-                              const moved = await changeSelectedPrompts(savedSelection, "/prompts/move", "POST", { workspace_id: destination }, "moved", true);
-                              if (moved === null) return;
-                              await load();
-                              setNotice(`Moved ${moved} ${moved === 1 ? "prompt" : "prompts"} to ${workspaces.find(w => w.id === destination)?.name || "the selected workspace"}.`);
-                            })}>
-                              <FormField label="Destination workspace">
-                                <select name="workspace_id" required defaultValue="">
-                                  <option value="" disabled>Choose a workspace</option>
-                                  {workspaces.filter(w => w.id !== workspace).map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
-                                </select>
-                              </FormField>
-                              <Button disabled={bulkBusy}>Move prompts</Button>
-                            </form>
-                            <p className="data-note">Schedules and future runs follow the prompts. Previously queued and collected runs stay in their original workspace.</p>
-                          </details>
-                        )}
-                        <details>
-                          <summary>Advanced · sampling & bulk settings</summary>
-                          <FormField label="Samples per engine variant" hint="Independent samples are queued for collection. Each sample is a separate provider charge and run.">
-                            <input type="number" min={1} max={10} value={runSamples}
-                              onChange={e => setRunSamples(Math.max(1, Math.min(10, Number(e.target.value) || 1)))} />
-                          </FormField>
-                          {savedSelection.length > 0 && <PromptSettingsEditor key={workspaceKey + selectedEngines}
-                            engines={selectedEngines} busy={bulkBusy} request={request}
-                            save={changes => action(() => updateSelectedPrompts("/prompts/bulk-settings", changes, "Engine settings updated for selected prompts."))} />}
-                        </details>
-                      </div>}
+                      {(savedPrompts.length > 0 || promptSelection.size > 0) && canWrite && (
+                        <div className="bulk-toolbar">
+                          <BulkSelection rows={savedPrompts} selected={promptSelection} pages={promptPages} disabled={busy}
+                            members={group => group.variants} selectionLabel="Engine variants selected"
+                            onChange={(rows, checked) => setPromptSelection(current => changeSelection(current, rows, checked))} />
+                          {savedSelection.length > 0 && <div className="form-actions">
+                            <Button disabled={bulkBusy || !!pendingRun || mixedWorkspaceSelection} onClick={() => queuePromptBatch(savedSelection, runSamples)}>Run selected — {selectedRunCount} runs</Button>
+                            <Button variant="outline" disabled={bulkBusy || mixedWorkspaceSelection}
+                              onClick={() => reviewCollection(savedSelection, 1, "schedule")}>Schedule selected</Button>
+                          </div>}
+                        </div>
+                      )}
                       {canWrite && savedSelection.length > 0 && (
-                        <details className="advanced-settings">
-                          <summary>Tag selected prompts</summary>
-                          <form className="app-inline-form" onSubmit={e => {
-                            const operation = (e.nativeEvent as SubmitEvent).submitter?.getAttribute("value");
-                            submit(e, async f => {
-                              const tags = splitPromptTags(f.get("selected_tags"));
-                              if (!tags.length) throw new Error("Enter at least one tag.");
-                              await updateSelectedPrompts("/prompts/bulk-tags", { action: operation, tags },
-                                operation === "add" ? "Tags added to selected prompts." : "Tags removed from selected prompts.");
-                            });
-                          }}>
-                            <FormField label="Tags for selected prompts">
-                              <input name="selected_tags" required placeholder="Enter comma-separated tags"
-                                maxLength={MAX_PROMPT_TAGS * (MAX_PROMPT_TAG_LENGTH + 2)} />
-                            </FormField>
-                            <Button value="add" variant="outline" disabled={bulkBusy}>Add tags</Button>
-                            <Button value="remove" variant="outline" disabled={bulkBusy}>Remove tags</Button>
-                          </form>
-                        </details>
+                        <>
+                          <details className="advanced-settings">
+                            <summary>Advanced settings</summary>
+                            <div className="form-stack">
+                              <FormField label="Samples per engine variant" hint="Independent samples are queued for collection. Each sample is a separate provider charge and run.">
+                                <input type="number" min={1} max={10} value={runSamples} disabled={bulkBusy}
+                                  onChange={e => setRunSamples(Math.max(1, Math.min(10, Number(e.target.value) || 1)))} />
+                              </FormField>
+                              <PromptSettingsEditor key={workspaceKey + selectedEngines}
+                                engines={selectedEngines} busy={bulkBusy} request={request}
+                                save={changes => action(() => updateSelectedPrompts("/prompts/bulk-settings", changes, "Engine settings updated for selected prompts."))} />
+                            </div>
+                          </details>
+                          <details className="advanced-settings" key={workspaceKey}>
+                            <summary>Manage selection</summary>
+                            {workspaces.length > 1 && (
+                              <div>
+                                <form className="app-inline-form" onSubmit={e => submit(e, async f => {
+                                  const destination = f.get("workspace_id");
+                                  const moved = await changeSelectedPrompts(savedSelection, "/prompts/move", "POST", { workspace_id: destination }, "moved", true);
+                                  if (moved === null) return;
+                                  await load();
+                                  setNotice(`Moved ${moved} ${moved === 1 ? "prompt" : "prompts"} to ${workspaces.find(w => w.id === destination)?.name || "the selected workspace"}.`);
+                                })}>
+                                  <FormField label="Destination workspace">
+                                    <select name="workspace_id" required defaultValue="" disabled={bulkBusy} aria-describedby="prompt-move-note">
+                                      <option value="" disabled>Choose a workspace</option>
+                                      {workspaces.filter(w => w.id !== workspace).map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+                                    </select>
+                                  </FormField>
+                                  <Button variant="outline" disabled={bulkBusy}>Move selected prompts</Button>
+                                </form>
+                                <p className="data-note" id="prompt-move-note">Schedules and future runs follow the prompts. Previously queued and collected runs stay in their original workspace.</p>
+                              </div>
+                            )}
+                            <form className="app-inline-form" onSubmit={e => {
+                              const operation = (e.nativeEvent as SubmitEvent).submitter?.getAttribute("value");
+                              submit(e, async f => {
+                                const tags = splitPromptTags(f.get("selected_tags"));
+                                if (!tags.length) throw new Error("Enter at least one tag.");
+                                await updateSelectedPrompts("/prompts/bulk-tags", { action: operation, tags },
+                                  operation === "add" ? "Tags added to selected prompts." : "Tags removed from selected prompts.");
+                              });
+                            }}>
+                              <FormField label="Tags for selected prompts">
+                                <input name="selected_tags" required placeholder="Enter comma-separated tags" disabled={bulkBusy}
+                                  maxLength={MAX_PROMPT_TAGS * (MAX_PROMPT_TAG_LENGTH + 2)} />
+                              </FormField>
+                              <div className="form-actions">
+                                <Button value="add" variant="outline" disabled={bulkBusy}>Add tags</Button>
+                                <Button value="remove" variant="outline" disabled={bulkBusy}>Remove tags</Button>
+                              </div>
+                            </form>
+                            <div className="form-actions">
+                              <Button type="button" variant="outline" disabled={bulkBusy}
+                                onClick={() => removePrompts(savedSelection)}>Delete selected prompts</Button>
+                            </div>
+                          </details>
+                        </>
                       )}
                       <PromptSets key={workspaceKey} org={org} workspace={workspace} workspaceNames={workspaceNames}
                         sets={promptSets} activeSet={search.set} selection={promptSelection} canWrite={canWrite}
