@@ -38,7 +38,7 @@ Open a run to inspect its question, workspace, engine, status, recorded answer, 
 - In **Sources & research**, select a domain, cited page, or grounding query to see matching answers and brand mentions. Copy the detail URL to share it with teammates who have access. Open a matching answer to see its full run.
 - Open **Settings** to manage the organization and providers and to access hosted billing. Your current organization appears below your email in the sidebar. Pricing, Privacy, Terms, Support, and Security links are at the bottom of Settings.
 
-In **Prompts**, use **Prompt settings** to add comma-separated tags when creating prompts, or use **Edit engine settings** to manage tags on a saved variant. Use **Tag selected prompts** to add or remove tags on a selection. **Filters → Filter by tag** shows matches within the selected client workspace. Choose **All workspaces** to search across the organization.
+In **Prompts**, use **Prompt settings** to add comma-separated tags when creating prompts, or use **Edit engine settings** to manage tags on a saved variant. Open **Manage selection** to add or remove tags, move selected variants to another workspace, or delete them. **Filters → Filter by tag** shows matches within the selected client workspace. Choose **All workspaces** to search across the organization.
 
 Use **Prompt sets** in **Prompts** to group a selection from one workspace. Select all matching prompts across pages, name the set, and open **View performance**. A prompt can belong to several sets. Renaming or deleting a set preserves its prompts and collection history.
 

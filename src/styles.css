@@ -1381,7 +1381,7 @@ h1 {
   font-size: 12px;
   font-weight: 500;
 }
-.form-stack input:not([type="checkbox"]),
+.form-stack input:not([type="checkbox"]):not([type="radio"]),
 .form-stack textarea,
 .form-stack select,
 .app-field input,
@@ -1412,7 +1412,7 @@ h1 {
 .app-inline-form select:focus {
   outline: 2px solid var(--ring);
 }
-input[type="checkbox"] {
+input:is([type="checkbox"], [type="radio"]) {
   accent-color: var(--primary);
   width: 15px;
   height: 15px;
@@ -2108,16 +2108,25 @@ input[type="checkbox"] {
 }
 .app-inline-form {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
-  margin-block: 15px;
+  gap: .625rem;
+  margin-block: 1rem;
 }
-.app-inline-form input,
-.app-inline-form select {
-  flex: 1;
+form.app-inline-form,
+.app-inline-form:has(> .app-field) {
+  align-items: flex-end;
 }
-.app-inline-form [data-slot="button"] {
-  font-size: 11px;
+.app-inline-form > :is(.app-field, input:not([type="checkbox"]), select) {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+.form-stack > .app-inline-form,
+.form-grid > .app-inline-form {
+  margin-block: 0;
+}
+.app-inline-form > [data-slot="button"] {
+  align-self: auto;
   flex-shrink: 0;
 }
 .app-field {
@@ -2140,7 +2149,8 @@ input[type="checkbox"] {
 .form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 17px 22px;
+  align-items: start;
+  gap: 1rem 1.25rem;
 }
 .form-stack .check-field,
 .check-field {
@@ -2165,8 +2175,9 @@ input[type="checkbox"] {
 }
 .form-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  gap: .625rem;
 }
 .ideas-panel {
   border: 1px solid var(--border);
@@ -2683,8 +2694,11 @@ input[type="checkbox"] {
     display: none;
   }
   .app-topbar {
-    height: 53px;
-    padding-inline: 16px;
+    height: auto;
+    min-height: 53px;
+    flex-wrap: wrap;
+    gap: .5rem;
+    padding: .5rem 1rem;
   }
   .app-topbar > div {
     gap: 7px;
@@ -2692,6 +2706,11 @@ input[type="checkbox"] {
   }
   .app-topbar > div > span:first-of-type {
     max-width: 120px;
+  }
+  .app-topbar > .topbar-actions {
+    max-width: 100%;
+    flex-wrap: wrap;
+    margin-inline-start: auto;
   }
   .app-topbar svg {
     width: 12px;
@@ -2784,22 +2803,14 @@ input[type="checkbox"] {
   .empty-state p {
     font-size: 10px;
   }
-  .app-inline-form {
-    flex-wrap: wrap;
-    gap: 9px;
-  }
-  .app-inline-form input,
-  .app-inline-form select {
-    min-width: 100%;
-  }
-  .app-inline-form [data-slot="button"] {
-    width: 100%;
+  .app-inline-form > :is(.app-field, input:not([type="checkbox"]), select) {
+    flex-basis: 100%;
   }
   .form-grid {
     grid-template-columns: 1fr;
     gap: 15px;
   }
-  .form-stack input:not([type="checkbox"]),
+  .form-stack input:not([type="checkbox"]):not([type="radio"]),
   .form-stack textarea,
   .form-stack select,
   .app-field input,

@@ -59,6 +59,15 @@ export function OverviewFilters({ scope, org, workspace, workspaceNames, sets, b
   const locationQuery = analyticsQuery({ ...scope, location: undefined, trackedBrand: undefined }, workspace);
   const locations = useReport<{ locations: string[] }>("/analytics/locations?" + locationQuery, request, revision);
   const activeSet = sets.find(set => set.id === scope.set);
+  const activeBrand = brands.find(brand => brand.id === scope.trackedBrand);
+  const activeFilters = [
+    scope.from && scope.to && `${scope.from} to ${scope.to} UTC`,
+    scope.set && `Prompt set: ${activeSet?.name ?? "Selected set"}`,
+    scope.tags && `Tags: ${scope.tags.split(",").join(", ")}`,
+    scope.engine && (engines[scope.engine] ?? scope.engine),
+    scope.location && `Location: ${scope.location}`,
+    scope.trackedBrand && `Brand: ${activeBrand?.name ?? "Selected historical brand"}`,
+  ].filter(Boolean);
   function apply(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const data = Object.fromEntries(new FormData(event.currentTarget));
@@ -72,50 +81,53 @@ export function OverviewFilters({ scope, org, workspace, workspaceNames, sets, b
       setError(cause instanceof Error ? cause.message : "Invalid tags");
     }
   }
-  return <Card><CardContent>
-    <form className="form-grid prompt-filters" onSubmit={apply}>
-      <label className="app-field"><span>Prompt set</span>
-        <select name="set" defaultValue={scope.set ?? ""}>
-          <option value="">All prompts</option>
-          {scope.set && !activeSet && <option value={scope.set}>Selected set</option>}
-          {sets.map(set => <option key={set.id} value={set.id}>{set.name}{workspace === "all" ? ` · ${workspaceNames[set.workspace_id]}` : ""}</option>)}
-        </select>
-      </label>
-      <label className="app-field"><span>Tags · match all</span>
-        <input name="tags" defaultValue={scope.tags} maxLength={1020} placeholder="consideration, chicago-market" />
-        <small>Up to {MAX_PROMPT_TAGS} comma-separated tags.</small>
-      </label>
-      <label className="app-field"><span>Engine</span>
-        <select name="engine" defaultValue={scope.engine ?? ""}>
-          <option value="">All engines</option>
-          {Object.entries(engines).map(([id, name]) => <option key={id} value={id}>{name}</option>)}
-        </select>
-      </label>
-      <label className="app-field"><span>Collection location</span>
-        <input name="location" defaultValue={scope.location} maxLength={200} list="recorded-locations" placeholder="All locations" />
-        <datalist id="recorded-locations">{locations?.data?.locations.map(name => <option value={name} key={name} />)}</datalist>
-      </label>
-      {brands.length > 0 && <label className="app-field"><span>Tracked brand</span>
-        <select name="trackedBrand" defaultValue={scope.trackedBrand ?? ""}>
-          <option value="">{brands.length ? "Default brand" : "No tracked brand"}</option>
-          {scope.trackedBrand && !brands.some(brand => brand.id === scope.trackedBrand) && <option value={scope.trackedBrand}>Selected historical brand</option>}
-          {brands.map(brand => <option key={brand.id} value={brand.id}>{brand.name}</option>)}
-        </select>
-      </label>}
-      <label className="app-field"><span>From (UTC)</span>
-        <input name="from" type="date" required defaultValue={scope.from} />
-      </label>
-      <label className="app-field"><span>Through (UTC)</span>
-        <input name="to" type="date" required defaultValue={scope.to} />
-      </label>
-      <div className="app-inline-form">
+  return <details className="advanced-settings mb-5">
+    <summary className="break-words">Filters{activeFilters.length > 0 && <> · <span className="font-normal">{activeFilters.join(" · ")}</span></>}</summary>
+    <form className="form-stack" onSubmit={apply}>
+      <div className="form-grid">
+        <label className="app-field"><span>From (UTC)</span>
+          <input name="from" type="date" required defaultValue={scope.from} />
+        </label>
+        <label className="app-field"><span>Through (UTC)</span>
+          <input name="to" type="date" required defaultValue={scope.to} />
+        </label>
+        <label className="app-field"><span>Prompt set</span>
+          <select name="set" defaultValue={scope.set ?? ""}>
+            <option value="">All prompts</option>
+            {scope.set && !activeSet && <option value={scope.set}>Selected set</option>}
+            {sets.map(set => <option key={set.id} value={set.id}>{set.name}{workspace === "all" ? ` · ${workspaceNames[set.workspace_id]}` : ""}</option>)}
+          </select>
+        </label>
+        <label className="app-field"><span>Tags · match all</span>
+          <input name="tags" defaultValue={scope.tags} maxLength={1020} placeholder="consideration, chicago-market" />
+          <small>Up to {MAX_PROMPT_TAGS} comma-separated tags.</small>
+        </label>
+        <label className="app-field"><span>Engine</span>
+          <select name="engine" defaultValue={scope.engine ?? ""}>
+            <option value="">All engines</option>
+            {Object.entries(engines).map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+          </select>
+        </label>
+        <label className="app-field"><span>Collection location</span>
+          <input name="location" defaultValue={scope.location} maxLength={200} list="recorded-locations" placeholder="All locations" />
+          <datalist id="recorded-locations">{locations?.data?.locations.map(name => <option value={name} key={name} />)}</datalist>
+        </label>
+        {(brands.length > 0 || scope.trackedBrand) && <label className="app-field"><span>Tracked brand</span>
+          <select name="trackedBrand" defaultValue={scope.trackedBrand ?? ""}>
+            <option value="">{brands.length ? "Default brand" : "No tracked brand"}</option>
+            {scope.trackedBrand && !activeBrand && <option value={scope.trackedBrand}>Selected historical brand</option>}
+            {brands.map(brand => <option key={brand.id} value={brand.id}>{brand.name}</option>)}
+          </select>
+        </label>}
+      </div>
+      <div className="form-actions">
         <Button type="submit">Apply filters</Button>
         <Button type="button" variant="outline" onClick={event => { event.currentTarget.form?.reset(); setError(""); onChange({}); }}>Clear filters</Button>
       </div>
+      {activeSet && <Link className="small-link" to="/app" search={{ org, workspace: activeSet.workspace_id, tab: "prompts", set: activeSet.id }}>View prompts in {activeSet.name}</Link>}
+      {error && <p role="alert">{error}</p>}
     </form>
-    {activeSet && <Link className="small-link" to="/app" search={{ org, workspace: activeSet.workspace_id, tab: "prompts", set: activeSet.id }}>View prompts in {activeSet.name}</Link>}
-    {error && <p role="alert">{error}</p>}
-  </CardContent></Card>;
+  </details>;
 }
 
 export function Overview({
@@ -155,20 +167,23 @@ export function Overview({
       { id: "collect", complete: false, tab: "prompts", label: "Start a collection", action: "Choose variants",
         description: "Review and run saved combinations from Prompts.", permitted: canWrite },
     ] as const;
-    return <Card><CardContent className="form-stack overview-setup">
-      <div><h2>{next === "collect" ? "Ready to collect answers" : "Get ready to collect answers"}</h2>
-        <p className="overview-scope">{workspaceName} · No runs in searchable history</p>
-      </div>
-      <ol>
-        {steps.map(step => <li key={step.id}>
-          <div><strong>{step.label}</strong><p className="overview-scope">{step.description}</p></div>
-          {step.complete ? <span className="overview-scope">Complete</span>
-            : step.permitted ? <Button size="sm" variant={step.id === next ? "default" : "outline"} asChild>
-              <Link to="/app" search={{ org, workspace: step.id === "brands" ? brandWorkspace : workspace, tab: step.tab }}>{step.action}</Link>
-            </Button> : <span className="overview-scope">{step.id === "settings" ? "Organization admin required" : "Editor access required"}</span>}
-        </li>)}
-      </ol>
-    </CardContent></Card>;
+    return <>
+      <Card><CardContent className="form-stack overview-setup">
+        <div><h2>{next === "collect" ? "Ready to collect answers" : "Get ready to collect answers"}</h2>
+          <p className="overview-scope">{workspaceName} · No runs in searchable history</p>
+        </div>
+        <ol>
+          {steps.map(step => <li key={step.id}>
+            <div><strong>{step.label}</strong><p className="overview-scope">{step.description}</p></div>
+            {step.complete ? <span className="overview-scope">Complete</span>
+              : step.permitted ? <Button size="sm" variant={step.id === next ? "default" : "outline"} asChild>
+                <Link to="/app" search={{ org, workspace: step.id === "brands" ? brandWorkspace : workspace, tab: step.tab }}>{step.action}</Link>
+              </Button> : <span className="overview-scope">{step.id === "settings" ? "Organization admin required" : "Editor access required"}</span>}
+          </li>)}
+        </ol>
+      </CardContent></Card>
+      {filters}
+    </>;
   }
   const dateLabel = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeZone: "UTC" })
     .formatRange(new Date(data.from), new Date(data.to));

@@ -1,5 +1,6 @@
 /* Shared reading and control styles for the authenticated shell. */
 .app-shell {
+  --control-height: 2.5rem;
   --control-border: #8c8175;
   --muted-foreground: #66635e;
   --observed-success: #486432;
@@ -39,6 +40,49 @@
   min-height: 2.25rem;
   min-width: 2.25rem;
   font-size: .875rem;
+}
+.app-shell :is(.app-inline-form, .form-grid, .form-stack, .form-actions, .bulk-toolbar) :is(select:not([multiple]):not([size]), input:not([type="checkbox"]):not([type="radio"]):not([type="file"])) {
+  min-height: var(--control-height);
+  padding-block: .5rem;
+}
+.app-shell :is(.app-inline-form, .form-actions, .bulk-toolbar, form) [data-slot="button"] {
+  min-height: var(--control-height);
+}
+.app-shell .form-stack > label.app-field,
+.app-shell .app-field {
+  gap: .375rem;
+}
+.app-shell .advanced-settings > summary {
+  min-height: var(--control-height);
+  margin-inline: -.875rem;
+  padding: .5rem .875rem;
+  align-content: center;
+  border-radius: inherit;
+  font-size: .875rem;
+  line-height: 1.5;
+}
+.app-shell .advanced-settings {
+  padding: 0 .875rem;
+}
+.app-shell .advanced-settings[open] {
+  padding-block-end: .875rem;
+}
+.app-shell .advanced-settings[open] > summary {
+  margin-block-end: .75rem;
+  border-bottom: 1px solid var(--border);
+  border-radius: .5rem .5rem 0 0;
+}
+.app-shell .advanced-settings > summary:hover {
+  background: var(--muted);
+}
+#prompt-library [data-slot="card-content"] > :is(.advanced-settings, .app-field) + .advanced-settings,
+#prompt-library .advanced-settings + .prompt-table {
+  margin-block-start: .625rem;
+}
+@media (pointer: coarse) {
+  .app-shell {
+    --control-height: 2.75rem;
+  }
 }
 .app-shell .app-nav a {
   min-height: 2.5rem;

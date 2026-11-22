@@ -22,6 +22,12 @@ The compact app has a labeled section chooser and a separate workspace selector.
 
 For a workspace awaiting its first collection, put the next setup step ahead of analytics filters. Explain how brand assignment affects future snapshots and keep save-only actions available before credentials are connected. For a populated workspace, lead with a result and its scope. Distinguish an empty workspace from a search that returned no matches. Every schedule action must identify its engine variant and distinguish the workspace in organization-wide views.
 
+## Form layout and disclosure
+
+Use `form-stack` for related fields, `form-grid` for independent columns, `app-inline-form` for a field and its action, and `form-actions` for a group of buttons. Align the submit button with the input edge below its label. At narrow widths let fields take their own line and wrap related buttons together. Keep a consistent control height within a row and allow larger touch targets.
+
+Keep the selection count, Run and Schedule visible together. Open **Manage selection** for moving, tagging or deleting the selected variants. Keep sampling and engine settings under Advanced. Show active report filters and schedule timing in their disclosure summaries.
+
 ## Bulk selection
 
 Use the shared bulk selection control for lists with bulk actions. Show the selected count, support a mixed checkbox state, and let users clear the selection. Offer the full matching count only after the current page is selected and additional pages exist. Keep selections across page navigation. Expanding the selection reads matches in the active organization, workspace and filters. It never performs a bulk write.
