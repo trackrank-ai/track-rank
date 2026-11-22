@@ -1,9 +1,9 @@
 import { bulkPromptTagsSchema, decodePrompt, promptTags, updatePromptTags } from "./prompt-tags";
 import { body } from "./request-body";
-import { bulkRunSchema, bulkScheduleSchema, bulkToggleSchema, updateBulkSchedules, bulkScheduleUpdateSchema, selectedRows, createBulkRuns, createBulkSchedules, MAX_BULK_SELECTION_REQUEST_BYTES } from "./bulk";
+import { bulkPromptIdsSchema, movePromptsSchema, bulkRunSchema, bulkScheduleSchema, bulkToggleSchema, updateBulkSchedules, bulkScheduleUpdateSchema, selectedRows, createBulkRuns, createBulkSchedules, MAX_BULK_SELECTION_REQUEST_BYTES } from "./bulk";
 import { assertProviderOptions, providerOptions } from "./provider-options";
 import { MAX_PROMPT_BATCH_BYTES, promptBatchSchema, savePromptBatch } from "./prompt-batch";
-import { listSavedPrompts } from "./prompt-library";
+import { listSavedPrompts, listPageLimit } from "./prompt-library";
 import { searchableHistoryWhere } from "./run-history";
 import { requireWorkspaceBrand } from "./workspace-brands";
 import { archivePrompts, archiveWorkspace, deleteBrand } from "./resource-archive";
@@ -344,13 +344,13 @@ export async function api(
   if (path === "/prompts/bulk" && method === "POST")
     return json(await savePromptBatch(env, org, await body(req, promptBatchSchema, MAX_PROMPT_BATCH_BYTES)), 201);
   if (path === "/prompts/bulk" && method === "DELETE") {
-    const b = await body(req, z.object({ ids: z.array(id).min(1).max(100) }).strict());
+    const b = await body(req, bulkPromptIdsSchema);
     const rows = await selectedRows(env, org, "prompts", b.ids);
     await archivePrompts(env, org, rows.map(row => String(row.id)));
     return json({ deleted: rows.length });
   }
   if (path === "/prompts/move" && method === "POST") {
-    const b = await body(req, z.object({ ids: z.array(id).min(1).max(100), workspace_id: id }).strict());
+    const b = await body(req, movePromptsSchema);
     await belongs(env, "workspaces", org, b.workspace_id);
     const rows = await selectedRows(env, org, "prompts", b.ids);
     const changed = rows.filter(p => p.workspace_id !== b.workspace_id);
@@ -396,7 +396,7 @@ export async function api(
   if (path === "/prompts/bulk-settings" && method === "PATCH") {
     const b=await body(req,bulkToggleSchema);
     const rows=await selectedRows(env,org,'prompts',b.ids);
-    await env.DB.batch(rows.map(row=>env.DB.prepare("UPDATE prompts SET enabled=?,mode=? WHERE org_id=? AND id=? AND archived_at IS NULL").bind(b.enabled===undefined?row.enabled:Number(b.enabled),b.mode||row.mode,org,row.id)));
+    await env.DB.batch(rows.map(row=>env.DB.prepare("UPDATE prompts SET enabled=coalesce(?,enabled),mode=coalesce(?,mode) WHERE org_id=? AND id=? AND archived_at IS NULL").bind(b.enabled===undefined?null:Number(b.enabled),b.mode??null,org,row.id)));
     return json({updated:rows.length});
   }
   const match = path.match(/^\/prompts\/([^/]+)(?:\/(run))?$/);
@@ -554,21 +554,37 @@ export async function api(
   if (path === "/schedules" && method === "GET") {
     const workspace = u.searchParams.get("workspace");
     if (workspace) await belongs(env, "workspaces", org, workspace);
-    const cursor = z.object({
-      before: z.coerce.number().int().nonnegative(), before_id: id,
-    }).optional().safeParse(u.searchParams.has("before") || u.searchParams.has("before_id")
-      ? Object.fromEntries(u.searchParams) : undefined);
-    if (!cursor.success) throw new HttpError(400, "Invalid schedule cursor");
-    const pageSize = 500;
-    const rows = await all(env,
-      `SELECT s.*,p.workspace_id,p.text AS prompt_text FROM schedules s
+    const parsed = z.object({
+      before: z.coerce.number().int().nonnegative().optional(),
+      before_id: id.optional(),
+      limit: z.coerce.number().pipe(listPageLimit.max(500)).optional(),
+      selection: z.literal("1").optional(),
+    }).refine(filters => (filters.before === undefined) === (filters.before_id === undefined))
+      .safeParse(Object.fromEntries(u.searchParams));
+    if (!parsed.success) throw new HttpError(400, "Invalid schedule filters or cursor");
+    const { before, before_id, limit, selection } = parsed.data;
+    const pageSize = selection ? 1000 : limit ?? 500;
+    const source = `FROM schedules s
        JOIN prompts p ON p.org_id=s.org_id AND p.id=s.prompt_id
-       WHERE s.org_id=? AND p.archived_at IS NULL${workspace ? " AND p.workspace_id=?" : ""}
-       ${cursor.data ? " AND (s.created_at,s.id)<(?,?)" : ""} ORDER BY s.created_at DESC,s.id DESC LIMIT ?`,
-      org, ...(workspace ? [workspace] : []), ...(cursor.data ? [cursor.data.before, cursor.data.before_id] : []), pageSize + 1,
-    );
+       WHERE s.org_id=? AND p.archived_at IS NULL${workspace ? " AND p.workspace_id=?" : ""}`;
+    const scope = workspace ? [org, workspace] : [org];
+    const columns = selection
+      ? "s.id,s.created_at,s.preset,s.days,s.times_json,s.timezone,s.repetitions"
+      : "s.*,p.workspace_id,p.text AS prompt_text";
+    const [rows, count] = await Promise.all([
+      all(env,
+        `SELECT ${columns} ${source}${before === undefined ? "" : " AND (s.created_at,s.id)<(?,?)"}
+         ORDER BY s.created_at DESC,s.id DESC LIMIT ?`,
+        ...scope, ...(before === undefined ? [] : [before, before_id]), pageSize + 1,
+      ),
+      before === undefined && !selection ? one<{ total: number }>(env, `SELECT count(*) AS total ${source}`, ...scope) : null,
+    ]);
     const last = rows.length > pageSize ? rows[pageSize - 1] : null;
-    return json({ schedules: rows.slice(0, pageSize), next_cursor: last ? { before: last.created_at, before_id: last.id } : null });
+    return json({
+      schedules: rows.slice(0, pageSize),
+      ...(count ? { total: count.total } : {}),
+      next_cursor: last ? { before: last.created_at, before_id: last.id } : null,
+    });
   }
   const scheduleMatch = path.match(/^\/schedules\/([^/]+)$/);
   if (scheduleMatch && method === "DELETE") {

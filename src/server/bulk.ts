@@ -5,6 +5,8 @@ import { nextScheduleSlot } from './schedule-slots';
 import { RUNS_PER_REQUEST } from '../lib/collection-limits';
 const selectedIds = z.array(z.string().min(1).max(100)).min(1);
 const ids = selectedIds.max(100);
+export const bulkPromptIdsSchema = z.object({ ids }).strict();
+export const movePromptsSchema = bulkPromptIdsSchema.extend({ workspace_id: z.string().min(1).max(100) });
 export const MAX_BULK_SELECTION_REQUEST_BYTES = 64 * 1024;
 export const bulkRunSchema = z.object({
  prompt_ids: selectedIds,

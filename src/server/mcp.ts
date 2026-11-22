@@ -6,7 +6,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { z } from "zod";
 import { api } from "./api";
-import { bulkRunSchema, bulkScheduleSchema, bulkScheduleUpdateSchema } from "./bulk";
+import { bulkPromptIdsSchema, movePromptsSchema, bulkToggleSchema, bulkRunSchema, bulkScheduleSchema, bulkScheduleUpdateSchema } from "./bulk";
+import { listPageLimit } from "./prompt-library";
 import { runHistoryFilters } from "./run-history";
 import { authenticate } from "./auth";
 import { HttpError, type Ctx, type Env } from "./types";
@@ -149,10 +150,12 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
   server.registerTool(
     "list_prompts",
     {
-      description: "List saved prompts and available tags in a workspace or across the organization. Use next_cursor to load more.",
+      description: "List saved prompts and available tags. The first page includes the matching total. Use selection for compact ID pages and next_cursor to continue.",
       inputSchema: {
         workspace_id: z.string().min(1).max(100).optional(),
         tag: promptTag.optional(),
+        limit: listPageLimit.max(100).optional(),
+        selection: z.boolean().optional(),
         q: z.string().max(200).optional(),
         engine: z.enum(["chatgpt", "gemini", "google"]).optional(),
         schedule: z.enum(["active", "inactive"]).optional(),
@@ -161,8 +164,9 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
         before_id: z.string().min(1).max(100).optional(),
       },
     },
-    async ({ workspace_id, ...filters }) => {
+    async ({ workspace_id, selection, ...filters }) => {
       const query = new URLSearchParams({ view: "library" });
+      if (selection) query.set("selection", "1");
       if (workspace_id) query.set("workspace", workspace_id);
       for (const [name, value] of Object.entries(filters)) {
         if (value !== undefined) query.set(name, String(value));
@@ -170,6 +174,18 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
       return invoke("/prompts?" + query);
     },
   );
+  server.registerTool("update_prompt_settings", {
+    description: "Enable, pause, or change the execution mode of up to 100 selected prompts.",
+    inputSchema: bulkToggleSchema,
+  }, async (args) => invoke("/prompts/bulk-settings", "PATCH", args));
+  server.registerTool("move_prompts", {
+    description: "Move up to 100 selected prompts to another workspace in the same organization.",
+    inputSchema: movePromptsSchema,
+  }, async (args) => invoke("/prompts/move", "POST", args));
+  server.registerTool("delete_prompts", {
+    description: "Archive up to 100 selected prompts and remove their schedules. Existing run history is retained. Confirm the deletion with the user first.",
+    inputSchema: bulkPromptIdsSchema,
+  }, async (args) => invoke("/prompts/bulk", "DELETE", args));
   server.registerTool(
     "get_prompt",
     {
@@ -304,11 +320,19 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
   server.registerTool(
     "list_schedules",
     {
-      description: "List active and paused schedules. Use the returned cursor to load more.",
-      inputSchema: { workspace_id: z.string().optional(), before: z.number().int().nonnegative().optional(), before_id: z.string().optional() },
+      description: "List active and paused schedules. The first page includes the matching total. Use selection for compact pages and next_cursor to continue.",
+      inputSchema: {
+        workspace_id: z.string().min(1).max(100).optional(),
+        limit: listPageLimit.max(500).optional(),
+        selection: z.boolean().optional(),
+        before: z.number().int().nonnegative().optional(),
+        before_id: z.string().min(1).max(100).optional(),
+      },
     },
-    async ({ workspace_id, before, before_id }) => {
+    async ({ workspace_id, before, before_id, limit, selection }) => {
       const query = new URLSearchParams();
+      if (selection) query.set("selection", "1");
+      if (limit !== undefined) query.set("limit", String(limit));
       if (workspace_id) query.set("workspace", workspace_id);
       if (before !== undefined) query.set("before", String(before));
       if (before_id !== undefined) query.set("before_id", before_id);
