@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { analyticsQuery, analyticsScope, utcDay, type AnalyticsScope, type AnswerMetric } from "@/lib/analytics-filters";
 import type { AppSearch } from "@/lib/app-location";
 import { MAX_PROMPT_TAGS, splitPromptTags, validPromptTag } from "@/lib/prompt-tags";
@@ -118,28 +118,74 @@ export function OverviewFilters({ scope, org, workspace, workspaceNames, sets, b
   </CardContent></Card>;
 }
 
-export function Overview({ org, workspace, scope, brands, request, revision }: {
+export function Overview({
+  org, workspace, workspaceName, scope, brands, sets, engines, hasTrackedBrand, brandWorkspace, credentialsConnected, canWrite,
+  canManageCredentials, request, revision, filters,
+}: {
   org: string;
   workspace: string;
+  workspaceName: string;
   scope: AnalyticsScope;
   brands: Brand[];
+  sets: PromptSet[];
+  engines: Record<string, string>;
+  hasTrackedBrand: boolean;
+  brandWorkspace: string;
+  credentialsConnected: boolean;
+  canWrite: boolean;
+  canManageCredentials: boolean;
   request: RequestData;
   revision: unknown;
+  filters: ReactNode;
 }) {
   const result = useReport<OverviewData>("/analytics?" + analyticsQuery(scope, workspace), request, revision);
-  if (result?.error) return <p role="alert">{result.error}</p>;
+  if (result?.error) return <><p role="alert">{result.error}</p>{filters}</>;
   if (!result?.data) return <p role="status">Calculating visibility…</p>;
   const data = result.data;
-  if (!data.total_runs) return <Card><CardContent className="form-stack">
-    <h2>{!data.workspace_prompts && !data.workspace_has_runs ? "Create your first prompts"
-      : data.workspace_has_runs ? "No collections match these filters" : "Choose prompts to run"}</h2>
-    <p>{data.workspace_has_runs ? "Clear filters to return to the default view, or widen the date range."
-      : data.workspace_prompts ? "Choose saved combinations in Prompts to review and collect their first answers."
-      : "Paste questions and select the engines you want to measure."}</p>
-    {data.workspace_has_runs
-      ? <Link to="/app" search={{ org, workspace, tab: "overview", from: data.workspace_first_run === null ? undefined : utcDay(data.workspace_first_run) }}>Clear filters</Link>
-      : <Link to="/app" search={{ org, workspace, tab: "prompts" }}>{data.workspace_prompts ? "Choose prompts to run" : "Create your first prompts"}</Link>}
-  </CardContent></Card>;
+  if (!data.workspace_has_runs) {
+    const next = !hasTrackedBrand ? "brands" : !data.workspace_prompts ? "prompts"
+      : !credentialsConnected ? "settings" : "collect";
+    const steps = [
+      { id: "brands", complete: hasTrackedBrand, tab: "brands", label: "Track a brand", action: "Add or assign brand",
+        description: "Assign a brand to a workspace to measure mentions and citations.", permitted: canWrite },
+      { id: "prompts", complete: !!data.workspace_prompts, tab: "prompts", label: "Save questions", action: "Open Prompts",
+        description: "Choose the questions and engines you want to track.", permitted: canWrite },
+      { id: "settings", complete: credentialsConnected, tab: "settings", label: "Connect DataForSEO", action: "Open Settings",
+        description: "Connect your organization’s provider account to collect answers.", permitted: canManageCredentials },
+      { id: "collect", complete: false, tab: "prompts", label: "Start a collection", action: "Choose variants",
+        description: "Review and run saved combinations from Prompts.", permitted: canWrite },
+    ] as const;
+    return <Card><CardContent className="form-stack overview-setup">
+      <div><h2>{next === "collect" ? "Ready to collect answers" : "Get ready to collect answers"}</h2>
+        <p className="overview-scope">{workspaceName} · No runs in searchable history</p>
+      </div>
+      <ol>
+        {steps.map(step => <li key={step.id}>
+          <div><strong>{step.label}</strong><p className="overview-scope">{step.description}</p></div>
+          {step.complete ? <span className="overview-scope">Complete</span>
+            : step.permitted ? <Button size="sm" variant={step.id === next ? "default" : "outline"} asChild>
+              <Link to="/app" search={{ org, workspace: step.id === "brands" ? brandWorkspace : workspace, tab: step.tab }}>{step.action}</Link>
+            </Button> : <span className="overview-scope">{step.id === "settings" ? "Organization admin required" : "Editor access required"}</span>}
+        </li>)}
+      </ol>
+    </CardContent></Card>;
+  }
+  const dateLabel = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeZone: "UTC" })
+    .formatRange(new Date(data.from), new Date(data.to));
+  const setName = sets.find(set => set.id === scope.set)?.name;
+  const brandName = brands.find(brand => brand.id === scope.trackedBrand)?.name;
+  const scopeLabel = [workspaceName, `${dateLabel} (UTC)`, scope.set && (setName || "Selected prompt set"),
+    scope.engine && engines[scope.engine], scope.location, scope.tags && `Tags ${scope.tags}`,
+    scope.trackedBrand && (brandName || "Selected historical brand")].filter(Boolean).join(" · ");
+  if (!data.total_runs) return <>
+    <Card><CardContent className="form-stack overview-findings">
+      <h2>No collections match these filters</h2>
+      <p className="overview-scope">{scopeLabel}</p>
+      <p>Clear filters to see the available collection history, or choose a different date range.</p>
+      <Link to="/app" search={{ org, workspace, tab: "overview", from: data.workspace_first_run === null ? undefined : utcDay(data.workspace_first_run) }}>Show available history</Link>
+    </CardContent></Card>
+    {filters}
+  </>;
   const metricLink = (metric?: AnswerMetric, overrides?: AnalyticsScope) => ({
     ...scope, ...overrides, org, workspace, tab: "runs" as const, metric,
   });
@@ -157,6 +203,16 @@ export function Overview({ org, workspace, scope, brands, request, revision }: {
     { label: "Collected answers", metric: "eligible" as const, value: data.eligible_answers || "No eligible answers", note: `${data.eligible_answers} / ${data.total_runs} runs` },
   ];
   return <>
+    <Card><CardContent className="overview-findings">
+      <h2>Visibility findings</h2>
+      <p className="overview-scope">{scopeLabel}</p>
+      {data.eligible_answers > 0 && stat && brandName && stat.samples > 0
+        ? <p><strong>{brandName}</strong> appeared in <Link to="/app" search={metricLink("mention")}>{stat.mentions.toLocaleString()} of {stat.samples.toLocaleString()} answers</Link> collected with that brand tracked.
+          Its website was cited in <Link to="/app" search={metricLink("citation")}>{stat.citations.toLocaleString()} of those answers</Link>.</p>
+        : <p>{data.eligible_answers > 0
+          ? <><Link to="/app" search={metricLink("eligible")}>{data.eligible_answers.toLocaleString()} AI {data.eligible_answers === 1 ? "answer" : "answers"}</Link> from {data.total_runs.toLocaleString()} {data.total_runs === 1 ? "run" : "runs"}.</>
+          : <>No AI answers yet from <Link to="/app" search={metricLink()}>{data.total_runs.toLocaleString()} {data.total_runs === 1 ? "run" : "runs"}</Link> in this scope.</>}</p>}
+    </CardContent></Card>
     <div className="app-inline-form" aria-label="Collection outcomes">
       {([["pending", "Pending"], ["failed", "Failed"], ["uncertain", "Uncertain"], ["organic", "Organic only"], ["eligible", "Eligible answers"]] as const)
         .map(([outcome, label]) => <Link key={outcome} to="/app" search={{ ...metricLink(), outcome }}>
@@ -171,6 +227,7 @@ export function Overview({ org, workspace, scope, brands, request, revision }: {
           <Link className="small-link" to="/app" search={metricLink("brand")}>View eligible answers</Link>}
       </CardContent></Card>)}
     </div>
+    {filters}
     {scope.trackedBrand && <Card><CardContent>
       <div className="panel-title"><div><h2>Visibility over time</h2><p>Daily mention rate and citation counts in UTC.</p></div></div>
       {!data.daily.length ? <p className="data-note">No eligible answers</p>

@@ -1,5 +1,7 @@
 import "@/components/app-evidence.css";
 import { EvidenceReport, EvidenceSources } from "@/components/evidence-report";
+import "./app-workspace.css";
+import { collectionVariantLabel, scheduleCadence } from "@/lib/collection-labels";
 import { RunBatch } from "@/components/run-batch";
 import { CollectionDetails, CollectionReview, type Readiness } from "@/components/collection-review";
 import { defaultMonitoringTiming, MonitoringEditor, monitoringProjection } from "@/components/monitoring-timing";
@@ -1050,6 +1052,13 @@ function App() {
             </Link>
           ))}
         </nav>
+        <label className="app-field app-section-chooser">
+          <span>Section</span>
+          <select value={tab} onChange={event => { setError(""); setTab(event.target.value as Tab); }}>
+            {nav.map(({ id, label }) => <option key={id} value={id}>{label}</option>)}
+            <option value="workspaces">Workspaces</option>
+          </select>
+        </label>
         <div className="app-sidebar-bottom">
           <span>
             {session.user.name}
@@ -1303,38 +1312,29 @@ function App() {
             <>
               {!(tab === "runs" && selectedRun) && <div className="app-page-heading">
                 <div>
-                  <p className="section-eyebrow">
-                    {tab === "overview"
-                      ? "YOUR BRAND, IN CONTEXT"
-                      : "TRACKRANK WORKSPACE"}
-                  </p>
-                  <h1>
-                    {tab === "overview"
-                      ? "Your next move, clearer."
-                      : paneName}
-                  </h1>
-                  <p>
-                    {tab === "overview"
-                      ? "Real collected results. No sample data."
-                      : tab === "prompts"
-                        ? allWorkspaces ? "Prompts across your organization. Choose a workspace when saving new prompts." : `New prompts and future runs belong to ${workspaceName}.`
-                        : tab === "runs"
-                          ? allWorkspaces ? "Run history across your organization." : `Viewing runs in ${workspaceName}.`
-                          : "Organization-scoped research and collaboration."}
-                  </p>
+                  <h1>{paneName}</h1>
+                  {tab === "prompts" && <p>{allWorkspaces
+                    ? "Prompts across your organization. Choose a workspace when saving new prompts."
+                    : `New prompts and future runs belong to ${workspaceName}.`}</p>}
                 </div>
 
               </div>}
               {(reportTab || tab === "prompts") && setResult?.error && <p role="alert">{setResult.error}</p>}
-              {reportTab && <OverviewFilters
-                key={JSON.stringify([org, workspace, tab, search, reportScope])}
-                org={org} workspace={workspace} workspaceNames={workspaceNames} scope={reportScope} sets={promptSets} brands={scopeBrands as { id: string; name: string }[]}
-                engines={engines} request={request} revision={prompts}
-                onChange={scope => void navigate({ search: { org, workspace, tab, ...scope,
-                  researchType: search.researchType, researchValue: search.researchValue } })}
-              />}
-              {tab === "overview" && <Overview org={org} workspace={workspace} scope={reportScope}
-                brands={scopeBrands as { id: string; name: string }[]} request={request} revision={prompts} />}
+              {reportTab && (() => {
+                const filters = <OverviewFilters
+                  key={JSON.stringify([org, workspace, tab, search, reportScope])}
+                  org={org} workspace={workspace} workspaceNames={workspaceNames} scope={reportScope} sets={promptSets}
+                  brands={scopeBrands as { id: string; name: string }[]} engines={engines} request={request} revision={prompts}
+                  onChange={scope => void navigate({ search: { org, workspace, tab, ...scope,
+                    researchType: search.researchType, researchValue: search.researchValue } })}
+                />;
+                return tab === "research" ? filters : <Overview org={org} workspace={workspace} workspaceName={workspaceName}
+                  scope={reportScope} sets={promptSets} engines={engines} brands={scopeBrands as { id: string; name: string }[]}
+                  hasTrackedBrand={allWorkspaces ? workspaces.some(w => brandIds(w.id).length > 0) : trackedBrandIds.size > 0}
+                  brandWorkspace={workspaceId || workspaces[0]?.id || workspace}
+                  credentialsConnected={!!settings.dataforseo_configured} canWrite={canWrite} canManageCredentials={isAdmin}
+                  request={request} revision={prompts} filters={filters} />;
+              })()}
               {tab === "workspaces" && (
                 <Card><CardContent>
                   <h2>Manage workspaces</h2>
@@ -2316,6 +2316,7 @@ function App() {
                     engines={engines}
                     request={request}
                     refresh={prompts}
+                    canWrite={canWrite}
                     scope={linkScope}
                     metric={search.metric}
                     researchType={search.researchType}
@@ -2536,17 +2537,21 @@ function App() {
                         <Button variant="outline" disabled={bulkBusy || !schedulesSelected} onClick={()=>action(async()=>{if (!await updateSelectedSchedules({ enabled:false })) return;await load();setNotice("Selected schedules paused.");})}>Pause selected</Button>
                         <Button variant="outline" disabled={bulkBusy || !schedulesSelected} onClick={()=>{setEditingScheduleSelection(true);window.scrollTo({top:0,behavior:"smooth"});}}>Edit selected settings</Button>
                       </div>}
-                      {visibleSchedules.map((s) => (
-                          <div className="schedule-row" key={s.id}>
-                            {canWrite && <input type="checkbox" aria-label={`Select schedule for ${s.prompt_text || s.prompt_id}`} checked={scheduleSelection.has(s.id)} disabled={bulkBusy || schedulePages.loading} onChange={e => setScheduleSelection(current => changeSelection(current, [s], e.target.checked))} />}
-                            <div>
-                              <strong>
-                                {s.prompt_text || s.prompt_id}
-                              </strong>
-                              <small>
-                                {allWorkspaces && workspaceNames[s.workspace_id] && `${workspaceNames[s.workspace_id]} · `}{s.batch_name ? s.batch_name + " · " : ""}{s.preset} · {s.next_due_at ? `Next ${new Date(s.next_due_at).toLocaleString(undefined, {timeZone: s.timezone, timeZoneName: "short"})} · ` : ""}{JSON.parse(s.times_json).join(", ")} · {s.repetitions} sample(s) · {s.timezone} ·
-                                days {JSON.parse(s.days).join(", ")}
-                              </small>
+                      {visibleSchedules.map((s) => {
+                        const question = s.prompt_text || s.prompt_id;
+                        const variant = collectionVariantLabel(s.engine, workspaceNames[s.workspace_id] || "Workspace", engines);
+                        const timing = scheduleCadence(s as Parameters<typeof scheduleCadence>[0]);
+                        const name = [question, variant, timing, s.batch_name].filter(Boolean).join(" · ");
+                        return (
+                          <div className="schedule-row workspace-schedule-row" key={s.id}>
+                            {canWrite && <input type="checkbox" aria-label={`Select schedule for ${name}`} checked={scheduleSelection.has(s.id)} disabled={bulkBusy || schedulePages.loading} onChange={e => setScheduleSelection(current => changeSelection(current, [s], e.target.checked))} />}
+                            <div className="workspace-schedule-description">
+                              <strong>{question}</strong>
+                              <small>{variant}{s.batch_name && ` · ${s.batch_name}`}</small>
+                              <small>{timing} · {s.repetitions} {s.repetitions === 1 ? "sample" : "samples"} per time</small>
+                              {!!s.enabled && !!s.next_due_at && <small>Next run {new Date(s.next_due_at).toLocaleString(undefined, {
+                                timeZone: s.timezone, dateStyle: "medium", timeStyle: "short",
+                              })}</small>}
                             </div>
                             <Badge
                               variant={s.enabled ? "secondary" : "outline"}
@@ -2558,6 +2563,7 @@ function App() {
                                 <Button
                                   size="sm"
                                   variant="outline"
+                                  aria-label={`${s.enabled ? "Pause" : "Enable"} schedule for ${name}`}
                                   disabled={
                                     busy ||
                                     (!s.enabled &&
@@ -2567,7 +2573,7 @@ function App() {
                                     if (
                                       !s.enabled &&
                                       !confirm(
-                                        "Enable recurring paid runs using your DataForSEO balance?",
+                                        `Enable recurring paid runs for ${name} using your DataForSEO balance?`,
                                       )
                                     )
                                       return;
@@ -2586,9 +2592,10 @@ function App() {
                                 <Button
                                   size="sm"
                                   variant="ghost"
+                                  aria-label={`Delete schedule for ${name}`}
                                   disabled={busy}
                                   onClick={() => {
-                                    if (confirm("Delete this schedule?"))
+                                    if (confirm(`Delete the schedule for ${name}?`))
                                       action(async () => {
                                         await request(
                                           "/schedules/" + s.id,
@@ -2606,7 +2613,8 @@ function App() {
                               </>
                             )}
                           </div>
-                        ))}
+                        );
+                      })}
                       {schedulePages.error && <p role="alert">{schedulePages.error}</p>}
                       {!schedulePages.error && !visibleSchedules.length && <p className="data-note" role="status">
                         {schedulePages.current ? "No schedules in this view." : "Loading schedules…"}
