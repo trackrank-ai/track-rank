@@ -47,7 +47,7 @@ ChatGPT/Gemini use LLM Scraper, not LLM Responses. Google uses Organic Advanced 
 
 Citations are explicit source/reference/link objects with HTTP(S) URLs. Grounding/fan-out queries and detected brands are retained when supplied. Missing provider metadata is not inferred. Metrics use successful, nonempty AI answers only; brand rates additionally require that brand in the immutable run snapshot. Whole-name/alias matching is case-insensitive, Unicode-boundary-aware; domain matching includes canonical subdomains.
 
-Charts/research aggregate the **loaded** paginated run history with visible range/workspace/engine filters. This beta does not claim a precomputed unbounded warehouse query. CSV exports the latest 1,000 organization runs.
+Overview and research aggregate the full searchable history in the report scope on the server. The question and engine breakdown pages through aggregate rows and links each count to its exact evidence cohort. Run history paginates matching records. CSV exports the latest 1,000 matching runs.
 
 ## Security and current limits
 

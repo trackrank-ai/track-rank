@@ -30,6 +30,7 @@ test("filtered analytics and metric links retain their scope through sign-in", (
     org: "agency", workspace: "client", tab: "runs", set: "local-discovery", tags: "consideration,chicago-market",
     location: "Chicago", engine: "google", from: "2026-11-01", to: "2026-11-20", trackedBrand: "client-brand", compareBrand: "competitor",
     metric: "compare_citation", trendMetric: "citation", evidenceDay: "2026-11-13",
+    reportQuestion: "recorded-run-id", reportEngine: "google",
   });
   const login = new URL(appLoginPath("?" + original, ""), "https://trackrank.invalid");
   const result = new URL(login.searchParams.get("next")!, login).searchParams;
@@ -62,4 +63,28 @@ test("question detail and its filters survive the sign-in return", () => {
     const result = new URL(login.searchParams.get("next")!, login).searchParams;
     assert.deepEqual(Object.fromEntries(result), Object.fromEntries(search));
   }
+});
+
+test("schedule selection and recurring setup restore the chosen workspace after sign-in", () => {
+  for (const view of ["promptView=schedule&promptEngine=gemini", "promptView=create&setupIntent=schedule", "promptView=create&setupFrom=tracking"]) {
+    const query = "org=team&workspace=client&tab=prompts&" + view;
+    const login = new URL(appLoginPath("?" + query, ""), "https://trackrank.invalid");
+    const restored = new URL(login.searchParams.get("next")!, login).searchParams;
+    assert.deepEqual(Object.fromEntries(restored), Object.fromEntries(new URLSearchParams(query)));
+  }
+});
+
+test("tracking links retain workspace, view and evidence scope through sign-in", () => {
+  for (const parameters of [
+    { tab: "tracking", trackingView: "answers", metric: "mention", trackedBrand: "brand", trendMetric: "mention", evidenceDay: "2026-11-22" },
+    { tab: "runs", trackingView: "answers", run: "recorded-run", evidence: "citations" },
+    { tab: "prompts", trackingView: "questions", promptView: "create" },
+    { tab: "schedules", trackingView: "settings" },
+  ] as Record<string, string>[]) {
+    const search = { org: "org", workspace: "workspace", set: "named-set", ...parameters };
+    const login = new URL(appLoginPath("?" + new URLSearchParams(search), ""), "https://example.test");
+    const next = new URL(appReturnPath(login.searchParams.get("next")), login);
+    assert.deepEqual(Object.fromEntries(next.searchParams), search);
+  }
+  assert.equal(parseAppSearch({ tab: "tracking", trackingView: "settings" }).trackingView, undefined);
 });

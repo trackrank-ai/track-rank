@@ -456,7 +456,13 @@ test("full-period analytics reconciles with paged run history, research, and CSV
   assert.equal((await get("/analytics?" + filters)).total_runs, 0);
   await call("/prompts/move", { ids: ["prompt"], workspace_id: "target" });
   assert.equal((await get("/analytics?workspace=source&set=" + id)).total_runs, 0);
-  assert.equal((await get("/analytics?workspace=source")).total_runs, 105);
+  const moved = await get("/analytics?workspace=source");
+  assert.equal(moved.total_runs, 105);
+  const groups = await get("/analytics/questions?workspace=source");
+  assert.equal(groups.questions[0].eligible_answers, 104);
+  const movedRuns = await get("/runs?workspace=source&metric=eligible&report_evidence_run=" + groups.questions[0].evidence_run_id);
+  assert.equal((await get("/runs?workspace=source&metric=eligible&report_evidence_run=" + groups.questions[0].evidence_run_id
+    + "&before=" + movedRuns.next_before + "&before_id=" + movedRuns.next_before_id)).runs.length, 4);
   assert.equal((await get("/analytics?workspace=target")).total_runs, 1);
   await assert.rejects(call("/analytics?workspace=foreign"), { status: 404 });
   await assert.rejects(call("/analytics?from=2026-02-30"), { status: 400 });
@@ -486,14 +492,19 @@ test("comparison rates, outcome counts and matching evidence use recorded run co
   }
   run("before-rival", earlier, { competitor: false, mention: true, competitorCite: true });
   run("both-cited", later, { cite: true, competitorCite: true });
+  sql.exec(`UPDATE runs SET config=json_insert(config,'$.brands[#]',json('{"id":"client"}')),
+    mentions=json_insert(mentions,'$[#]',json('{"brand_id":"client","cited":true}')) WHERE id='both-cited'`);
   run("both-unmentioned", later);
   run("organic-only", later, { answer: 0, organic: true });
   run("no-answer", later, { answer: 0 });
   run("failed", later, { status: "failed" });
   run("other-engine", later, { engine: "gemini" });
+  sql.prepare(`INSERT INTO runs(id,org_id,prompt_id,workspace_id,prompt_text,config,status,has_answer,idempotency_key,created_at,updated_at)
+    SELECT 'foreign-report-run','other','foreign-prompt','foreign',prompt_text,config,status,has_answer,'foreign-key',created_at,updated_at
+    FROM runs WHERE id='both-cited'`).run();
   const filters = { workspace: "source", from, to, engine: "google", tracked_brand: "client", compare_brand: "rival" };
   const rest = (path: string, extra: Record<string, string> = {}) => call(path + "?" + new URLSearchParams({ ...filters, ...extra }));
-  async function tool(name: string, extra: Record<string, string> = {}) {
+  async function tool(name: string, extra: Record<string, string | number> = {}) {
     const { workspace, ...args } = filters;
     const request = new Request("https://example.test/mcp", {
       method: "POST",
@@ -509,18 +520,30 @@ test("comparison rates, outcome counts and matching evidence use recorded run co
   assert.deepEqual(report.outcomes, { eligible: 3, failed: 1, no_answer: 1, organic: 1 });
   assert.equal(report.total_runs, 6);
   assert.equal(report.daily.reduce((sum: number, day: any) => sum + day.samples, 0), 3);
+  const firstEligible = await (await rest("/runs", { metric: "brand", limit: "1" })).json() as any;
+  assert.equal(firstEligible.runs.length, 1);
+  assert.equal(firstEligible.next_before_id, firstEligible.runs[0].id);
+  assert.deepEqual(JSON.parse(await tool("list_runs", { metric: "brand", limit: 1 })), firstEligible);
+  await assert.rejects(rest("/runs", { limit: "101" }), { status: 400 });
   assert.deepEqual(report.comparison_daily, [{
     day: to, samples: 2, mentions: 0, citations: 1, compare_mentions: 0, compare_citations: 1,
+  }]);
+  const breakdown = await (await rest("/analytics/questions")).json() as any;
+  assert.deepEqual(JSON.parse(await tool("get_overview_questions")), breakdown);
+  assert.deepEqual(breakdown.questions, [{
+    evidence_run_id: "both-cited", workspace_id: "source", question: "Question", engine: "google",
+    eligible_answers: 2, mentions: 0, citations: 1, compare_mentions: 0, compare_citations: 1,
   }]);
   for (const [metric, ids] of Object.entries({
     brand: ["both-unmentioned", "both-cited"], mention: [],
     citation: ["both-cited"], compare_citation: ["both-cited"],
   })) {
-    const history = await (await rest("/runs", { metric })).json() as any;
+    const report_evidence_run = breakdown.questions[0].evidence_run_id;
+    const history = await (await rest("/runs", { metric, report_evidence_run })).json() as any;
     assert.deepEqual(history.runs.map((row: any) => row.id), ids);
-    assert.deepEqual(JSON.parse(await tool("list_runs", { metric })), history);
-    const csv = await (await rest("/export", { metric })).text();
-    assert.equal(await tool("export_runs", { metric }), csv);
+    assert.deepEqual(JSON.parse(await tool("list_runs", { metric, report_evidence_run })), history);
+    const csv = await (await rest("/export", { metric, report_evidence_run })).text();
+    assert.equal(await tool("export_runs", { metric, report_evidence_run }), csv);
     assert.equal(csv.split("\r\n").length, ids.length + 1);
   }
   for (const [outcome, id] of [["organic", "organic-only"], ["no_evidence", "no-answer"], ["failed", "failed"]]) {
@@ -533,6 +556,24 @@ test("comparison rates, outcome counts and matching evidence use recorded run co
   await assert.rejects(rest("/analytics", { compare_brand: "client" }), { status: 400 });
   await assert.rejects(rest("/runs", { compare_brand: "", metric: "compare_mention" }), { status: 400 });
   await assert.rejects(rest("/runs", { workspace: "foreign", metric: "brand" }), { status: 404 });
+  await assert.rejects(rest("/runs", { workspace: "target", report_evidence_run: "both-cited" }), { status: 404 });
+  await assert.rejects(rest("/runs", { report_evidence_run: "unknown-run" }), { status: 404 });
+  await assert.rejects(call("/runs?report_evidence_run=foreign-report-run"), { status: 404 });
+  const allEngines = await (await call("/runs?report_evidence_run=both-cited&metric=eligible")).json() as any;
+  assert.deepEqual(new Set(allEngines.runs.map((row: any) => row.id)), new Set(["both-cited", "both-unmentioned", "before-rival"]));
+  await assert.rejects(rest("/analytics/questions", { workspace: "foreign" }), { status: 404 });
+  await assert.rejects(rest("/analytics/questions", { page: "0" }), { status: 400 });
+  for (let i = 0; i < 21; i++) {
+    const id = "extra-group-" + i;
+    run(id, later);
+    sql.prepare("UPDATE runs SET prompt_text=? WHERE id=?").run("Independent question " + i, id);
+  }
+  const pageOne = await (await rest("/analytics/questions")).json() as any;
+  const pageTwo = await (await rest("/analytics/questions", { page: String(pageOne.next_page) })).json() as any;
+  assert.equal(pageOne.questions.length, 20);
+  assert.equal(pageTwo.questions.length, 2);
+  assert.equal(pageTwo.next_page, null);
+  assert.equal(new Set([...pageOne.questions, ...pageTwo.questions].map(row => row.evidence_run_id)).size, 22);
 });
 
 test("question answers reconcile with the library while remaining scoped to current workspace variants", async () => {
@@ -571,4 +612,43 @@ test("question answers reconcile with the library while remaining scoped to curr
   await assert.rejects(call(`/runs?question_id=${question}&workspace=target`), { status: 404 });
   await assert.rejects(call(`/runs?question_id=${foreign}`), { status: 404 });
   await assert.rejects(call(`/prompts?question_id=${foreign}`), { status: 404 });
+});
+
+test("tracking sets summarize distinct variants and filter schedules within their workspace", async () => {
+  const { sql, call } = setup();
+  sql.exec(`INSERT INTO prompts(id,org_id,workspace_id,text,engine,created_at,updated_at)
+    VALUES('second-engine','org','source','First question','gemini',0,0);
+    INSERT INTO schedules(id,org_id,prompt_id,preset,days,times_json,timezone,enabled,created_at,batch_id,next_due_at) VALUES
+      ('paused-copy','org','prompt','daily','[1]','["09:00"]','UTC',0,0,'batch-a',10),
+      ('enabled-1','org','prompt','daily','[1]','["10:00"]','UTC',1,0,'batch-b',200),
+      ('enabled-2','org','prompt','daily','[1]','["11:00"]','UTC',1,0,'batch-c',100),
+      ('paused','org','second-engine','daily','[1]','["11:00"]','UTC',0,0,'batch-d',20);
+    INSERT INTO runs(id,org_id,prompt_id,workspace_id,prompt_text,config,status,idempotency_key,created_at,updated_at)
+    VALUES ('good','org','prompt','source','First question','{}','succeeded','good',1,50),
+      ('failed','org','prompt','source','First question','{}','failed','failed',2,99),
+      ('old-workspace','org','prompt','target','First question','{}','succeeded','old-workspace',2,100);`);
+  const { id } = await (await call("/prompt-sets", {
+    workspace_id: "source", name: "Tracked", prompt_ids: ["prompt", "second-engine", "alt"],
+  })).json() as { id: string };
+  const { id: empty } = await (await call("/prompt-sets", {
+    workspace_id: "source", name: "Empty",
+  })).json() as { id: string };
+  const expected = {
+    id, workspace_id: "source", name: "Tracked", member_count: 3, question_count: 2,
+    engines: ["chatgpt", "gemini"], scheduled_count: 1, paused_count: 1, unscheduled_count: 1,
+    has_runs: true, last_completed_at: 50, next_scheduled_at: 100,
+  };
+  assert.deepEqual(await (await call(`/prompt-sets/${id}?workspace=source`, undefined, "viewer")).json(), { set: expected });
+  await assert.rejects(call(`/prompt-sets/${id}?workspace=target`), { status: 404 });
+  await assert.rejects(call("/prompt-sets/not-a-set", undefined, "viewer"), { status: 404 });
+  const { sets } = await (await call("/prompt-sets")).json() as { sets: unknown[] };
+  assert.deepEqual(sets, [{
+    id: empty, workspace_id: "source", name: "Empty", member_count: 0, question_count: 0, engines: [],
+    scheduled_count: 0, paused_count: 0, unscheduled_count: 0, has_runs: false, last_completed_at: null, next_scheduled_at: null,
+  }, expected]);
+  const filtered = await (await call(`/schedules?workspace=source&set=${id}&limit=1`, undefined, "viewer")).json() as any;
+  assert.equal(filtered.total, 4);
+  assert.ok(filtered.next_cursor);
+  assert.equal((await (await call(`/schedules?set=${empty}`)).json() as any).total, 0);
+  await assert.rejects(call(`/schedules?workspace=target&set=${id}&selection=1`), { status: 404 });
 });

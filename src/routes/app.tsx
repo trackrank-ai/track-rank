@@ -10,7 +10,8 @@ import { defaultMonitoringTiming, MonitoringEditor, monitoringProjection } from 
 import { ScheduleBulkEditor } from "@/components/schedule-bulk-editor";
 import { Overview, OverviewFilters, useReport } from "@/components/overview";
 import { PromptSettingsEditor, type PromptSettings } from "@/components/prompt-settings-editor";
-import { PromptSets, type PromptSet } from "@/components/prompt-sets";
+import { TrackingSetDetail, TrackingSetEmptyReport, TrackingSetList, TrackingSetSettings, type TrackingSet } from "@/components/tracking-sets";
+import { PromptSets } from "@/components/prompt-sets";
 import { analyticsQuery, analyticsScope, defaultPeriod, type AnalyticsScope } from "@/lib/analytics-filters";
 import { BulkPageNavigation, BulkSelection, changeSelection, useBulkPages } from "@/components/bulk-selection";
 import { MAX_PROMPT_TAGS, MAX_PROMPT_TAG_LENGTH, splitPromptTags } from "@/lib/prompt-tags";
@@ -55,6 +56,7 @@ import {
   Loader2,
   LogOut,
   MessageSquare,
+  ListChecks,
   Plus,
   RefreshCw,
   Settings2,
@@ -71,6 +73,7 @@ type Item = Record<string, any>;
 const ALL_WORKSPACES = "all";
 const nav: { id: Tab; label: string; Icon: typeof BarChart3 }[] = [
   { id: "overview", label: "Overview", Icon: BarChart3 },
+  { id: "tracking", label: "Tracking", Icon: ListChecks },
   { id: "prompts", label: "Prompts", Icon: MessageSquare },
   { id: "research", label: "Sources & research", Icon: Link2 },
   { id: "runs", label: "Run history", Icon: BookOpen },
@@ -224,7 +227,16 @@ function App() {
   const [runSamples, setRunSamples] = useState("1");
   const [timing, setTiming] = useState(defaultMonitoringTiming);
   const [review, setReview] = useState<{ type: "run" | "schedule"; data: Readiness; repetitions: number; key: string; receiptId?: string } | null>(null);
-  const [draftReview, setDraftReview] = useState<{ payload: string; data: Item; key: string } | null>(null);
+  const [draftReview, setDraftReview] = useState<{ payload: Item; data: Item; key: string } | null>(null);
+  const [trackingName, setTrackingName] = useState("");
+  const [setupIntent, setSetupIntent] = useState<"save" | "check" | "schedule">("save");
+  const [setupTiming, setSetupTiming] = useState(defaultMonitoringTiming);
+  const [setupSamples, setSetupSamples] = useState("1");
+  const [firstCheck, setFirstCheck] = useState(false);
+  const [includeExisting, setIncludeExisting] = useState(false);
+  const reviewHeading = useRef<HTMLHeadingElement>(null);
+  const setupName = useRef<HTMLInputElement>(null);
+  const setupQuestions = useRef<HTMLTextAreaElement>(null);
   const [editingScheduleSelection,setEditingScheduleSelection]=useState(false);
   const [promptEngineChoices, setPromptEngineChoices] = useState<string[]>(["chatgpt"]);
   const [promptLocation, setPromptLocation] = useState("United States");
@@ -273,6 +285,8 @@ function App() {
   const orgReady = !!org && loadedOrg === org;
   const canSubscribe = billing.can_manage_billing && (!billing.status || ["none", "canceled", "incomplete_expired"].includes(billing.status));
   const workspaceReady = orgReady && !billingBlocksWorkspace(billing.access_status);
+  const isAdmin = workspaceReady && ["owner", "admin"].includes(settings.role),
+    canWrite = workspaceReady && ["owner", "admin", "member"].includes(settings.role);
   const settingsSection = search.settingsSection ?? (tab === "team" ? "team" : billingBlocksWorkspace(billing.access_status) ? "billing" : "providers");
   const teamSettings = settingsTab && settingsSection === "team";
   const researchGroup = search.researchGroup ?? search.researchType ?? "domain";
@@ -289,8 +303,14 @@ function App() {
   const unavailableWorkspace = workspaceReady && !allWorkspaces && !archivedHistory && !workspaces.some(w => w.id === workspace);
   const { q: promptSearch = "", promptEngine: promptEngineFilter, promptSchedule: promptScheduleFilter,
     promptBrand: promptBrandFilter } = search;
+  const tracking = tab === "tracking";
+  const trackingView = search.trackingView ?? "overview";
+  const trackingQuestions = tracking && !!search.set && trackingView === "questions";
   const showingQuestion = tab === "prompts" && !!search.question;
+  const selectingForSchedule = tab === "prompts" && search.promptView === "schedule" && !showingQuestion && canWrite;
   const creatingPrompts = tab === "prompts" && search.promptView === "create" && !showingQuestion;
+  const scheduleSetup = search.setupIntent === "schedule";
+  const setupSetId = creatingPrompts ? search.set : undefined;
   const libraryQuery = new URLSearchParams({ view: "library" });
   if (workspaceId) libraryQuery.set("workspace", workspaceId);
   if (promptSearch.trim()) libraryQuery.set("q", promptSearch.trim());
@@ -331,25 +351,46 @@ function App() {
     compareBrand: tab === "research" ? undefined : linkScope.compareBrand,
     trackedBrand: tab === "research" ? undefined : linkScope.trackedBrand || scopeBrands.find(b => b.kind !== "competitor")?.id || scopeBrands[0]?.id,
   } as AnalyticsScope;
+  const fromTracking = !tracking && !!search.set && !!search.trackingView;
+  const trackingLink = (view: NonNullable<AppSearch["trackingView"]>, patch: Partial<AppSearch> = {}): AppSearch => ({
+    ...linkScope, org, workspace, tab: "tracking", set: search.set, trackingView: view,
+    trendMetric: search.trendMetric, ...patch,
+  });
   const sectionSearch = (nextTab: Tab) => ({
     ...((nextTab === "overview" || nextTab === "research" || nextTab === "runs") && (reportTab || isScopedHistory)
       ? reportTab ? reportScope : linkScope : {}),
     org: org || undefined, workspace, tab: nextTab,
-    ...(nextTab === "prompts" && tab === "prompts" ? { tag: search.tag, set: search.set, brand: search.brand, from: search.from, to: search.to,
-      q: search.q, promptEngine: search.promptEngine, promptSchedule: search.promptSchedule, promptBrand: search.promptBrand } : {}),
+    ...(nextTab === "prompts" && tab === "prompts" ? { promptView: selectingForSchedule ? "schedule" as const : undefined, tag: search.tag, set: search.set, brand: search.brand, from: search.from, to: search.to,
+      q: search.q, promptEngine: search.promptEngine, promptSchedule: search.promptSchedule, promptBrand: search.promptBrand, trackingView: search.trackingView } : {}),
     ...(nextTab === "research" && tab === "research" ? { researchGroup } : {}),
     ...((nextTab === "overview" || nextTab === "runs") ? { trendMetric: search.trendMetric } : {}),
     ...(nextTab === "runs" && tab === "runs" ? { metric: search.metric, evidenceDay: search.evidenceDay,
       q: search.q, outcome: search.outcome, status: search.status, brand: search.brand,
+      reportQuestion: search.reportQuestion, reportEngine: search.reportEngine,
       researchGroup: search.researchGroup, researchType: search.researchType, researchValue: search.researchValue } : {}),
   });
+  const scheduleScope = { org, workspace, set: search.set, trackingView: search.trackingView };
+  useEffect(() => {
+    if (!creatingPrompts) return;
+    setSetupIntent(scheduleSetup ? "schedule" : "save");
+    setFirstCheck(false);
+    setIncludeExisting(false);
+    setDraftReview(null);
+  }, [creatingPrompts, scheduleSetup, setupSetId, org, workspace]);
+  useEffect(() => {
+    if (draftReview) reviewHeading.current?.focus();
+  }, [draftReview]);
   const settingsSearch = (section: SettingsSection) => ({ org, workspace, tab: "settings" as const, settingsSection: section });
-  const closeRun: AppSearch = search.question
+  const closeRun: AppSearch = fromTracking && !search.question
+    ? trackingLink("answers", { metric: search.metric, evidenceDay: search.evidenceDay, q: search.q,
+      status: search.status, brand: search.brand, outcome: search.outcome, runPrompt: search.runPrompt,
+      reportQuestion: search.reportQuestion, reportEngine: search.reportEngine })
+    : search.question
     ? { ...search, org, workspace, tab: "prompts", run: undefined, evidence: undefined, questionView: "answers" }
     : search.researchType ? {
     ...sectionSearch("research"), researchGroup, researchType: search.researchType, researchValue: search.researchValue,
   } : { ...sectionSearch("runs"), runPrompt: search.runPrompt, batch: search.batch, receipt: search.receipt };
-  const closeRunLabel = search.question ? "Back to question answers" : search.researchType ? "Back to matching answers" : "Close run";
+  const closeRunLabel = search.question ? "Back to question answers" : fromTracking ? "Back to tracking answers" : search.researchType ? "Back to matching answers" : "Close run";
   function updatePromptFilters(filters: Partial<AppSearch>) {
     void navigate({ search: { ...sectionSearch("prompts"), ...filters }, replace: true });
   }
@@ -363,13 +404,13 @@ function App() {
     void navigate({ search: { ...sectionSearch("prompts"), set: set || undefined } });
   }
   function setTab(nextTab: Tab) {
-    if (nextTab !== tab || search.prompt || search.question || search.promptView || search.run) void navigate({ search: sectionSearch(nextTab) });
+    if (nextTab !== tab || search.prompt || search.question || search.promptView || search.run || (tracking && search.set)) void navigate({ search: { ...sectionSearch(nextTab), promptView: undefined } });
   }
   function setOrg(next: string, replace = false) {
     void navigate({ search: settingsTab ? { ...settingsSearch(settingsSection), org: next, workspace: undefined } : { org: next, tab }, replace, hash: "" });
   }
   function setWorkspace(next: string) {
-    void navigate({ search: { org, workspace: next, tab, ...(tab === "research" ? { ...reportScope, set: undefined, researchGroup } : {}), ...(settingsTab ? { settingsSection } : {}) } });
+    void navigate({ search: { org, workspace: next, tab, ...(selectingForSchedule ? { promptView: "schedule" as const } : {}), ...(tab === "research" ? { ...reportScope, set: undefined, researchGroup } : {}), ...(settingsTab ? { settingsSection } : {}) } });
   }
   const batchInFlight = useRef(false);
   const batchScope = org && session ? `trackrank:pending-run:${session.user.id}:${org}` : "";
@@ -399,8 +440,6 @@ function App() {
     }).catch(() => { if (!canceled) setPendingBatch(null); });
     return () => { canceled = true; };
   }, [batchScope]);
-  const isAdmin = workspaceReady && ["owner", "admin"].includes(settings.role),
-    canWrite = workspaceReady && ["owner", "admin", "member"].includes(settings.role);
   const request = useCallback(
     async (
       path: string,
@@ -447,12 +486,13 @@ function App() {
     request(path, "GET", undefined, org, true, signal), [org, request]);
   const canLoadBulkPages = workspaceReady && !unavailableWorkspace;
   const promptLibraryRevision = useMemo(() => ({ prompts, setRevision }), [prompts, setRevision]);
-  const promptPages = useBulkPages(canLoadBulkPages && (tab === "prompts" || (tab === "runs" && search.question)) ? libraryPath : null, "prompts", readBulkPage, promptLibraryRevision);
+  const promptPages = useBulkPages(canLoadBulkPages && (tab === "prompts" || trackingQuestions || (tab === "runs" && search.question)) ? libraryPath : null, "prompts", readBulkPage, promptLibraryRevision);
   const savedPrompts = promptPages.current?.rows ?? [];
   const workspaceTags = promptPages.current?.tags ?? [];
   const tagOptions = search.tag && !workspaceTags.includes(search.tag) ? [search.tag, ...workspaceTags] : workspaceTags;
   const workspaceQuery = new URLSearchParams();
   if (workspaceId) workspaceQuery.set("workspace", workspaceId);
+  if (tab === "schedules" && search.set) workspaceQuery.set("set", search.set);
   const schedulePages = useBulkPages(canLoadBulkPages && tab === "schedules" ? "/schedules?" + workspaceQuery : null,
     "schedules", readBulkPage, prompts);
   const visibleSchedules = schedulePages.current?.rows ?? [];
@@ -460,7 +500,7 @@ function App() {
   const billingSelectableMembers: Item[] = billingMembers.filter(member => member.role !== "owner")
     .map(member => ({ ...member, id: member.user_id }));
   const billingMemberIds = [...billingMemberSelection.keys()];
-  useEffect(() => { setPromptSelection(new Map()); }, [org, libraryPath]);
+  useEffect(() => { setPromptSelection(new Map()); }, [org, libraryPath, selectingForSchedule]);
   const reloadOrgs = useCallback(async () => {
     const r = await fetch("/api/v1/organizations");
     const d = (await r.json()) as Item;
@@ -596,7 +636,7 @@ function App() {
     setDraftReview(null);
     setScheduleSelection(new Map());
     setEditingScheduleSelection(false);
-  }, [org, workspace]);
+  }, [org, workspace, tab === "schedules" ? search.set : undefined]);
   useEffect(() => {
     if (!workspaceReady || tab !== "prompts" || !promptEngineChoices.length) return;
     let canceled = false;
@@ -766,12 +806,27 @@ function App() {
   }
   const visiblePrompts = scoped?.prompts ?? prompts.filter(p => allWorkspaces || p.workspace_id === workspace);
   const schedulesSelected = selectedScheduleIds.length > 0;
-  const setResult = useReport<{ sets: PromptSet[] }>(
-    workspaceReady && !unavailableWorkspace && (reportTab || tab === "prompts")
+  const setResult = useReport<{ sets: TrackingSet[] }>(
+    workspaceReady && !unavailableWorkspace && (reportTab || tab === "prompts" || (tracking && !search.set))
       ? "/prompt-sets?" + analyticsQuery({}, workspace) : "", request, promptLibraryRevision,
   );
   const promptSets = setResult?.data?.sets ?? [];
+  const trackingResult = useReport<{ set: TrackingSet }>(
+    canLoadBulkPages && tracking && search.set ? "/prompt-sets/" + search.set + "?" + analyticsQuery({}, workspace) : "",
+    request, promptLibraryRevision,
+  );
+  const setupSet = setupSetId ? promptSets.find(set => set.id === setupSetId && (!workspaceId || set.workspace_id === workspaceId)) : undefined;
+  const trackedSet = trackingResult?.data?.set;
+  const trackingWorkspaceId = (trackedSet ?? setupSet)?.workspace_id;
+  useEffect(() => {
+    if (trackingWorkspaceId && allWorkspaces) void navigate({
+      search: previous => ({ ...previous, workspace: trackingWorkspaceId }), replace: true,
+    });
+  }, [trackingWorkspaceId, allWorkspaces, navigate]);
+  const setupTitle = setupSetId ? "Add questions" : "Create tracking set";
+  const setupSetLink: AppSearch = { org, workspace, tab: "tracking", set: setupSetId, trackingView: "questions" };
   const questionItemQuery = new URLSearchParams({ view: "library" });
+  if (fromTracking && search.set) questionItemQuery.set("set", search.set);
   if (search.question) questionItemQuery.set("question_id", search.question);
   if (workspaceId) questionItemQuery.set("workspace", workspaceId);
   const questionResult = useReport<{ prompts: Item[] }>(
@@ -805,13 +860,31 @@ function App() {
     ? "/prompts/receipts/" + search.receipt : "", request, prompts);
   const receipt = receiptResult?.data;
   const receiptNewIds: string[] = receipt?.prompts.filter((row: Item) => row.outcome === "created").map((row: Item) => row.id) ?? [];
-  const previewNew = draftReview?.data.prompts.filter((row: Item) => row.outcome === "new").length ?? 0;
-  const draftProjection = monitoringProjection(timing, previewNew);
+  const previewRows: Item[] = draftReview?.data.prompts ?? [];
+  const previewNew = previewRows.filter(row => row.outcome === "new").length;
+  const bulkProjection = monitoringProjection(timing, 0);
+  const setupSchedules = setupIntent === "schedule";
+  const setupRuns = setupIntent === "check" || (setupSchedules && firstCheck);
+  const existingEligible = previewRows.filter(row => row.outcome === "reused" && (!setupSchedules || row.monitoring === "none"));
+  const approvedRows = previewRows.filter(row => row.outcome === "new");
+  if (includeExisting) approvedRows.push(...existingEligible);
+  const setupProjection = monitoringProjection(setupTiming, approvedRows.length);
+  const draftSampleCount = setupSchedules ? setupProjection.repetitions : parseSampleCount(setupSamples);
+  const immediateChecks = setupRuns ? approvedRows.length * (draftSampleCount ?? 0) : 0;
   const draftAvailable = typeof settings.plan?.limits?.runs_per_month === "number" && typeof settings.monthly_usage?.runs === "number"
     ? Math.max(0, settings.plan.limits.runs_per_month - settings.monthly_usage.runs) : undefined;
-  const draftSampleCount = draftProjection.repetitions;
-  const draftRunError = draftSampleCount === undefined ? sampleCountError : !settings.dataforseo_configured ? "Connect DataForSEO to run now or start monitoring."
-    : draftAvailable !== undefined && previewNew * draftSampleCount > draftAvailable ? "The requested checks exceed your remaining monthly allowance." : "";
+  const setupError = setupSchedules || setupRuns
+    ? !approvedRows.length ? existingEligible.length
+      ? "Include existing combinations or edit setup to save questions."
+      : "Every combination already has a schedule. Edit setup to save questions or check once."
+      : !settings.dataforseo_configured ? "Connect DataForSEO before collecting answers."
+      : setupSchedules && !setupProjection.valid ? "Enter valid schedule timing."
+      : draftSampleCount === undefined ? sampleCountError
+      : draftAvailable !== undefined && immediateChecks > draftAvailable ? "The requested checks exceed your remaining monthly allowance." : ""
+    : "";
+  const setupAction = setupIntent === "save" ? "Save questions"
+    : setupSchedules ? firstCheck ? "Start tracking and run first check" : "Start tracking"
+    : "Check once";
 
   const research = useReport<ResearchSummary>(
     workspaceReady && !unavailableWorkspace && tab === "research" && !search.researchValue
@@ -887,7 +960,7 @@ function App() {
     await action(async () => {
       if (ids.length > MAX_COLLECTION_PROMPTS) throw new Error(`Select at most ${MAX_COLLECTION_PROMPTS.toLocaleString()} combinations per collection batch.`);
       const data = await request("/collection/readiness", "POST", { prompt_ids: ids, repetitions }) as Readiness;
-      if (activeOrg.current === org) setReview({ type, data, repetitions, key: crypto.randomUUID(), receiptId });
+      if (activeOrg.current === org && activeWorkspace.current === workspaceKey) setReview({ type, data, repetitions, key: crypto.randomUUID(), receiptId });
     });
   }
   async function queuePromptBatch(ids: string[], samples: number) { await reviewCollection(ids, samples, "run"); }
@@ -915,17 +988,19 @@ function App() {
         receipt: review.receiptId });
       return;
     }
-    if (!draftProjection.valid || draftSampleCount === undefined) return;
+    if (!bulkProjection.valid || bulkProjection.repetitions === undefined) return;
+    const repetitions = bulkProjection.repetitions;
     await action(async () => {
       if (review.receiptId && receipt?.id === review.receiptId && !receipt.action && ids.every(id => receiptNewIds.includes(id))) {
-        await submitReceiptAction(receipt.id, receipt.workspace.id, { prompt_ids: ids, schedule: { ...timing, repetitions: draftSampleCount, enabled } });
+        await submitReceiptAction(receipt.id, receipt.workspace.id, { prompt_ids: ids, schedule: { ...timing, repetitions, enabled } });
         setReview(null);
         await load();
         return;
       }
-      const result = await createSelectedSchedules(ids, review.key, enabled, draftSampleCount);
+      const result = await createSelectedSchedules(ids, review.key, enabled, repetitions);
       setReview(null);
       setNotice(`${result.schedules.length} schedules ${enabled ? "started" : "saved paused"}. 0 checks queued now.`);
+      if (selectingForSchedule) void navigate({ search: { ...scheduleScope, workspace: review.data.workspace.id, tab: "schedules" } });
       await load();
     });
   }
@@ -956,10 +1031,21 @@ function App() {
         setPendingPromptSubmit(null);
         setPromptText("");
         setPromptTagInput("");
+        setTrackingName("");
+        setSetupTiming(defaultMonitoringTiming());
+        setSetupSamples("1");
         setDraftReview(null);
         if (result.result?.error) setError(result.result.error);
         const targetWorkspace = result.workspace.id;
-        void navigate({ search: result.result?.run?.accepted
+        if (result.tracking_set && !result.result?.error) {
+          const trackingSearch: AppSearch = { org, workspace: targetWorkspace, tab: "tracking", set: result.tracking_set.id,
+            trackingView: payload.prompts.tracking_set_id ? "questions" : "overview" };
+          void navigate({ search: trackingSearch });
+          const checks = result.result?.run?.accepted ?? 0;
+          const schedules = result.result?.schedule?.schedules?.length ?? 0;
+          const receiptTitle = payload.prompts.tracking_set_id ? "Questions added." : "Tracking set saved.";
+          setNotice(`${receiptTitle} ${checks} checks queued · ${schedules} schedules started.`);
+        } else void navigate({ search: result.result?.run?.accepted && !result.tracking_set
           ? { org, workspace: targetWorkspace, tab: "runs", batch: result.id, receipt: result.id }
           : { org, workspace: targetWorkspace, tab: "prompts", receipt: result.id,
               ...(workspaceId === targetWorkspace ? { tag: search.tag, set: search.set } : {}) } });
@@ -1087,7 +1173,7 @@ function App() {
             <Link
               key={id}
               to="/app"
-              search={sectionSearch(id)}
+              search={{ ...sectionSearch(id), promptView: undefined }}
               className={(id === "settings" ? settingsTab : tab === id) ? "active" : ""}
               onClick={() => setError("")}
               aria-current={(id === "settings" ? settingsTab : tab === id) ? "page" : undefined}
@@ -1367,17 +1453,20 @@ function App() {
             </CardContent></Card>
           ) : (
             <>
-              {!settingsTab && !showingQuestion && !(tab === "runs" && selectedRun) && <div className="app-page-heading">
+              {!settingsTab && !tracking && !showingQuestion && !(tab === "runs" && selectedRun) && <div className="app-page-heading">
                 <div>
-                  <h1>{paneName}</h1>
+                  <h1>{creatingPrompts ? setupTitle : paneName}</h1>
                   {tab === "prompts" && <p>{workspaceName}</p>}
                 </div>
-                {tab === "prompts" && !creatingPrompts && canWrite && <Button asChild>
-                  <Link to="/app" search={{ ...sectionSearch("prompts"), promptView: "create" }}>
-                    <Plus size={16} aria-hidden /> Create prompts
+                {tab === "prompts" && !creatingPrompts && !selectingForSchedule && canWrite && <Button asChild>
+                  <Link to="/app" search={{ ...sectionSearch("prompts"), workspace: promptSets.find(set => set.id === search.set)?.workspace_id ?? workspace, promptView: "create" }}>
+                    <Plus size={16} aria-hidden /> {search.set ? "Add questions" : "Create tracking set"}
                   </Link>
                 </Button>}
-                {creatingPrompts && <Link className="small-link" to="/app" search={sectionSearch("prompts")}>Back to prompts</Link>}
+                {selectingForSchedule && <Link className="small-link" to="/app" search={{ ...scheduleScope, tab: "schedules" }}>Back to schedules</Link>}
+                {creatingPrompts && <Link className="small-link" to="/app" search={setupSetId ? setupSetLink : search.setupFrom ? { org, workspace, tab: "tracking" } : sectionSearch("prompts")}>
+                  {setupSetId ? "Back to tracking set" : search.setupFrom ? "Back to tracking sets" : "Back to prompts"}
+                </Link>}
               </div>}
               {(reportTab || tab === "prompts") && setResult?.error && <p role="alert">{setResult.error}</p>}
               {reportTab && (() => {
@@ -1388,13 +1477,81 @@ function App() {
                   onChange={scope => void navigate({ search: { org, workspace, tab, ...scope,
                     researchGroup: tab === "research" ? researchGroup : undefined, researchType: search.researchType, researchValue: search.researchValue, trendMetric: search.trendMetric } })}
                 />;
-                return tab === "research" ? filters : <Overview org={org} workspace={workspace} workspaceName={workspaceName}
+                return tab === "research" ? filters : <Overview org={org} workspace={workspace} workspaceName={workspaceName} workspaceNames={workspaceNames}
                   scope={reportScope} sets={promptSets} engines={engines} brands={scopeBrands as { id: string; name: string }[]}
                   hasTrackedBrand={allWorkspaces ? workspaces.some(w => brandIds(w.id).length > 0) : trackedBrandIds.size > 0}
                   brandWorkspace={workspaceId || workspaces[0]?.id || workspace}
                   credentialsConnected={!!settings.dataforseo_configured} canWrite={canWrite} canManageCredentials={isAdmin}
                   request={request} revision={prompts} filters={filters} trendMetric={search.trendMetric} />;
               })()}
+              {tracking && !search.set && <TrackingSetList org={org} workspace={workspace} workspaceName={workspaceName}
+                workspaceNames={workspaceNames} sets={setResult?.data?.sets} engines={engines} canWrite={canWrite} error={setResult?.error} />}
+              {tracking && search.set && (trackingResult?.error ? <>
+                <p role="alert">{trackingResult.error}</p>
+                <Link className="small-link" to="/app" search={{ org, workspace, tab: "tracking" }}>Back to tracking sets</Link>
+              </> : !trackedSet || allWorkspaces ? <p role="status">Loading tracking set…</p>
+                : <TrackingSetDetail org={org} set={trackedSet} search={search} workspaceName={workspaceName} engines={engines}>
+                  {trackingView === "overview" && <Overview org={org} workspace={workspace} workspaceName={workspaceName}
+                    scope={reportScope} sets={[trackedSet]} engines={engines} brands={scopeBrands as { id: string; name: string }[]}
+                    hasTrackedBrand={trackedBrandIds.size > 0} brandWorkspace={workspace}
+                    credentialsConnected={!!settings.dataforseo_configured} canWrite={canWrite} canManageCredentials={isAdmin}
+                    request={request} revision={promptLibraryRevision} trendMetric={search.trendMetric}
+                    emptyScope={<TrackingSetEmptyReport org={org} set={trackedSet} canWrite={canWrite} />}
+                    reviewCollectionsLink={trackingLink("questions")}
+                    reportLink={(scope, trendMetric) => trackingLink("overview", { ...scope, set: trackedSet.id, trendMetric })}
+                    evidenceLink={(metric, evidenceDay, row) => trackingLink("answers", {
+                      ...reportScope, metric, evidenceDay, trendMetric: search.trendMetric ?? "mention",
+                      reportQuestion: row?.evidence_run_id, reportEngine: row?.engine,
+                    })}
+                    filters={<OverviewFilters key={JSON.stringify(reportScope)} lockSet
+                      org={org} workspace={workspace} workspaceNames={workspaceNames} scope={reportScope} sets={[trackedSet]}
+                      brands={scopeBrands as { id: string; name: string }[]} engines={engines} request={request} revision={prompts}
+                      onChange={scope => void navigate({ search: { ...scope, org, workspace, tab: "tracking",
+                        trackingView: "overview", set: trackedSet.id, trendMetric: search.trendMetric } })} />} />}
+                  {trackingQuestions && <Card><CardContent className="form-stack">
+                    <div className="panel-title">
+                      <h2>Questions</h2>
+                      <div className="question-row-actions">
+                        {canWrite && <Button size="sm" asChild><Link to="/app"
+                          search={{ org, workspace, tab: "prompts", promptView: "create", set: trackedSet.id, trackingView: "questions" }}>Add questions</Link></Button>}
+                        <Button variant="outline" size="sm" asChild><Link to="/app"
+                          search={{ org, workspace, tab: "prompts", set: trackedSet.id, trackingView: "questions" }}>Open set in Prompts</Link></Button>
+                      </div>
+                    </div>
+                    {promptPages.error && <p role="alert">{promptPages.error}</p>}
+                    {!promptPages.current && !promptPages.error && <p role="status">Loading questions…</p>}
+                    {promptPages.current && !savedPrompts.length && <p>No questions in this set. {canWrite && <Link className="small-link" to="/app"
+                      search={{ org, workspace, tab: "prompts" }}>Choose saved prompts to add</Link>}</p>}
+                    {savedPrompts.map(group => {
+                      const questionLink = { org, workspace, tab: "prompts" as const, set: trackedSet.id,
+                        trackingView: "questions" as const, question: group.id };
+                      return <section key={group.id} className="saved-prompt question-row">
+                        <div><strong>{group.text}</strong><p className="data-note">
+                          {[...new Set((group.variants as Item[]).map(variant => engines[variant.engine]))].join(" · ")}
+                        </p></div>
+                        <div className="question-row-actions">
+                          <Link className="small-link" to="/app" search={{ ...questionLink, questionView: "answers" }}>Answers</Link>
+                          <Link className="small-link" to="/app" search={{ ...questionLink, questionView: "settings" }}>Engine settings</Link>
+                        </div>
+                      </section>;
+                    })}
+                    <BulkPageNavigation pages={promptPages} label="questions" />
+                  </CardContent></Card>}
+                  {trackingView === "answers" && <WorkspaceRunHistory key={trackedSet.id} lockSet
+                    org={org} workspace={workspaceId} workspaceName={workspaceName} workspaceNames={workspaceNames}
+                    runPrompt={search.runPrompt} prompts={[]} brands={scopeBrands} engines={engines} request={request}
+                    refresh={prompts} canWrite={canWrite} scope={linkScope} filters={search} metric={search.metric ?? (search.outcome ? undefined : "eligible")}
+                    trendMetric={search.trendMetric} evidenceDay={search.evidenceDay}
+                    backLink={trackingLink("overview")}
+                    historyLink={patch => patch.run ? { ...search, ...patch, org, workspace, tab: "runs" }
+                      : { ...(patch.metric ? { ...search, ...patch } : {}), org, workspace, tab: "tracking", set: trackedSet.id, trackingView: "answers" }}
+                    onChange={patch => void navigate({ search: { ...search, ...patch }, replace: "q" in patch })} />}
+                  {trackingView === "settings" && <TrackingSetSettings key={trackedSet.id} org={org} set={trackedSet}
+                    canWrite={canWrite} request={request} onChange={() => setSetRevision(value => value + 1)}
+                    onDelete={() => void navigate({ search: { org, workspace, tab: "tracking" } })} />}
+                </TrackingSetDetail>)}
+              {fromTracking && !creatingPrompts && (!search.run && !showingQuestion) && <Link className="small-link" to="/app"
+                search={trackingLink(trackingView)}>Back to tracking set</Link>}
               {tab === "workspaces" && (
                 <Card><CardContent>
                   <h2>Manage workspaces</h2>
@@ -1449,13 +1606,16 @@ function App() {
                   if (!await updateSelectedSchedules({ enabled: true }, ids)) return;
                   setReview(null);
                   setNotice(`${ids.length} schedules resumed. 0 checks queued now.`);
+                  if (selectingForSchedule) void navigate({ search: { ...scheduleScope, workspace: review.data.workspace.id, tab: "schedules" } });
                   await load();
                 })}
                 close={() => setReview(null)} />}
               {tab === "prompts" && (
                 <>
                   {showingQuestion && <Card><CardContent className="form-stack">
-                    <div><Link className="small-link" to="/app" search={sectionSearch("prompts")}>Back to prompts</Link></div>
+                    <div><Link className="small-link" to="/app" search={fromTracking ? trackingLink(trackingView) : sectionSearch("prompts")}>
+                      {fromTracking ? "Back to tracking set" : "Back to prompts"}
+                    </Link></div>
                     {questionResult?.error ? <p role="alert">{questionResult.error}</p> : !questionResult?.data ? (
                       <p role="status">Loading question…</p>
                     ) : !question ? <p role="alert">This question has no saved engine variants in this workspace.</p> : <>
@@ -1571,6 +1731,8 @@ function App() {
                       <CopyValue absolute label="Copy receipt link" value={Route.fullPath + "?" + new URLSearchParams({
                         org, workspace: receipt.workspace.id, tab: "prompts", receipt: receipt.id,
                       })} />
+                      {receipt.tracking_set && <Link to="/app" search={{ org, workspace: receipt.workspace.id, tab: "tracking",
+                        set: receipt.tracking_set.id, trackingView: "overview" }}>Open {receipt.tracking_set.name}</Link>}
                       <p>{receiptNewIds.length} new engine combinations · {receipt.saved_combinations - receiptNewIds.length} already saved</p>
                       <p>{receipt.action?.run?.accepted ?? 0} checks queued · {receipt.action?.schedule?.schedules?.length ?? 0} schedules
                         {receipt.action?.schedule ? receipt.action.schedule.enabled ? " active" : " paused" : ""}</p>
@@ -1633,66 +1795,71 @@ function App() {
                   {creatingPrompts && <>
                   <Card>
                     <CardContent>
-                      <div className="panel-title">
-                        <h2>Create prompts</h2>
-                      </div>
-                      {canWrite ? (
+                      {canWrite && setupSetId && !setupSet ? (
+                        <p role={setResult?.data || setResult?.error ? "alert" : "status"}>
+                          {setResult?.data || setResult?.error ? "This tracking set is unavailable in the selected workspace." : "Loading tracking set…"}
+                        </p>
+                      ) : canWrite ? (
                         <form
                           className="form-stack"
-                          onChange={e => {
-                            const target = e.target as HTMLElement;
-                            const name = target.getAttribute("name");
-                            if (name && !name.startsWith("monitoring-weekday-")) setDraftReview(null);
-                          }}
                           onSubmit={e => {
-                            const intent = (e.nativeEvent as SubmitEvent).submitter?.getAttribute("value");
                             e.preventDefault();
-                            const form = e.currentTarget;
-                            const f = new FormData(form);
+                            if (busy || promptSubmitRetry) return;
+                            const f = new FormData(e.currentTarget);
                             void action(async () => {
-                              const { prompts: texts, error: inputError } = promptInput;
-                              if (inputError) throw new Error(inputError);
-                              const selected = f.getAll("engines").map(String);
-                              if (!texts.length || !selected.length || !savingWorkspace || tooManyPromptCombinations)
-                                throw new Error("Choose a workspace, valid prompts and engines within the batch limit.");
-                              const payload = {
-                                workspace_id: savingWorkspace, brand_id: f.get("brand_id") || null,
-                                texts, engines: selected, tags: splitPromptTags(f.get("tags")),
-                                mode: f.get("mode"), location_name: f.get("location_name"), language_code: f.get("language_code"),
-                              };
-                              const serialized = JSON.stringify(payload);
-                              if (intent === "review" || draftReview?.payload !== serialized) {
+                              if (!draftReview) {
+                                const { prompts: texts, error: inputError } = promptInput;
+                                if (inputError) throw new Error(inputError);
+                                if (!texts.length || !promptEngineChoices.length || !savingWorkspace || tooManyPromptCombinations)
+                                  throw new Error("Choose a workspace, valid questions and engines within the batch limit.");
+                                if (!setupSet && !trackingName.trim()) throw new Error("Enter a tracking set name.");
+                                const payload = {
+                                  workspace_id: savingWorkspace, brand_id: f.get("brand_id") || null,
+                                  ...(setupSet ? { tracking_set_id: setupSet.id } : { tracking_set_name: trackingName.trim() }),
+                                  texts, engines: promptEngineChoices, tags: splitPromptTags(f.get("tags")),
+                                  mode: f.get("mode"), location_name: f.get("location_name"), language_code: f.get("language_code"),
+                                };
                                 const preview = await request("/prompts/bulk-preview", "POST", payload);
-                                setDraftReview({ payload: serialized, data: preview, key: crypto.randomUUID() });
+                                if (activeOrg.current === org && activeWorkspace.current === workspaceKey) {
+                                  setIncludeExisting(false);
+                                  setDraftReview({ payload, data: preview, key: crypto.randomUUID() });
+                                }
                                 return;
                               }
-                              const approved = draftReview!.data.prompts.filter((row: Item) => row.outcome === "new")
-                                .map((row: Item) => ({ question: texts.indexOf(row.text), engine: row.engine }));
-                              const run = intent === "run" || intent === "both";
-                              const schedule = intent === "paused" || intent === "monitor" || intent === "both";
-                              if (run && draftRunError) throw new Error(draftRunError);
-                              if (schedule && !draftProjection.valid) throw new Error("Enter valid schedule timing.");
+                              if (setupError) throw new Error(setupError);
+                              const approved = approvedRows.map(row => ({
+                                question: draftReview.payload.texts.indexOf(row.text), engine: row.engine,
+                                ...(row.outcome === "reused" ? { existing_id: row.id } : {}),
+                              }));
                               await submitReviewedPrompts({
-                                prompts: { ...payload, operation_id: draftReview!.key },
-                                ...(approved.length && (run || schedule) ? { action: {
+                                prompts: { ...draftReview.payload, operation_id: draftReview.key },
+                                ...(approved.length && (setupRuns || setupSchedules) ? { action: {
                                   approved,
-                                  ...(run ? { run_samples: draftSampleCount } : {}),
-                                  ...(schedule ? { schedule: { ...timing, repetitions: draftSampleCount, name: timing.name || "Scheduled prompts", enabled: intent !== "paused" } } : {}),
+                                  ...(setupRuns ? { run_samples: draftSampleCount } : {}),
+                                  ...(setupSchedules ? { schedule: { ...setupTiming, repetitions: draftSampleCount,
+                                    name: setupTiming.name.trim() || setupSet?.name || draftReview.payload.tracking_set_name, enabled: true } } : {}),
                                 } } : {}),
                               });
                             });
                           }}
                         >
+                          <fieldset disabled={busy || !!promptSubmitRetry} className={draftReview ? "hidden" : "form-stack"}>
+                          <h2>Questions and engines</h2>
+                          {setupSet ? <p>Adding to <strong className="break-words">{setupSet.name}</strong></p> : <FormField label="Tracking set name">
+                            <input ref={setupName} value={trackingName} onChange={e => setTrackingName(e.target.value)} required maxLength={100}
+                              placeholder="e.g. Seattle cleaning services" />
+                          </FormField>}
                           {allWorkspaces && (
-                            <FormField label="Save prompts to workspace">
+                            <FormField label="Workspace">
                               <select value={promptWorkspace} onChange={e => { setDraftReview(null); setPromptWorkspace(e.target.value); }} required>
                                 <option value="">Choose a workspace</option>
                                 {workspaces.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
                               </select>
                             </FormField>
                           )}
-                          <FormField label="Prompts — paste your list" hint="Paste one question per line. For CSV-style input, change the paste format in Prompt settings.">
+                          <FormField label="Questions" hint="Paste one question per line. For CSV-style input, change the paste format in Prompt settings.">
                             <textarea
+                              ref={setupQuestions}
                               name="text"
                               required
                               minLength={3}
@@ -1783,51 +1950,86 @@ function App() {
                               </FormField>
                             </div>
                           </details>
+                          <fieldset className="form-stack">
+                            <legend className="font-semibold">Collection</legend>
+                            <label className="check-field"><input type="radio" name="setup-intent" checked={setupIntent === "save"}
+                              onChange={() => { setSetupIntent("save"); setFirstCheck(false); }} /> Save questions</label>
+                            <label className="check-field"><input type="radio" name="setup-intent" checked={setupIntent === "check"}
+                              onChange={() => { setSetupIntent("check"); setFirstCheck(false); }} /> Check once</label>
+                            <label className="check-field"><input type="radio" name="setup-intent" checked={setupSchedules}
+                              onChange={() => setSetupIntent("schedule")} /> Track on a schedule</label>
+                          </fieldset>
+                          <p className="data-note">{setupIntent === "save" ? "Keep the questions and engine settings ready for later."
+                            : setupSchedules ? "Collect new answers at the scheduled times." : "Collect answers now using your DataForSEO account."}</p>
+                          {setupIntent === "check" && <details className="advanced-settings">
+                            <summary>Advanced checks · {parseSampleCount(setupSamples) ?? "Invalid"} samples per combination</summary>
+                            <FormField label="Samples per engine combination" hint="Each sample consumes one check. Enter 1–10.">
+                              <input inputMode="numeric" value={setupSamples} onChange={e => setSetupSamples(e.target.value)} />
+                            </FormField>
+                          </details>}
+                          {setupSchedules && <>
+                            <MonitoringEditor expanded timing={setupTiming} change={setSetupTiming} count={promptCombinations} showProjection={false} />
+                            <label className="check-field"><input type="checkbox" checked={firstCheck}
+                              onChange={e => setFirstCheck(e.target.checked)} /> Also run the first check now</label>
+                          </>}
+                          {!draftReview && <div className="form-actions">
+                            <Button disabled={busy || !!promptSubmitRetry || (!setupSet && !trackingName.trim()) || providerChoicesLoading || !providerChoices || !!providerChoices.error ||
+                              !savingWorkspace || !promptEngineChoices.length || !promptInput.prompts.length || !!promptInput.error || tooManyPromptCombinations}>
+                              {busy ? "Reviewing…" : setupSet ? "Review questions" : "Review tracking set"}
+                            </Button>
+                          </div>}
+                          </fieldset>
                           {draftReview && <section className="form-stack">
-                            <h3>Review combinations</h3>
-                            <p>{previewNew} new · {draftReview.data.prompts.length - previewNew} already saved</p>
+                            <h2 ref={reviewHeading} tabIndex={-1} className="break-words">Review questions for {setupSet?.name || draftReview.payload.tracking_set_name}</h2>
+                            <p>{draftReview.data.questions} {draftReview.data.questions === 1 ? "question" : "questions"} · {previewNew} new combinations · {draftReview.data.prompts.length - previewNew} existing combinations</p>
+                            {previewRows.length > previewNew && <p>Existing combinations join the set and keep their engine settings and any current schedules.</p>}
                             <details open={draftReview.data.prompts.length <= 10}>
-                              <summary>Engine-by-engine matches</summary>
-                              <ul>{draftReview.data.prompts.map((row: Item) => (
-                                <li key={JSON.stringify([row.text, row.engine])}>{row.text} · {engines[row.engine]} · {row.outcome === "new"
-                                  ? "New" : `Already saved · ${row.monitoring === "none" ? "No schedule" : row.monitoring === "paused" ? "Paused schedule" : "Active schedule"}`}</li>
+                              <summary>Engine combinations</summary>
+                              <ul className="divide-y divide-border">{previewRows.map(row => (
+                                <li className="break-words py-2" key={JSON.stringify([row.text, row.engine])}>
+                                  <div>{row.text}</div>
+                                  <p className="data-note">{engines[row.engine]} · {row.outcome === "new"
+                                    ? "New" : `Already saved · ${row.monitoring === "none" ? "No schedule" : row.monitoring === "paused" ? "Paused schedule" : "Active schedule"}`}</p>
+                                </li>
                               ))}</ul>
                             </details>
-                            <CollectionDetails org={org} workspaceId={savingWorkspace} workspace={draftReview.data.workspace.name}
+                            {setupIntent !== "save" && <CollectionDetails org={org} workspaceId={savingWorkspace} workspace={draftReview.data.workspace.name}
                               brands={promptBrands.map(brand => brand.name)}
                               locales={promptEngineChoices.map(engine => `${engines[engine]} · ${promptLocation} · ${promptLanguage}`)}
-                              provider={!!settings.dataforseo_configured} available={draftAvailable} />
-                            {JSON.parse(draftReview.payload).brand_id && <p>Associated prompt brand {promptBrands.find(brand => brand.id === JSON.parse(draftReview.payload).brand_id)?.name}.</p>}
-                            <Button type="button" variant="outline" disabled={busy} onClick={() => action(load)}>Refresh workspace and provider setup</Button>
-                            <MonitoringEditor timing={timing} change={setTiming} count={previewNew} />
-                            <p>{draftSampleCount !== undefined && `${previewNew * draftSampleCount} checks now if you run. `}Saving prompts or saving paused schedules queues 0 checks.</p>
-                            {draftRunError && <p role="status">{draftRunError}</p>}
-                            <div className="form-actions">
-                              <Button value="save" variant="outline" disabled={busy}>Save prompts</Button>
-                              <Button value="paused" variant="outline" disabled={busy || !previewNew || !draftProjection.valid}>Save with paused {timing.preset === "weekly" ? "weekly " : ""}schedule</Button>
-                              <Button value="both" disabled={busy || !previewNew || !draftProjection.valid || !!draftRunError}>Run now &amp; start {timing.preset === "weekly" ? "weekly " : ""}monitoring</Button>
+                              provider={!!settings.dataforseo_configured} available={draftAvailable} showProviderCharges={false} />}
+                            {setupIntent === "save" && <p><strong>{draftReview.data.workspace.name}</strong> · {promptLocation} · {promptLanguage}</p>}
+                            {draftReview.payload.brand_id && <p>Associated prompt brand {promptBrands.find(brand => brand.id === draftReview.payload.brand_id)?.name}.</p>}
+                            {(setupSchedules || setupRuns) && existingEligible.length > 0 && <label className="check-field">
+                              <input type="checkbox" checked={includeExisting} disabled={busy || !!promptSubmitRetry}
+                                onChange={e => setIncludeExisting(e.target.checked)} />
+                              Include {existingEligible.length} existing {existingEligible.length === 1 ? "combination" : "combinations"}{setupSchedules ? " without a schedule" : ""}
+                            </label>}
+                            <div className="form-stack">
+                              <h3>Projected checks</h3>
+                              <p>{immediateChecks} {immediateChecks === 1 ? "check" : "checks"} now
+                                {setupSchedules && setupProjection.valid && ` · ${setupProjection.weekly} checks per scheduled week`}</p>
+                              {setupSchedules && approvedRows.length > 0 && setupProjection.next && <p>First scheduled check {setupProjection.next}</p>}
+                              <p className="data-note">{immediateChecks || (setupSchedules && approvedRows.length)
+                                ? "Each check counts toward your TrackRank allowance. DataForSEO bills separately at your provider rates."
+                                : "Saving this set adds no TrackRank checks or DataForSEO charges."}</p>
                             </div>
-                            <details><summary>Other collection options</summary>
-                              <div className="form-actions">
-                                <Button value="run" variant="outline" disabled={busy || !previewNew || !!draftRunError}>Run once</Button>
-                                <Button value="monitor" variant="outline" disabled={busy || !previewNew || !draftProjection.valid || !settings.dataforseo_configured}>Start monitoring only</Button>
-                              </div>
-                            </details>
+                            {setupError && <p role="status">{setupError}</p>}
+                            {setupError && approvedRows.length > 0 && !settings.dataforseo_configured && <Button type="button" variant="outline" disabled={busy} onClick={() => action(load)}>Refresh provider status</Button>}
+                            <div className="form-actions">
+                              <Button disabled={busy || !!promptSubmitRetry || !!setupError}>{busy ? "Submitting…" : setupAction}</Button>
+                              <Button type="button" variant="outline" disabled={busy || !!promptSubmitRetry} onClick={() => {
+                                setDraftReview(null);
+                                requestAnimationFrame(() => (setupName.current ?? setupQuestions.current)?.focus());
+                              }}>Edit setup</Button>
+                            </div>
                           </section>}
-                          <div className="form-actions">
-                            {!draftReview && <Button value="review" disabled={busy || providerChoicesLoading || !providerChoices || !!providerChoices.error ||
-                              !savingWorkspace || !promptEngineChoices.length || !promptInput.prompts.length || !!promptInput.error || tooManyPromptCombinations}>
-                              <Plus size={14} />
-                              Review prompts
-                            </Button>}
-                          </div>
                         </form>
                       ) : (
                         <p className="data-note">Viewer access is read-only.</p>
                       )}
                     </CardContent>
                   </Card>
-                  <details className="ideas-panel">
+                  {!draftReview && <details className="ideas-panel">
                     <summary>
                       <Sparkles size={15} /> Need prompt ideas? Generate free
                       research templates.
@@ -1886,12 +2088,12 @@ function App() {
                         <Plus size={13} />
                       </button>
                     ))}
-                  </details>
+                  </details>}
                   </>}
                   {!showingQuestion && !creatingPrompts && !search.prompt && <Card id="prompt-library">
                     <CardContent>
                       <div className="panel-title">
-                        <h2>Question library</h2>
+                        <h2>{selectingForSchedule ? "Choose questions to schedule" : "Question library"}</h2>
                       </div>
                       <div className="form-grid prompt-filters">
                         <FormField label="Search saved prompts">
@@ -1929,7 +2131,7 @@ function App() {
                           </FormField>
                         </div>
                       </details>
-                      {!!scopeBrands.length && <details className="advanced-settings">
+                      {!selectingForSchedule && !!scopeBrands.length && <details className="advanced-settings">
                         <summary>{selectedMetricBrand ? `Mention rate · ${selectedMetricBrand.name}` : "Choose a brand for mention rates"}</summary>
                         <form key={JSON.stringify([search.brand, search.from, search.to])} className="form-grid prompt-filters" onSubmit={event => {
                           event.preventDefault();
@@ -1956,7 +2158,8 @@ function App() {
                           <BulkSelection rows={savedPrompts} selected={promptSelection} pages={promptPages} disabled={busy}
                             members={group => group.variants} selectionLabel="Engine variants selected"
                             onChange={(rows, checked) => setPromptSelection(current => changeSelection(current, rows, checked))} />
-                          {savedSelection.length > 0 && <div className="form-actions">
+                          {selectingForSchedule ? <Button disabled={bulkBusy || mixedWorkspaceSelection || !savedSelection.length}
+                            onClick={() => reviewCollection(savedSelection, 1, "schedule")}>Continue to timing</Button> : savedSelection.length > 0 && <div className="form-actions">
                             <Button disabled={bulkBusy || !!pendingRun || mixedWorkspaceSelection || runSampleCount === undefined}
                               onClick={() => { if (runSampleCount !== undefined) void queuePromptBatch(savedSelection, runSampleCount); }}>
                               Run selected{selectedRunCount !== null && ` — ${selectedRunCount} runs`}
@@ -1966,7 +2169,7 @@ function App() {
                           </div>}
                         </div>
                       )}
-                      {canWrite && savedSelection.length > 0 && (
+                      {!selectingForSchedule && canWrite && savedSelection.length > 0 && (
                         <>
                           <details className="advanced-settings">
                             <summary>Advanced settings</summary>
@@ -2027,10 +2230,10 @@ function App() {
                           </details>
                         </>
                       )}
-                      <PromptSets key={workspaceKey} org={org} workspace={workspace} workspaceNames={workspaceNames}
+                      {!selectingForSchedule && <PromptSets key={workspaceKey} org={org} workspace={workspace} workspaceNames={workspaceNames}
                         sets={promptSets} activeSet={search.set} selection={promptSelection} canWrite={canWrite}
-                        request={request} onFilter={filterBySet} onChange={() => setSetRevision(value => value + 1)} />
-                      {mixedWorkspaceSelection && <p className="data-note">Select prompts from one workspace to run them together.</p>}
+                        request={request} onFilter={filterBySet} onChange={() => setSetRevision(value => value + 1)} />}
+                      {mixedWorkspaceSelection && <p className="data-note">Choose questions from one workspace for this collection.</p>}
                       {promptPages.error && <p role="alert">{promptPages.error}</p>}
                       {!promptPages.current ? (!promptPages.error && <p role="status">Loading saved prompts…</p>) :
                         savedPrompts.length ? (
@@ -2059,22 +2262,22 @@ function App() {
                                   ? `${new Intl.NumberFormat(undefined, { style: "percent", maximumFractionDigits: 1 }).format(mentions / samples)} mentioned (${mentions} of ${samples} ${samples === 1 ? "answer" : "answers"})`
                                   : "No eligible answers tracking this brand"}</small>}
                               </div>
-                              <div className="question-row-actions">
+                              {!selectingForSchedule && <div className="question-row-actions">
                                 <Link className="small-link" to="/app" search={{ ...questionLink, questionView: "answers" }}
                                   aria-label={`View answers for ${group.text}`}>View answers</Link>
                                 <Link className="small-link" to="/app" search={{ ...questionLink, questionView: "settings" }}
                                   aria-label={`Engine settings for ${group.text}`}>Engine settings</Link>
-                              </div>
+                              </div>}
                             </section>;
                           })}
                         </div>
-                      ) : filteredPrompts ? (
+                      ) : filteredPrompts && !(selectingForSchedule && search.set && !promptSearch && !promptEngineFilter && !promptFilterCount) ? (
                         <Empty title="No matching prompts" description="Change the filters or search another keyword." />
                       ) : (
                         <Empty
                           title="No saved questions"
-                          description={canWrite ? "Create prompts to choose questions and engines for your first collection." : "Saved questions will appear here."}
-                        />
+                          description={canWrite ? "Add questions and select the engines you want to track." : "Saved questions will appear here."}
+                        >{selectingForSchedule && canWrite && <Button asChild><Link to="/app" search={{ ...scheduleScope, tab: "prompts", promptView: "create", setupIntent: "schedule", trackingView: search.set ? "questions" : undefined }}>Create questions to schedule</Link></Button>}</Empty>
                       )}
                       <BulkPageNavigation pages={promptPages} label="Prompt pages" />
                     </CardContent>
@@ -2145,7 +2348,7 @@ function App() {
                     <Card><CardContent>
                       {detailError ? <p role="alert">{detailError}</p> : <p role="status">Loading run…</p>}
                       <Link to="/app" search={closeRun}>{closeRunLabel}</Link>
-                      {search.trendMetric && <Link to="/app" search={sectionSearch("overview")}>Back to Overview</Link>}
+                      {search.trendMetric && <Link to="/app" search={fromTracking ? trackingLink("overview") : sectionSearch("overview")}>Back to Overview</Link>}
                     </CardContent></Card>
                   )}
                   {selectedRun && (
@@ -2154,7 +2357,7 @@ function App() {
                         <header className="run-detail-header">
                           <h1>{selectedRun.prompt_text}</h1>
                           <div className="app-inline-form">
-                            {search.trendMetric && <Link to="/app" search={sectionSearch("overview")}>Back to Overview</Link>}
+                            {search.trendMetric && <Link to="/app" search={fromTracking ? trackingLink("overview") : sectionSearch("overview")}>Back to Overview</Link>}
                             <Button variant="ghost" size="sm" asChild>
                               <Link to="/app" search={closeRun}>{closeRunLabel}</Link>
                             </Button>
@@ -2330,7 +2533,7 @@ function App() {
                   })} />}
                   {search.batch && <RunBatch key={search.batch} org={org} workspace={workspace} batch={search.batch}
                     receipt={search.receipt} request={request} engines={engines} />}
-                  {!search.batch && <WorkspaceRunHistory
+                  {!search.batch && !(fromTracking && search.run) && <WorkspaceRunHistory
                     key={JSON.stringify([org, workspace])}
                     org={org}
                     workspace={workspaceId}
@@ -2554,10 +2757,10 @@ function App() {
                   <Card>
                     <CardContent>
                       <div className="panel-title">
-                        <h2>{allWorkspaces ? "Schedules across workspaces" : "Workspace schedules"}</h2>
-                        {canWrite && <Button variant="outline" asChild><Link to="/app" search={{ org, workspace, tab: "prompts" }}>Schedule prompts</Link></Button>}
+                        <h2>{search.set ? "Tracking set schedules" : allWorkspaces ? "Schedules across workspaces" : "Workspace schedules"}</h2>
+                        {canWrite && visibleSchedules.length > 0 && <Button variant="outline" asChild><Link to="/app" search={{ ...scheduleScope, tab: "prompts", promptView: "schedule" }}>Choose questions to schedule</Link></Button>}
                       </div>
-                      {canWrite && <div className="bulk-toolbar">
+                      {canWrite && visibleSchedules.length > 0 && <div className="bulk-toolbar">
                         <BulkSelection rows={visibleSchedules} selected={scheduleSelection} pages={schedulePages} disabled={busy}
                           onChange={(rows, checked) => setScheduleSelection(current => changeSelection(current, rows, checked))} />
                         <Button disabled={bulkBusy || !schedulesSelected} onClick={()=>{if(!confirm("Enable these selected schedules? Each scheduled sample uses provider credits and your run allowance."))return;action(async()=>{if (!await updateSelectedSchedules({ enabled:true })) return;await load();setNotice("Selected schedules enabled.");});}}>Enable selected</Button>
@@ -2643,9 +2846,12 @@ function App() {
                         );
                       })}
                       {schedulePages.error && <p role="alert">{schedulePages.error}</p>}
-                      {!schedulePages.error && !visibleSchedules.length && <p className="data-note" role="status">
-                        {schedulePages.current ? "No schedules in this view." : "Loading schedules…"}
-                      </p>}
+                      {!schedulePages.error && !visibleSchedules.length && (schedulePages.current
+                        ? <Empty title="No schedules yet" description={canWrite
+                          ? "Choose saved questions, then set how often to check them."
+                          : "Scheduled checks will appear here when your team adds them."}>
+                          {canWrite && <Button asChild><Link to="/app" search={{ ...scheduleScope, tab: "prompts", promptView: "schedule" }}>Choose questions to schedule</Link></Button>}
+                        </Empty> : <p role="status">Loading schedules…</p>)}
                       <BulkPageNavigation pages={schedulePages} label="Schedule pages" />
                     </CardContent>
                   </Card>

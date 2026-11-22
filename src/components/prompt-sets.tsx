@@ -67,7 +67,7 @@ export function PromptSets({ org, workspace, workspaceNames, sets, activeSet, se
       </label>
       {current && <div className="app-inline-form">
         <Button asChild variant="outline" size="sm">
-          <Link to="/app" search={{ org, workspace: current.workspace_id, tab: "overview", set: current.id }}>View performance</Link>
+          <Link to="/app" search={{ org, workspace: current.workspace_id, tab: "tracking", set: current.id, trackingView: "overview" }}>Open tracking overview</Link>
         </Button>
         {canWrite && <>
           <form key={current.id + current.name} className="app-inline-form" onSubmit={event => submit(event, async data => {

@@ -21,6 +21,14 @@ export async function searchableHistoryWhere(env: Env, org: string, params: URLS
     where.conditions.push("runs.workspace_id=?");
     where.bindings.push(question.workspace_id);
   }
+  if (filters.report_evidence_run) {
+    const question = required(await one<{ workspace_id: string; prompt_text: string; engine: string | null }>(env,
+      `SELECT workspace_id, prompt_text, json_extract(${runConfig},'$.engine') AS engine FROM runs WHERE org_id=? AND id=?` +
+        (filters.workspace ? " AND workspace_id=?" : ""),
+      org, filters.report_evidence_run, ...(filters.workspace ? [filters.workspace] : [])));
+    where.conditions.push("runs.workspace_id=?", "runs.prompt_text=?", `json_extract(${runConfig},'$.engine') IS ?`);
+    where.bindings.push(question.workspace_id, question.prompt_text, question.engine);
+  }
   const { limits } = await organizationPlan(env, org);
   if (limits.searchable_history_days !== undefined) {
     where.conditions.push("runs.created_at>=?");
@@ -43,6 +51,7 @@ export const runHistoryFilters = scopeFilters.extend({
   compare_brand: setId.optional(),
   metric: z.enum(answerMetrics).optional(),
   question_id: setId.optional(),
+  report_evidence_run: setId.optional(),
   prompt_schedule: z.enum(["active", "inactive"]).optional(),
   prompt_brand: setId.optional(),
   prompt_id: z.string().min(1).max(100).optional(),
@@ -91,6 +100,7 @@ export const runConfig = "CASE WHEN json_valid(runs.config) THEN runs.config ELS
 export const brandSnapshot = `json_each(${runConfig}, '$.brands')`;
 export const runMentions = "json_each(CASE WHEN json_valid(runs.mentions) THEN runs.mentions ELSE '[]' END)";
 export const brandSnapshotId = "CASE WHEN snapshot.type='object' THEN json_extract(snapshot.value,'$.id') END";
+export const brandTracked = `EXISTS (SELECT 1 FROM ${brandSnapshot} AS snapshot WHERE ${brandSnapshotId}=?)`;
 export function brandOutcome(brand: string, field: "mentioned" | "cited") {
   return `EXISTS (SELECT 1 FROM ${runMentions} AS mention WHERE CASE WHEN mention.type='object' THEN
     json_extract(mention.value,'$.brand_id')=${brand} AND json_extract(mention.value,'$.${field}')=1 END)`;
@@ -160,7 +170,7 @@ function historyWhere(org: string, filters: z.output<typeof runHistoryFilters>) 
   if (filters.metric && filters.metric !== "eligible" && filters.metric !== "coverage") {
     for (const brand of [filters.tracked_brand, filters.compare_brand]) {
       if (!brand) continue;
-      conditions.push(`EXISTS (SELECT 1 FROM ${brandSnapshot} AS snapshot WHERE ${brandSnapshotId}=?)`);
+      conditions.push(brandTracked);
       bindings.push(brand);
     }
     if (filters.metric !== "brand") {

@@ -1,3 +1,4 @@
+import { overviewQuestionsPage } from "./analytics";
 import { bulkPromptSettingsSchema } from "./prompt-settings";
 import { receiptActionSchema, submitPromptBatchSchema } from "./receipt-actions";
 import { bulkPromptTagsSchema, promptTag, promptTags } from "./prompt-tags";
@@ -160,9 +161,13 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
     return path + "?" + query;
   }
   server.registerTool("list_prompt_sets", {
-    description: "List workspace-owned prompt sets and current member counts. Use list_prompts with set to inspect members.",
+    description: "List named workspace tracking sets with active, paused and unscheduled variant counts, engines, and check times. Use list_prompts with set to inspect members.",
     inputSchema: workspaceInput,
   }, async args => invoke(filteredPath("/prompt-sets", args)));
+  server.registerTool("get_prompt_set", {
+    description: "Read one named tracking set, including its workspace, engines, schedule counts, and check times.",
+    inputSchema: { set_id: setId, ...workspaceInput },
+  }, async ({ set_id, ...args }) => invoke(filteredPath(`/prompt-sets/${set_id}`, args)));
   server.registerTool("create_prompt_set", {
     description: "Create a named set in one workspace, optionally with up to 500 selected prompts. Requires write scope.",
     inputSchema: createPromptSetSchema,
@@ -184,6 +189,10 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
     description: "Compute full-period visibility totals, coverage, brand rates and UTC daily trends. Pass tracked_brand for daily brand statistics and compare_brand for their common cohort.",
     inputSchema: { ...reportingInput, compare_brand: runHistoryFilters.shape.compare_brand },
   }, async args => invoke(filteredPath("/analytics", args)));
+  server.registerTool("get_overview_questions", {
+    description: "Page through per-question and engine counts from the Overview evidence cohort. Pass a row's evidence_run_id as report_evidence_run to list_runs.",
+    inputSchema: { ...reportingInput, compare_brand: runHistoryFilters.shape.compare_brand, page: overviewQuestionsPage.optional() },
+  }, async args => invoke(filteredPath("/analytics/questions", args)));
   server.registerTool("list_collection_locations", {
     description: "List locations recorded on runs in the reporting scope.",
     inputSchema: reportingInput,
@@ -272,7 +281,7 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
     inputSchema: { operation_id: z.uuid() },
   }, async ({ operation_id }) => invoke("/prompts/receipts/" + operation_id));
   server.registerTool("submit_prompt_batch", {
-    description: "Save reviewed prompt variants and optionally collect or schedule only the approved new combinations. Confirm provider spend before requesting active collection. Retry with identical arguments.",
+    description: "Save reviewed prompt variants, optionally create or add to a tracking set, and collect only approved variants. Include an exact existing_id to opt a saved variant into collection when saving to a tracking set. Confirm provider spend before requesting active collection. Retry with identical arguments.",
     inputSchema: submitPromptBatchSchema,
   }, async args => invoke("/prompts/bulk-submit", "POST", args));
   server.registerTool("start_prompt_receipt", {
@@ -286,7 +295,7 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
   server.registerTool(
     "save_prompts",
     {
-      description: "Save a batch of prompts with shared tags. Exact matches reuse existing variants. Saving does not start any runs.",
+      description: "Save a batch of prompts with shared tags. Pass an operation ID with tracking_set_name to create a set or tracking_set_id to add all saved variants to a set. Exact matches reuse existing variants. Saving does not start any runs.",
       inputSchema: promptBatchSchema,
     },
     async (args) => invoke("/prompts/bulk", "POST", args),
@@ -355,6 +364,7 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
         "List run history with status, citations, grounding queries and mentions. Filter by question_id across engine variants. Research matches include the full total_matches before pagination. Continue with next_before and next_before_id.",
       inputSchema: z.object({
         ...historyInput,
+        limit: listPageLimit.max(100).optional(),
         before: z.number().int().nonnegative().optional(),
         before_id: z.string().min(1).max(100).optional(),
       }).refine(args => (args.before === undefined) === (args.before_id === undefined), "Supply both cursor fields"),
@@ -393,16 +403,18 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
       description: "List active and paused schedules. The first page includes the matching total. Use selection for compact pages and next_cursor to continue.",
       inputSchema: {
         workspace_id: z.string().min(1).max(100).optional(),
+        set: setId.optional(),
         limit: listPageLimit.max(500).optional(),
         selection: z.boolean().optional(),
         before: z.number().int().nonnegative().optional(),
         before_id: z.string().min(1).max(100).optional(),
       },
     },
-    async ({ workspace_id, before, before_id, limit, selection }) => {
+    async ({ workspace_id, before, before_id, limit, selection, set }) => {
       const query = new URLSearchParams();
       if (selection) query.set("selection", "1");
       if (limit !== undefined) query.set("limit", String(limit));
+      if (set) query.set("set", set);
       if (workspace_id) query.set("workspace", workspace_id);
       if (before !== undefined) query.set("before", String(before));
       if (before_id !== undefined) query.set("before_id", before_id);

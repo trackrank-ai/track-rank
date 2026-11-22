@@ -34,14 +34,48 @@ export async function promptSetsRoute(req: Request, env: Env, org: string, path:
   const match = path.match(/^\/prompt-sets(?:\/([\w-]{1,100})(\/members)?)?$/);
   if (!match) throw new HttpError(404, "Prompt set route not found");
   const [, set, members] = match;
-  if (!set && req.method === "GET") {
+  if (!members && req.method === "GET") {
     const workspace = params.get("workspace");
     if (workspace && !setId.safeParse(workspace).success) throw new HttpError(400, "Invalid workspace");
     if (workspace) required(await one(env, "SELECT id FROM workspaces WHERE org_id=? AND id=? AND archived_at IS NULL", org, workspace));
-    return json({ sets: await all(env, `SELECT s.id,s.workspace_id,s.name,
-      (SELECT count(*) FROM prompt_set_members m WHERE m.org_id=s.org_id AND m.workspace_id=s.workspace_id AND m.set_id=s.id) AS member_count
-      FROM prompt_sets s WHERE s.org_id=?${workspace ? " AND s.workspace_id=?" : ""}
-      ORDER BY s.name COLLATE NOCASE,s.id`, org, ...(workspace ? [workspace] : [])) });
+    const sets = await all(env, `WITH selected_sets AS (
+      SELECT id, org_id, workspace_id, name FROM prompt_sets
+      WHERE org_id=?${workspace ? " AND workspace_id=?" : ""}${set ? " AND id=?" : ""}
+    ), members AS (
+      SELECT s.id AS set_id, p.org_id, p.workspace_id, p.id, p.question_id, p.engine
+      FROM selected_sets s
+      JOIN prompt_set_members m ON (m.org_id,m.workspace_id,m.set_id)=(s.org_id,s.workspace_id,s.id)
+      JOIN prompt_engines p ON (p.org_id,p.workspace_id,p.id)=(m.org_id,m.workspace_id,m.prompt_id)
+      WHERE p.archived_at IS NULL
+    ), schedule_state AS (
+      SELECT prompt_id, max(enabled) AS active,
+        min(CASE WHEN enabled=1 THEN next_due_at END) AS next_scheduled_at
+      FROM schedules
+      WHERE org_id=? AND prompt_id IN (SELECT id FROM members)
+      GROUP BY prompt_id
+    ), statistics AS (
+      SELECT m.set_id, count(*) AS member_count, count(DISTINCT m.question_id) AS question_count,
+        json_group_array(DISTINCT m.engine ORDER BY m.engine) AS engines,
+        sum(coalesce(sc.active,0)) AS scheduled_count,
+        sum(CASE WHEN sc.active=0 THEN 1 ELSE 0 END) AS paused_count,
+        sum(CASE WHEN sc.active IS NULL THEN 1 ELSE 0 END) AS unscheduled_count,
+        min(sc.next_scheduled_at) AS next_scheduled_at,
+        max(EXISTS(SELECT 1 FROM runs r
+          WHERE (r.org_id,r.prompt_id,r.workspace_id)=(m.org_id,m.id,m.workspace_id))) AS has_runs,
+        max((SELECT max(r.updated_at) FROM runs r
+          WHERE (r.org_id,r.prompt_id,r.workspace_id)=(m.org_id,m.id,m.workspace_id)
+            AND r.status='succeeded')) AS last_completed_at
+      FROM members m LEFT JOIN schedule_state sc ON sc.prompt_id=m.id
+      GROUP BY m.set_id
+    )
+    SELECT s.id,s.workspace_id,s.name,coalesce(t.member_count,0) AS member_count,
+      coalesce(t.question_count,0) AS question_count,coalesce(t.engines,'[]') AS engines,
+      coalesce(t.scheduled_count,0) AS scheduled_count,coalesce(t.paused_count,0) AS paused_count,
+      coalesce(t.unscheduled_count,0) AS unscheduled_count,coalesce(t.has_runs,0) AS has_runs,t.next_scheduled_at,t.last_completed_at
+    FROM selected_sets s LEFT JOIN statistics t ON t.set_id=s.id
+    ORDER BY s.name COLLATE NOCASE,s.id`, org, ...(workspace ? [workspace] : []), ...(set ? [set] : []), org);
+    const summaries = sets.map(row => ({ ...row, has_runs: !!row.has_runs, engines: JSON.parse(String(row.engines)) as string[] }));
+    return json(set ? { set: required(summaries[0], "Prompt set not found") } : { sets: summaries });
   }
   if (!set && req.method === "POST") {
     const input = await body(req, createPromptSetSchema, 64 * 1024);

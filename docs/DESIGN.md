@@ -42,7 +42,7 @@ Keep the selection count, Run and Schedule visible together. Open **Manage selec
 
 Let expanded engine settings use the available row width, including on tablets. Leave `0.75rem` (12 px at default text size) between the editor and its Run and Delete actions. On narrow screens, let variant selection take its own line so the action buttons can stay together when space permits.
 
-Keep numeric input as a draft while the user types. For samples, clearing the field and typing `5` must produce `5`. Use a valid whole number from 1 to 10 for projections and collection actions. While the draft is invalid, show the range beside the field and keep independent actions such as **Save prompts** available. In bulk schedule edits, a blank sample field preserves each schedule’s current count.
+Keep numeric input as a draft while the user types. For samples, clearing the field and typing `5` must produce `5`. Use a valid whole number from 1 to 10 for projections and collection actions. While the draft is invalid, show the range beside the field and keep independent actions such as **Save questions** available. In bulk schedule edits, a blank sample field preserves each schedule’s current count.
 
 ## Bulk selection
 
@@ -58,9 +58,17 @@ Use `PricingSection` with `getPricingCatalog` on both public pricing surfaces; d
 
 Active hosted trials show a nondismissible sticky accent banner above the app topbar. Use authoritative billing status and expiry for the selected organization, round remaining days up, update the clock while open, and link to the existing authorized Settings billing flow. Do not show old organization trial state during an organization switch.
 
+## Tracking sets
+
+Use a named tracking set as the home for a collection of questions. The set name and workspace stay visible across Overview, Questions, Answers and Settings. Show active, paused and unscheduled engine variants separately, along with the last completed check and next scheduled check. A question can run on multiple engines with different schedules.
+
+Ask whether the user wants to save questions, check once or track on a schedule before the review. Show timing for recurring checks. An immediate check alongside a new schedule requires its own opt-in. The review should state which new and existing variants will be affected, checks now, recurring checks and separate provider charges. Return to the same set after saving.
+
+A reporting drill-down should explain what contributed to the displayed number. Keep the period, engine, set and comparison cohort when linking a question’s count to its answers. Distinguish a measured zero from a period without eligible answers. In an empty Schedules view, offer question selection first, then timing.
+
 ## Prompt creation and collection
 
-Default to one question per line. Show the parsed wording, repeated-line count, and per-engine matches before saving. Lead with the saved question library and a **Create prompts** action that opens the paste and review flow. Show a saved question once with its tracked engines, most recent completed check, and an **Answers** link. Give question details shareable **Answers** and **Engine settings** views. Retain library filters through the detail links and browser history. Saved wording is fixed. Keep engine settings available for individual variants and offer partial changes to execution mode, location and language for a selection. Make saved variants and recurring schedules distinct from one-time checks. Start with weekly timing and one sample, with timing changes and extra samples available on demand. Put schedule creation on Prompts and use Schedules to manage existing monitoring. A save receipt and a run batch each have a shareable organization/workspace URL. Run lists and CSV use the same URL-backed filters.
+Default to one question per line. Show the parsed wording, repeated-line count, and per-engine matches before saving. Lead with the saved question library and a **Create tracking set** action that opens the paste and review flow. Show a saved question once with its tracked engines, most recent completed check, and an **Answers** link. Give question details shareable **Answers** and **Engine settings** views. Retain library filters through the detail links and browser history. Saved wording is fixed. Keep engine settings available for individual variants and offer partial changes to execution mode, location and language for a selection. Make saved variants and recurring schedules distinct from one-time checks. Start with weekly timing and one sample, with timing changes and extra samples available on demand. Put schedule creation on Prompts and use Schedules to manage existing monitoring. A save receipt and a run batch each have a shareable organization/workspace URL. Run lists and CSV use the same URL-backed filters.
 
 ## Design review and release · November 22, 2026
 

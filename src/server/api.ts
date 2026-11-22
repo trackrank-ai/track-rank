@@ -1,7 +1,7 @@
 import { promptQuestionText } from "./prompt-questions";
 import { applyReceiptAction, readReceiptAction, receiptActionSchema, submitPromptBatch, submitPromptBatchSchema } from "./receipt-actions";
-import { promptSetsRoute } from "./prompt-sets";
-import { analytics, collectionLocations, researchSummary } from "./analytics";
+import { promptSetPredicate, promptSetsRoute, requirePromptSet, setId } from "./prompt-sets";
+import { analytics, collectionLocations, overviewQuestions, researchSummary } from "./analytics";
 import { bulkPromptTagsSchema, decodePrompt, promptTags, updatePromptTags } from "./prompt-tags";
 import { bulkPromptSettingsSchema, promptSettingsSchema, updatePromptSettings } from "./prompt-settings";
 import { body } from "./request-body";
@@ -332,6 +332,7 @@ export async function api(
   if (path === "/prompt-sets" || path.startsWith("/prompt-sets/")) return promptSetsRoute(req, env, org, path, u.searchParams);
   if (method === "GET") {
     if (path === "/analytics") return json(await analytics(env, org, u.searchParams));
+    if (path === "/analytics/questions") return json(await overviewQuestions(env, org, u.searchParams));
     if (path === "/analytics/locations") return json(await collectionLocations(env, org, u.searchParams));
     if (path === "/research") return json(await researchSummary(env, org, u.searchParams));
   }
@@ -510,7 +511,10 @@ export async function api(
       conditions.push("(created_at,id)<(?,?)");
       bindings.push(before, beforeId);
     }
-    const pageSize = 100;
+    const limit = u.searchParams.get("limit");
+    const pageLimit = listPageLimit.max(100).safeParse(limit === null ? 100 : Number(limit));
+    if (!pageLimit.success) throw new HttpError(400, "Invalid run history page size");
+    const pageSize = pageLimit.data;
     const runs = await all(
       env,
       "SELECT id,prompt_id,workspace_id,prompt_text,config,status,mentions,citations,grounding_queries,discovered_brands,has_answer,error,provider_cost,created_at,updated_at FROM runs WHERE " +
@@ -575,6 +579,7 @@ export async function api(
     const workspace = u.searchParams.get("workspace");
     if (workspace) await belongs(env, "workspaces", org, workspace);
     const parsed = z.object({
+      set: setId.optional(),
       before: z.coerce.number().int().nonnegative().optional(),
       before_id: id.optional(),
       limit: z.coerce.number().pipe(listPageLimit.max(500)).optional(),
@@ -582,12 +587,14 @@ export async function api(
     }).refine(filters => (filters.before === undefined) === (filters.before_id === undefined))
       .safeParse(Object.fromEntries(u.searchParams));
     if (!parsed.success) throw new HttpError(400, "Invalid schedule filters or cursor");
-    const { before, before_id, limit, selection } = parsed.data;
+    const { before, before_id, limit, selection, set } = parsed.data;
+    if (set) await requirePromptSet(env, org, set, workspace ?? undefined);
     const pageSize = selection ? 1000 : limit ?? 500;
     const source = `FROM schedules s
        JOIN prompts p ON p.org_id=s.org_id AND p.id=s.prompt_id
-       WHERE s.org_id=? AND p.archived_at IS NULL${workspace ? " AND p.workspace_id=?" : ""}`;
-    const scope = workspace ? [org, workspace] : [org];
+       WHERE s.org_id=? AND p.archived_at IS NULL${workspace ? " AND p.workspace_id=?" : ""}
+       ${set ? " AND " + promptSetPredicate("p") : ""}`;
+    const scope = [org, ...(workspace ? [workspace] : []), ...(set ? [set] : [])];
     const columns = selection
       ? "s.id,s.created_at,s.preset,s.days,s.times_json,s.timezone,s.repetitions,s.enabled"
       : "s.*,p.workspace_id,p.text AS prompt_text,p.engine";

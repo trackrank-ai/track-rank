@@ -15,8 +15,8 @@ export type Readiness = {
   provider_connected: boolean;
 };
 
-export function CollectionDetails({ workspace, workspaceId, brands, locales, provider, available, org }: {
-  workspace: string; workspaceId: string; brands: string[]; locales: string[]; provider: boolean; available?: number; org: string;
+export function CollectionDetails({ workspace, workspaceId, brands, locales, provider, available, org, showProviderCharges = true }: {
+  workspace: string; workspaceId: string; brands: string[]; locales: string[]; provider: boolean; available?: number; org: string; showProviderCharges?: boolean;
 }) {
   return <div className="form-stack">
     <p><strong>{workspace}</strong> · {locales.join(" · ")}</p>
@@ -24,7 +24,7 @@ export function CollectionDetails({ workspace, workspaceId, brands, locales, pro
       : "This workspace has no tracked brands. Collection can capture answers and sources. Brands added later will have no historical mention metrics for these checks."}</p>
     <p>{provider ? "DataForSEO connected." : "Connect DataForSEO before starting collection."}
       {available !== undefined && ` ${available.toLocaleString()} checks available this month.`}</p>
-    <p className="data-note">Provider charges apply separately for each check.</p>
+    {showProviderCharges && <p className="data-note">Provider charges apply separately for each check.</p>}
     <div className="app-inline-form">
       <Link target="_blank" rel="noopener" to="/app" search={{ org, tab: "settings", settingsSection: "providers" }}>Provider settings</Link>
       <Link target="_blank" rel="noopener" to="/app" search={{ org, workspace: workspaceId, tab: "brands" }}>Workspace brands</Link>
@@ -73,7 +73,7 @@ export function CollectionReview({ data, type, org, engines, timing, changeTimin
           </div>}
           {!data.can_schedule && <p role="status">Your access is read-only for schedules.</p>}
           {!!eligibilityErrors.length && <p role="status">{eligibilityErrors.join(". ")}</p>}
-          <MonitoringEditor timing={timing} change={changeTiming} count={unscheduled.length} />
+          <MonitoringEditor expanded timing={timing} change={changeTiming} count={unscheduled.length} />
           <p>0 checks now</p>
           <div className="form-actions">
             <Button disabled={busy || !data.can_schedule || !data.provider_connected || !unscheduled.length || !projection.valid}
