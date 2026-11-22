@@ -3,7 +3,7 @@ import { promptSetsRoute } from "./prompt-sets";
 import { analytics, collectionLocations, researchSummary } from "./analytics";
 import { bulkPromptTagsSchema, decodePrompt, promptTags, updatePromptTags } from "./prompt-tags";
 import { body } from "./request-body";
-import { bulkPromptIdsSchema, movePromptsSchema, bulkRunSchema, bulkScheduleSchema, bulkToggleSchema, updateBulkSchedules, bulkScheduleUpdateSchema, selectedRows, createBulkRuns, createBulkSchedules, bulkReadinessSchema, collectionReadiness, readRunBatch, MAX_BULK_SELECTION_REQUEST_BYTES } from "./bulk";
+import { bulkPromptIdsSchema, movePromptsSchema, bulkRunSchema, bulkScheduleSchema, bulkPromptSettingsSchema, updateBulkSchedules, bulkScheduleUpdateSchema, selectedRows, createBulkRuns, createBulkSchedules, bulkReadinessSchema, collectionReadiness, readRunBatch, MAX_BULK_SELECTION_REQUEST_BYTES } from "./bulk";
 import { assertProviderOptions, providerOptions } from "./provider-options";
 import { MAX_PROMPT_BATCH_BYTES, promptBatchSchema, getPromptReceipt, previewPromptBatch, savePromptBatch } from "./prompt-batch";
 import { listSavedPrompts, listPageLimit } from "./prompt-library";
@@ -58,7 +58,6 @@ const promptSchema = z
       .string()
       .min(2).max(20)
       .default("en"),
-    enabled: z.boolean().default(true),
     tags: promptTags.optional(),
   })
   .strict();
@@ -404,7 +403,7 @@ export async function api(
       time = now();
     await exec(
       env,
-      "INSERT INTO prompts(id,org_id,workspace_id,brand_id,text,engine,mode,location_name,language_code,enabled,created_at,updated_at,tags) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+      "INSERT INTO prompts(id,org_id,workspace_id,brand_id,text,engine,mode,location_name,language_code,created_at,updated_at,tags) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
       pid,
       org,
       b.workspace_id,
@@ -414,7 +413,6 @@ export async function api(
       b.mode,
       b.location_name,
       b.language_code,
-      b.enabled ? 1 : 0,
       time,
       time,
       JSON.stringify(b.tags ?? []),
@@ -424,9 +422,9 @@ export async function api(
   if (path === "/prompts/bulk-tags" && method === "PATCH")
     return json(await updatePromptTags(env, org, await body(req, bulkPromptTagsSchema)));
   if (path === "/prompts/bulk-settings" && method === "PATCH") {
-    const b=await body(req,bulkToggleSchema);
+    const b=await body(req,bulkPromptSettingsSchema);
     const rows=await selectedRows(env,org,'prompts',b.ids);
-    await env.DB.batch(rows.map(row=>env.DB.prepare("UPDATE prompts SET enabled=coalesce(?,enabled),mode=coalesce(?,mode) WHERE org_id=? AND id=? AND archived_at IS NULL").bind(b.enabled===undefined?null:Number(b.enabled),b.mode??null,org,row.id)));
+    await env.DB.batch(rows.map(row=>env.DB.prepare("UPDATE prompts SET mode=? WHERE org_id=? AND id=? AND archived_at IS NULL").bind(b.mode,org,row.id)));
     return json({updated:rows.length});
   }
   const match = path.match(/^\/prompts\/([^/]+)(?:\/(run))?$/);
@@ -447,7 +445,7 @@ export async function api(
     await requireWorkspaceBrand(env, org, b.workspace_id, b.brand_id);
     await exec(
       env,
-      "UPDATE prompts SET workspace_id=?,brand_id=?,text=?,engine=?,mode=?,location_name=?,language_code=?,enabled=?,updated_at=?,tags=coalesce(?,tags) WHERE id=? AND org_id=? AND archived_at IS NULL",
+      "UPDATE prompts SET workspace_id=?,brand_id=?,text=?,engine=?,mode=?,location_name=?,language_code=?,updated_at=?,tags=coalesce(?,tags) WHERE id=? AND org_id=? AND archived_at IS NULL",
       b.workspace_id,
       b.brand_id || null,
       b.text,
@@ -455,7 +453,6 @@ export async function api(
       b.mode,
       b.location_name,
       b.language_code,
-      b.enabled ? 1 : 0,
       now(),
       b.tags ? JSON.stringify(b.tags) : null,
       match[1],
@@ -608,8 +605,8 @@ export async function api(
        WHERE s.org_id=? AND p.archived_at IS NULL${workspace ? " AND p.workspace_id=?" : ""}`;
     const scope = workspace ? [org, workspace] : [org];
     const columns = selection
-      ? "s.id,s.created_at,s.preset,s.days,s.times_json,s.timezone,s.repetitions,s.enabled,p.enabled AS prompt_enabled"
-      : "s.*,p.workspace_id,p.text AS prompt_text,p.enabled AS prompt_enabled";
+      ? "s.id,s.created_at,s.preset,s.days,s.times_json,s.timezone,s.repetitions,s.enabled"
+      : "s.*,p.workspace_id,p.text AS prompt_text";
     const [rows, count] = await Promise.all([
       all(env,
         `SELECT ${columns} ${source}${before === undefined ? "" : " AND (s.created_at,s.id)<(?,?)"}

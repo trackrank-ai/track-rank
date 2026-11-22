@@ -60,7 +60,7 @@ export async function listSavedPrompts(env: Env, org: string, params: URLSearchP
     )))`);
     values.push(filters.brand, filters.brand);
   }
-  const activeSchedule = "p.enabled=1 AND EXISTS(SELECT 1 FROM schedules s WHERE s.org_id=p.org_id AND s.prompt_id=p.id AND s.enabled=1)";
+  const activeSchedule = "EXISTS(SELECT 1 FROM schedules s WHERE s.org_id=p.org_id AND s.prompt_id=p.id AND s.enabled=1)";
   if (filters.schedule === "active") conditions.push(activeSchedule);
   if (filters.schedule === "inactive") conditions.push("NOT (" + activeSchedule + ")");
   const total = filters.before === undefined && !filters.selection

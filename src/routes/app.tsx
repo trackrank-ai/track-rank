@@ -263,6 +263,7 @@ function App() {
   const savedSelection = [...promptSelection.keys()];
   const mixedWorkspaceSelection = new Set([...promptSelection.values()].map(prompt => prompt.workspace_id)).size > 1;
   const selectedRunCount = savedSelection.length * runSamples;
+  const promptFilterCount = [promptEngineFilter, promptScheduleFilter, promptBrandFilter, search.tag].filter(Boolean).length;
   const filteredPrompts = !!(promptSearch.trim() || promptEngineFilter || promptScheduleFilter || promptBrandFilter || search.tag || search.set);
   const promptInput = useMemo(() => editPrompt
     ? { prompts: promptText.trim() ? [promptText.trim()] : [], repeated: 0, error: "" }
@@ -673,9 +674,7 @@ function App() {
     const result = await changeSelectedPrompts(savedSelection, path, "PATCH", changes, "updated");
     if (result === null) return;
     await load();
-    if (activeWorkspace.current === workspaceKey && (
-      (promptScheduleFilter && "enabled" in changes) || (search.tag && "action" in changes && changes.action === "remove")
-    )) setPromptSelection(new Map());
+    if (activeWorkspace.current === workspaceKey && search.tag && "action" in changes && changes.action === "remove") setPromptSelection(new Map());
     setNotice(message);
   }
   function removePrompts(ids: string[]) {
@@ -733,7 +732,6 @@ function App() {
   const draftAvailable = typeof settings.plan?.limits?.runs_per_month === "number" && typeof settings.monthly_usage?.runs === "number"
     ? Math.max(0, settings.plan.limits.runs_per_month - settings.monthly_usage.runs) : undefined;
   const draftRunError = !settings.dataforseo_configured ? "Connect DataForSEO to run now or start monitoring."
-    : draftReview && !JSON.parse(draftReview.payload).enabled ? "Enable the new prompts to run or start monitoring."
     : draftAvailable !== undefined && previewNew * timing.repetitions > draftAvailable ? "The requested checks exceed your remaining monthly allowance." : "";
 
   const research = useReport<{ answers: number; items: { kind: string; value: string; title: string; count: number }[] }>(
@@ -1382,8 +1380,7 @@ function App() {
                           <>
                             <p>{linkedPrompt.text}</p>
                             <p className="data-note">
-                              {engines[linkedPrompt.engine]} · {linkedPrompt.location_name} · {linkedPrompt.language_code} ·{" "}
-                              {linkedPrompt.enabled ? "Enabled" : "Paused"}
+                              {engines[linkedPrompt.engine]} · {linkedPrompt.location_name} · {linkedPrompt.language_code}
                             </p>
                             {!!linkedPrompt.tags?.length && <div className="flex flex-wrap gap-1">
                               {(linkedPrompt.tags as string[]).map(tag => <Badge key={tag} variant="secondary">{tag}</Badge>)}
@@ -1391,6 +1388,10 @@ function App() {
                             <CopyValue value={Route.fullPath + "?" + new URLSearchParams({
                               org, workspace: linkedPrompt.workspace_id, tab: "prompts", prompt: linkedPrompt.id,
                             })} label="Copy prompt link" absolute />
+                            <details className="advanced-settings">
+                              <summary>API details</summary>
+                              <CopyValue label="Copy ID" value={linkedPrompt.id} />
+                            </details>
                             <Button variant="ghost" size="sm" asChild>
                               <Link to="/app" search={{ ...sectionSearch("runs"), runPrompt: linkedPrompt.id }}>View prompt runs</Link>
                             </Button>
@@ -1517,7 +1518,7 @@ function App() {
                               const payload = {
                                 workspace_id: savingWorkspace, brand_id: f.get("brand_id") || null,
                                 texts, engines: ordered, tags: splitPromptTags(f.get("tags")), ...(editPrompt ? { source_id: editPrompt.id } : {}),
-                                mode: f.get("mode"), location_name: f.get("location_name"), language_code: f.get("language_code"), enabled: f.get("enabled") === "on",
+                                mode: f.get("mode"), location_name: f.get("location_name"), language_code: f.get("language_code"),
                               };
                               const serialized = JSON.stringify(payload);
                               if (!editPrompt && (intent === "review" || draftReview?.payload !== serialized)) {
@@ -1559,7 +1560,7 @@ function App() {
                               </select>
                             </FormField>
                           )}
-                          <FormField label={editPrompt ? "Prompt" : "Prompts — paste your list"} hint={editPrompt ? "Edit this prompt. Select extra engines below to add variants without deleting other saved prompts." : "Paste one question per line. Choose Comma-separated to import CSV-style input."}>
+                          <FormField label={editPrompt ? "Prompt" : "Prompts — paste your list"} hint={editPrompt ? "Edit this prompt. Select extra engines below to add variants without deleting other saved prompts." : "Paste one question per line. For CSV-style input, change the paste format in Prompt settings."}>
                             <textarea
                               name="text"
                               required
@@ -1571,24 +1572,20 @@ function App() {
                               rows={3}
                             />
                           </FormField>
-                          <FormField label="Tags (optional)" hint={editPrompt ? "Separate tags with commas. Clear this field to remove all tags." : "Separate tags with commas. Tags apply to each new prompt and engine variant."}>
-                            <input name="tags" placeholder="brand name, alternatives, seattle location"
-                              maxLength={MAX_PROMPT_TAGS * (MAX_PROMPT_TAG_LENGTH + 2)}
-                              value={promptTagInput} onChange={e => setPromptTagInput(e.target.value)} />
-                          </FormField>
                           <p className="data-note" role="status">
                             {promptInput.prompts.length} {promptInput.prompts.length === 1 ? "prompt" : "prompts"} detected
                             {" × "}{promptEngineChoices.length} {promptEngineChoices.length === 1 ? "engine" : "engines"}
                             {" = "}{promptCombinations} combinations. {promptInput.repeated} repeated input {promptInput.repeated === 1 ? "line" : "lines"}. Up to {MAX_PROMPT_COMBINATIONS} per batch.
                           </p>
                           {!editPrompt && promptInput.prompts.length > 0 && (
-                            <div aria-label="Parsed questions">
+                            <details>
+                              <summary>Preview parsed questions</summary>
                               <ol>{promptInput.prompts.slice(0, 5).map(text => <li key={text}>{text}</li>)}</ol>
                               {promptInput.prompts.length > 5 && <details>
                                 <summary>Show all {promptInput.prompts.length} questions</summary>
                                 <ol>{promptInput.prompts.map(text => <li key={text}>{text}</li>)}</ol>
                               </details>}
-                            </div>
+                            </details>
                           )}
                           {promptInput.error && <p className="form-error">{promptInput.error}</p>}
                           {tooManyPromptCombinations && (
@@ -1601,61 +1598,59 @@ function App() {
                             <fieldset className="form-stack prompt-engines"><legend>Engines <HelpTip label="engines" text="Select one or more engines. Each prompt/engine pair is saved separately and consumes its own run when executed. Saving never runs a collection." /></legend>
                               {Object.entries(engines).map(([value,label]) => <label className="check-field" key={value}><input type="checkbox" name="engines" value={value} checked={promptEngineChoices.includes(value)} onChange={e => setPromptEngineChoices(current => e.target.checked ? [...current,value] : current.filter(x => x !== value))} /> {label}</label>)}
                             </fieldset>
-                            {!editPrompt && <FormField label="Paste format"><select value={promptSeparator} onChange={e => setPromptSeparator(e.target.value)}><option value="lines">One per line — keep commas in prompts</option><option value="commas">Comma-separated — quote prompts containing commas</option></select></FormField>}
-                            <details className="advanced-settings"><summary>Advanced settings · location, language & execution</summary><div className="form-grid">
-                            <FormField
-                              label="Queue / execution"
-                              hint="Priority and live can cost more. Standard is the default."
-                            >
-                              <select
-                                name="mode"
-                                defaultValue={editPrompt?.mode || "standard"}
-                              >
-                                <option value="standard">Standard queue</option>
-                                <option value="priority">Priority queue</option>
-                                <option value="live">Live</option>
-                              </select>
-                            </FormField>
-                            <FormField label="Location" hint="Search DataForSEO's supported locations, then choose a match. With several engines checked, only shared locations are offered. Search a city when using Google or Gemini.">
-                              <input type="search" aria-label="Search supported locations" placeholder="Search country or city…" value={locationQuery} onChange={e => setLocationQuery(e.target.value)} maxLength={100} />
-                              <select aria-label="Selected location" name="location_name" required value={promptLocation} disabled={providerChoicesLoading || !!providerChoices?.error} onChange={e => setPromptLocation(e.target.value)}>
-                                {(providerChoices?.locations || [promptLocation]).filter(Boolean).map((name:string) => <option key={name} value={name}>{name}</option>)}
-                              </select>
-                              <small>{providerChoicesLoading ? "Loading supported choices…" : providerChoices?.error || "Select a listed value. Narrow the search for more locations."}</small>
-                            </FormField>
-                            <FormField label="Language" hint="Languages supported by every selected engine. Provider codes are shown next to the names; arbitrary codes are rejected.">
-                              <select aria-label="Language" name="language_code" required value={promptLanguage} disabled={providerChoicesLoading || !!providerChoices?.error} onChange={e => setPromptLanguage(e.target.value)}>
-                                {(providerChoices?.languages || [{code:"en",name:"English"}]).map((language:Item) => <option key={language.code} value={language.code}>{language.name} ({language.code})</option>)}
-                              </select>
-                            </FormField>
-                            <FormField label="Associated brand (optional)">
-                              <select
-                                key={savingWorkspace}
-                                name="brand_id"
-                                defaultValue={editPrompt?.brand_id || ""}
-                              >
-                                <option value="">
-                                  No associated brand
-                                </option>
-                                {promptBrands.map((b) => (
-                                  <option value={b.id} key={b.id}>
-                                    {b.name}
-                                  </option>
-                                ))}
-                              </select>
-                            </FormField>
-                            </div></details>
-                            <label className="check-field">
-                              <input
-                                type="checkbox"
-                                name="enabled"
-                                defaultChecked={
-                                  editPrompt ? !!editPrompt.enabled : true
-                                }
-                              />{" "}
-                              Allow manual & scheduled runs <HelpTip label="allow runs" text="When checked, this prompt can be run manually or by an enabled schedule. Unchecking pauses future runs without deleting the prompt or its history. This does not start a run or create a schedule." />
-                            </label>
                           </div>
+                          <details className="advanced-settings">
+                            <summary>Prompt settings{promptSeparator === "commas" && !editPrompt ? " · Comma-separated" : ""}</summary>
+                            <div className="form-grid">
+                              {!editPrompt && <FormField label="Paste format"><select value={promptSeparator} onChange={e => setPromptSeparator(e.target.value)}><option value="lines">One per line — keep commas in prompts</option><option value="commas">Comma-separated — quote prompts containing commas</option></select></FormField>}
+                              <FormField label="Tags (optional)" hint={editPrompt ? "Separate tags with commas. Clear this field to remove all tags." : "Separate tags with commas. Tags apply to each new prompt and engine variant."}>
+                                <input name="tags" placeholder="brand name, alternatives, seattle location"
+                                  maxLength={MAX_PROMPT_TAGS * (MAX_PROMPT_TAG_LENGTH + 2)}
+                                  value={promptTagInput} onChange={e => setPromptTagInput(e.target.value)} />
+                              </FormField>
+                              <FormField
+                                label="Queue / execution"
+                                hint="Priority and live can cost more. Standard is the default."
+                              >
+                                <select
+                                  name="mode"
+                                  defaultValue={editPrompt?.mode || "standard"}
+                                >
+                                  <option value="standard">Standard queue</option>
+                                  <option value="priority">Priority queue</option>
+                                  <option value="live">Live</option>
+                                </select>
+                              </FormField>
+                              <FormField label="Location" hint="Search DataForSEO's supported locations, then choose a match. With several engines checked, only shared locations are offered. Search a city when using Google or Gemini.">
+                                <input type="search" aria-label="Search supported locations" placeholder="Search country or city…" value={locationQuery} onChange={e => setLocationQuery(e.target.value)} maxLength={100} />
+                                <select aria-label="Selected location" name="location_name" required value={promptLocation} disabled={providerChoicesLoading || !!providerChoices?.error} onChange={e => setPromptLocation(e.target.value)}>
+                                  {(providerChoices?.locations || [promptLocation]).filter(Boolean).map((name:string) => <option key={name} value={name}>{name}</option>)}
+                                </select>
+                                <small>{providerChoicesLoading ? "Loading supported choices…" : providerChoices?.error || "Select a listed value. Narrow the search for more locations."}</small>
+                              </FormField>
+                              <FormField label="Language" hint="Languages supported by every selected engine. Provider codes are shown next to the names; arbitrary codes are rejected.">
+                                <select aria-label="Language" name="language_code" required value={promptLanguage} disabled={providerChoicesLoading || !!providerChoices?.error} onChange={e => setPromptLanguage(e.target.value)}>
+                                  {(providerChoices?.languages || [{code:"en",name:"English"}]).map((language:Item) => <option key={language.code} value={language.code}>{language.name} ({language.code})</option>)}
+                                </select>
+                              </FormField>
+                              <FormField label="Associated brand (optional)">
+                                <select
+                                  key={savingWorkspace}
+                                  name="brand_id"
+                                  defaultValue={editPrompt?.brand_id || ""}
+                                >
+                                  <option value="">
+                                    No associated brand
+                                  </option>
+                                  {promptBrands.map((b) => (
+                                    <option value={b.id} key={b.id}>
+                                      {b.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              </FormField>
+                            </div>
+                          </details>
                           {draftReview && !editPrompt && <section className="form-stack">
                             <h3>Review combinations</h3>
                             <p>{previewNew} new · {draftReview.data.prompts.length - previewNew} already saved</p>
@@ -1663,7 +1658,7 @@ function App() {
                               <summary>Engine-by-engine matches</summary>
                               <ul>{draftReview.data.prompts.map((row: Item) => (
                                 <li key={JSON.stringify([row.text, row.engine])}>{row.text} · {engines[row.engine]} · {row.outcome === "new"
-                                  ? "New" : `Already saved · ${row.monitoring === "none" ? "No schedule" : row.monitoring === "paused" ? "Paused schedule" : "Active schedule"}${row.enabled ? "" : " · Prompt paused"}`}</li>
+                                  ? "New" : `Already saved · ${row.monitoring === "none" ? "No schedule" : row.monitoring === "paused" ? "Paused schedule" : "Active schedule"}`}</li>
                               ))}</ul>
                             </details>
                             <CollectionDetails org={org} workspaceId={savingWorkspace} workspace={draftReview.data.workspace.name}
@@ -1683,7 +1678,7 @@ function App() {
                             <details><summary>Other collection options</summary>
                               <div className="form-actions">
                                 <Button value="run" variant="outline" disabled={busy || !previewNew || !!draftRunError}>Run once</Button>
-                                <Button value="monitor" variant="outline" disabled={busy || !previewNew || !draftProjection.valid || !settings.dataforseo_configured || !JSON.parse(draftReview.payload).enabled}>Start monitoring only</Button>
+                                <Button value="monitor" variant="outline" disabled={busy || !previewNew || !draftProjection.valid || !settings.dataforseo_configured}>Start monitoring only</Button>
                               </div>
                             </details>
                           </section>}
@@ -1778,51 +1773,57 @@ function App() {
                       <div className="panel-title">
                         <h2>Saved prompts</h2>
                       </div>
-                      <div className="form-grid prompt-filters">
                         <FormField label="Search saved prompts">
                           <input type="search" value={promptSearch} maxLength={200} placeholder="Search prompt text"
                             onChange={e => { setPromptSearch(e.target.value); setPromptSelection(new Map()); }} />
                         </FormField>
-                        <FormField label="Filter by engine">
-                          <select value={promptEngineFilter} onChange={e => { setPromptEngineFilter(e.target.value); setPromptSelection(new Map()); }}>
-                            <option value="">All engines</option>
-                            {Object.entries(engines).map(([id, name]) => <option key={id} value={id}>{name}</option>)}
-                          </select>
-                        </FormField>
-                        <FormField label="Filter by schedule">
-                          <select value={promptScheduleFilter} onChange={e => { setPromptScheduleFilter(e.target.value); setPromptSelection(new Map()); }}>
-                            <option value="">All prompts</option>
-                            <option value="active">Actively scheduled</option>
-                            <option value="inactive">No active schedule</option>
-                          </select>
-                        </FormField>
-                        <FormField label="Filter by brand or client" hint="Uses the prompt’s brand or its workspace’s primary brand. Switch client workspaces above.">
-                          <select value={promptBrandFilter} onChange={e => { setPromptBrandFilter(e.target.value); setPromptSelection(new Map()); }}>
-                            <option value="">All brands</option>
+                      <details className="advanced-settings">
+                        <summary>Filters{promptFilterCount > 0 && ` (${promptFilterCount} active)`}</summary>
+                        <div className="form-grid prompt-filters">
+                          <FormField label="Filter by engine">
+                            <select value={promptEngineFilter} onChange={e => { setPromptEngineFilter(e.target.value); setPromptSelection(new Map()); }}>
+                              <option value="">All engines</option>
+                              {Object.entries(engines).map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+                            </select>
+                          </FormField>
+                          <FormField label="Filter by schedule">
+                            <select value={promptScheduleFilter} onChange={e => { setPromptScheduleFilter(e.target.value); setPromptSelection(new Map()); }}>
+                              <option value="">All prompts</option>
+                              <option value="active">Actively scheduled</option>
+                              <option value="inactive">No active schedule</option>
+                            </select>
+                          </FormField>
+                          <FormField label="Filter by brand or client" hint="Uses the prompt’s brand or its workspace’s primary brand. Switch client workspaces above.">
+                            <select value={promptBrandFilter} onChange={e => { setPromptBrandFilter(e.target.value); setPromptSelection(new Map()); }}>
+                              <option value="">All brands</option>
+                              {scopeBrands.map(brand => <option key={brand.id} value={brand.id}>{brand.name}</option>)}
+                            </select>
+                          </FormField>
+                          <FormField label="Filter by tag">
+                            <select value={search.tag || ""} onChange={e => filterByTag(e.target.value)}>
+                              <option value="">All tags</option>
+                              {tagOptions.map(tag => <option key={tag} value={tag}>{tag}</option>)}
+                            </select>
+                          </FormField>
+                        </div>
+                      </details>
+                      {!!scopeBrands.length && <details className="advanced-settings">
+                        <summary>Mention metrics{search.brand ? ` · ${scopeBrands.find(brand => brand.id === search.brand)?.name ?? "Brand selected"}` : ""}</summary>
+                        <form className="form-grid prompt-filters" onSubmit={event => {
+                          event.preventDefault();
+                          const values = new FormData(event.currentTarget);
+                          void navigate({ search: { ...sectionSearch("prompts"), brand: String(values.get("tracked_brand") || "") || undefined,
+                            from: String(values.get("from") || "") || undefined, to: String(values.get("to") || "") || undefined } });
+                        }}>
+                          <FormField label="Mention metrics brand"><select name="tracked_brand" defaultValue={search.brand ?? ""}>
+                            <option value="">Choose a brand</option>
                             {scopeBrands.map(brand => <option key={brand.id} value={brand.id}>{brand.name}</option>)}
-                          </select>
-                        </FormField>
-                        <FormField label="Filter by tag">
-                          <select value={search.tag || ""} onChange={e => filterByTag(e.target.value)}>
-                            <option value="">All tags</option>
-                            {tagOptions.map(tag => <option key={tag} value={tag}>{tag}</option>)}
-                          </select>
-                        </FormField>
-                      </div>
-                      {!!scopeBrands.length && <form className="form-grid prompt-filters" onSubmit={event => {
-                        event.preventDefault();
-                        const values = new FormData(event.currentTarget);
-                        void navigate({ search: { ...sectionSearch("prompts"), brand: String(values.get("tracked_brand") || "") || undefined,
-                          from: String(values.get("from") || "") || undefined, to: String(values.get("to") || "") || undefined } });
-                      }}>
-                        <FormField label="Mention metrics brand"><select name="tracked_brand" defaultValue={search.brand ?? ""}>
-                          <option value="">Choose a brand</option>
-                          {scopeBrands.map(brand => <option key={brand.id} value={brand.id}>{brand.name}</option>)}
-                        </select></FormField>
-                        <FormField label="From (UTC)"><input name="from" type="date" defaultValue={search.from ?? defaultPeriod().from} /></FormField>
-                        <FormField label="To (UTC)"><input name="to" type="date" defaultValue={search.to ?? defaultPeriod().to} /></FormField>
-                        <Button variant="outline">Show mention fractions</Button>
-                      </form>}
+                          </select></FormField>
+                          <FormField label="From (UTC)"><input name="from" type="date" defaultValue={search.from ?? defaultPeriod().from} /></FormField>
+                          <FormField label="To (UTC)"><input name="to" type="date" defaultValue={search.to ?? defaultPeriod().to} /></FormField>
+                          <Button variant="outline">Show mention fractions</Button>
+                        </form>
+                      </details>}
                       {promptPages.current && (
                         <p className="data-note" role="status">
                           {promptPages.current.total.toLocaleString()} {filteredPrompts ? "matching prompts" : "saved prompts"}
@@ -1834,10 +1835,6 @@ function App() {
                         <Button disabled={bulkBusy || !!pendingRun || !savedSelection.length || mixedWorkspaceSelection} onClick={() => queuePromptBatch(savedSelection, runSamples)}>Run selected — {selectedRunCount} runs</Button>
                         <Button variant="outline" disabled={bulkBusy || !savedSelection.length || mixedWorkspaceSelection}
                           onClick={() => reviewCollection(savedSelection, 1, "schedule")}>Schedule selected</Button>
-                        <Button variant="outline" disabled={bulkBusy || !savedSelection.length} onClick={() => action(() =>
-                          updateSelectedPrompts("/prompts/bulk-settings", { enabled: true }, "Selected prompts enabled."))}>Enable selected</Button>
-                        <Button variant="outline" disabled={bulkBusy || !savedSelection.length} onClick={() => action(() =>
-                          updateSelectedPrompts("/prompts/bulk-settings", { enabled: false }, "Selected prompts paused. History retained."))}>Pause selected</Button>
                         <Button variant="outline" disabled={bulkBusy || !savedSelection.length}
                           onClick={() => removePrompts(savedSelection)}>Delete selected prompts</Button>
                         {savedSelection.length > 0 && workspaces.length > 1 && (
@@ -1864,22 +1861,25 @@ function App() {
                         <details><summary>Advanced · sampling & bulk settings</summary><form className="app-inline-form" onSubmit={e=>submit(e,async f=>{await updateSelectedPrompts("/prompts/bulk-settings", { mode: f.get("bulk_mode") }, "Execution mode updated for selected prompts.");})}><FormField label="Execution mode for selected prompts" hint="Priority and live may cost more on future runs. This only changes saved settings."><select name="bulk_mode"><option value="standard">Standard queue</option><option value="priority">Priority queue</option><option value="live">Live</option></select></FormField><Button disabled={bulkBusy || !savedSelection.length}>Apply mode to selected</Button></form><FormField label="Samples per prompt" hint="Independent samples are queued for collection. Each sample is a separate provider charge and run."><input type="number" min={1} max={10} value={runSamples} onChange={e=>setRunSamples(Math.max(1,Math.min(10,Number(e.target.value)||1)))} /></FormField></details>
                       </div>}
                       {canWrite && savedSelection.length > 0 && (
-                        <form className="app-inline-form" onSubmit={e => {
-                          const operation = (e.nativeEvent as SubmitEvent).submitter?.getAttribute("value");
-                          submit(e, async f => {
-                            const tags = splitPromptTags(f.get("selected_tags"));
-                            if (!tags.length) throw new Error("Enter at least one tag.");
-                            await updateSelectedPrompts("/prompts/bulk-tags", { action: operation, tags },
-                              operation === "add" ? "Tags added to selected prompts." : "Tags removed from selected prompts.");
-                          });
-                        }}>
-                          <FormField label="Tags for selected prompts">
-                            <input name="selected_tags" required placeholder="Enter comma-separated tags"
-                              maxLength={MAX_PROMPT_TAGS * (MAX_PROMPT_TAG_LENGTH + 2)} />
-                          </FormField>
-                          <Button value="add" variant="outline" disabled={bulkBusy}>Add tags</Button>
-                          <Button value="remove" variant="outline" disabled={bulkBusy}>Remove tags</Button>
-                        </form>
+                        <details className="advanced-settings">
+                          <summary>Tag selected prompts</summary>
+                          <form className="app-inline-form" onSubmit={e => {
+                            const operation = (e.nativeEvent as SubmitEvent).submitter?.getAttribute("value");
+                            submit(e, async f => {
+                              const tags = splitPromptTags(f.get("selected_tags"));
+                              if (!tags.length) throw new Error("Enter at least one tag.");
+                              await updateSelectedPrompts("/prompts/bulk-tags", { action: operation, tags },
+                                operation === "add" ? "Tags added to selected prompts." : "Tags removed from selected prompts.");
+                            });
+                          }}>
+                            <FormField label="Tags for selected prompts">
+                              <input name="selected_tags" required placeholder="Enter comma-separated tags"
+                                maxLength={MAX_PROMPT_TAGS * (MAX_PROMPT_TAG_LENGTH + 2)} />
+                            </FormField>
+                            <Button value="add" variant="outline" disabled={bulkBusy}>Add tags</Button>
+                            <Button value="remove" variant="outline" disabled={bulkBusy}>Remove tags</Button>
+                          </form>
+                        </details>
                       )}
                       <PromptSets key={workspaceKey} org={org} workspace={workspace} workspaceNames={workspaceNames}
                         sets={promptSets} activeSet={search.set} selection={promptSelection} canWrite={canWrite}
@@ -1890,19 +1890,34 @@ function App() {
                         savedPrompts.length ? (
                         <div className="prompt-table">
                           {[...promptGroups.entries()].map(([key, variants]) => <section key={key}>
-                            <h3>{variants[0].text}</h3>
                             {variants.map((p) => (
-                            <div className="saved-prompt" key={p.id}>
+                            <div className="saved-prompt" data-selectable={canWrite} key={p.id}>
                               {canWrite && <input type="checkbox" aria-label={`Select ${p.text} — ${engines[p.engine]}`} checked={promptSelection.has(p.id)} disabled={bulkBusy || promptPages.loading} onChange={e => setPromptSelection(current => changeSelection(current, [p], e.target.checked))} />}
                               <div>
-                                <Link to="/app" search={{ ...sectionSearch("prompts"), prompt: p.id }}>
-                                  <strong>{engines[p.engine]}</strong>
-                                </Link>
+                                <div className="prompt-row-title">
+                                  <Link to="/app" search={{ ...sectionSearch("prompts"), prompt: p.id }}>
+                                    <strong>{p.text}</strong>
+                                  </Link>
+                                  <HelpTooltip.Provider delayDuration={150}>
+                                    <HelpTooltip.Root>
+                                      <HelpTooltip.Trigger asChild>
+                                        <span className="prompt-engine-icon" tabIndex={0} aria-label={engines[p.engine]} role="img">
+                                          <img src={`/engine-icons/${p.engine}.svg`} alt="" width={18} height={18} />
+                                        </span>
+                                      </HelpTooltip.Trigger>
+                                      <HelpTooltip.Portal>
+                                        <HelpTooltip.Content className="help-tip-content" sideOffset={6}>
+                                          {engines[p.engine]}<HelpTooltip.Arrow />
+                                        </HelpTooltip.Content>
+                                      </HelpTooltip.Portal>
+                                    </HelpTooltip.Root>
+                                  </HelpTooltip.Provider>
+                                </div>
                                 <small>
                                   {allWorkspaces && workspaceNames[p.workspace_id] && `${workspaceNames[p.workspace_id]} · `}
                                    {p.location_name} ·{" "}
                                   {p.language_code} · {p.mode}{" "}
-                                  {!p.enabled ? "· Paused" : p.actively_scheduled ? "· Scheduled" : ""}
+                                  {p.actively_scheduled ? "· Scheduled" : ""}
                                 </small>
                                 {!!p.tags?.length && <div className="flex flex-wrap gap-1">
                                   {(p.tags as string[]).map(tag => <Badge key={tag} variant="secondary">{tag}</Badge>)}
@@ -1915,7 +1930,6 @@ function App() {
                                 {p.latest_answer_id && p.latest_answer_id !== p.latest_collection?.id && <Link className="small-link" to="/app"
                                   search={{ org, workspace: p.workspace_id, tab: "runs", run: p.latest_answer_id }}>View latest answer</Link>}
                                 {p.brand_period && <p className="data-note">Mentioned in {p.brand_period.mentions} of {p.brand_period.samples} eligible answers</p>}
-                                <CopyValue label="Copy ID" value={p.id} />
                               </div>
                               <div>
                                 {canWrite && (

@@ -3282,3 +3282,40 @@ input[type="checkbox"] {
   border: 1px solid var(--border);
   border-radius: var(--radius);
 }
+
+
+.saved-prompt {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+}
+.saved-prompt[data-selectable="true"] {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+.prompt-row-title {
+  display: flex;
+  align-items: start;
+  gap: 8px;
+}
+.prompt-row-title strong {
+  font-size: 14px;
+  font-weight: 600;
+}
+.prompt-engine-icon {
+  flex: none;
+}
+.dark .prompt-engine-icon img[src$="/chatgpt.svg"] {
+  filter: invert(1);
+}
+@media (max-width: 640px) {
+  .saved-prompt {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .saved-prompt[data-selectable="true"] {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .saved-prompt > div:last-child {
+    grid-column: -2 / -1;
+    flex-wrap: wrap;
+  }
+}

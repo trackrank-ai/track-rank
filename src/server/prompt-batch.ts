@@ -15,7 +15,7 @@ export const promptBatchSchema=z.object({
  operation_id:z.uuid().optional(),
  source_id:z.string().min(1).max(100).optional(),
  tags:promptTags.optional(),
- mode:z.enum(['standard','priority','live']).default('standard'),location_name:z.string().trim().min(2).max(200).default('United States'),language_code:z.string().min(2).max(20).default('en'),enabled:z.boolean().default(true),
+ mode:z.enum(['standard','priority','live']).default('standard'),location_name:z.string().trim().min(2).max(200).default('United States'),language_code:z.string().min(2).max(20).default('en'),
 }).strict();
 const sameCombination = `p.org_id=? AND p.workspace_id=? AND coalesce(p.brand_id,'')=?
   AND p.text=json_extract(c.value,'$.text') AND p.engine=json_extract(c.value,'$.engine')
@@ -25,7 +25,6 @@ type Combination = {
  id: string | null;
  text: string;
  engine: string;
- enabled: number | null;
  monitoring: "active" | "paused" | "none";
  outcome: "new" | "created" | "reused" | "updated";
 };
@@ -53,7 +52,7 @@ async function reviewPromptBatch(env: Env, org: string, input: unknown, save: bo
  const selection = JSON.stringify(entries);
  const scope = [org, b.workspace_id, b.brand_id ?? "", b.mode, b.location_name, b.language_code];
  const reviewSql = `SELECT p.id, json_extract(c.value,'$.text') AS text,
-   json_extract(c.value,'$.engine') AS engine, p.enabled,
+   json_extract(c.value,'$.engine') AS engine,
    CASE WHEN EXISTS(SELECT 1 FROM schedules s WHERE s.org_id=p.org_id AND s.prompt_id=p.id AND s.enabled=1)
      THEN 'active' WHEN EXISTS(SELECT 1 FROM schedules s WHERE s.org_id=p.org_id AND s.prompt_id=p.id)
      THEN 'paused' ELSE 'none' END AS monitoring,
@@ -79,23 +78,23 @@ async function reviewPromptBatch(env: Env, org: string, input: unknown, save: bo
  const guardArgs = b.operation_id ? [org, b.operation_id] : [];
  if (b.source_id) {
   statements.push(env.DB.prepare(`UPDATE prompts SET workspace_id=?,brand_id=?,text=?,engine=?,
-    mode=?,location_name=?,language_code=?,enabled=?,updated_at=?,tags=coalesce(?,tags)
+    mode=?,location_name=?,language_code=?,updated_at=?,tags=coalesce(?,tags)
     WHERE id=? AND org_id=? AND archived_at IS NULL${receiptGuard}`)
    .bind(b.workspace_id, b.brand_id ?? null, texts[0], engines[0], b.mode, b.location_name,
-    b.language_code, Number(b.enabled), time, tags, b.source_id, org, ...guardArgs));
+    b.language_code, time, tags, b.source_id, org, ...guardArgs));
  }
  statements.push(env.DB.prepare(`INSERT INTO prompts(id,org_id,workspace_id,brand_id,text,engine,mode,
-   location_name,language_code,enabled,created_at,updated_at,tags)
+   location_name,language_code,created_at,updated_at,tags)
    SELECT json_extract(c.value,'$.id'),?,?,?,json_extract(c.value,'$.text'),
-     json_extract(c.value,'$.engine'),?,?,?,?,?,?,?
+     json_extract(c.value,'$.engine'),?,?,?,?,?,?
    FROM json_each(?) c
    WHERE json_extract(c.value,'$.edit')=0 AND NOT EXISTS(SELECT 1 FROM prompts p WHERE ${sameCombination})${receiptGuard}`)
   .bind(org, b.workspace_id, b.brand_id ?? null, b.mode, b.location_name, b.language_code,
-   Number(b.enabled), time, time, tags ?? "[]", selection, ...scope, ...guardArgs));
+   time, time, tags ?? "[]", selection, ...scope, ...guardArgs));
  if (payloadHash) {
   statements.push(env.DB.prepare(`INSERT OR IGNORE INTO prompt_receipts(org_id,id,payload_hash,receipt,created_at)
     SELECT ?,?,?,json_object('id',?,'workspace',json(?),'questions',?,'saved_combinations',count(id),
-      'prompts',json_group_array(json_object('id',id,'text',text,'engine',engine,'enabled',enabled,'monitoring',monitoring,'outcome',outcome))),?
+      'prompts',json_group_array(json_object('id',id,'text',text,'engine',engine,'monitoring',monitoring,'outcome',outcome))),?
     FROM (${reviewSql})`).bind(org, b.operation_id, payloadHash, b.operation_id, JSON.stringify(workspace), texts.length, time, ...reviewArgs));
   await env.DB.batch(statements);
   const stored = await storedReceipt(env, org, b.operation_id!);

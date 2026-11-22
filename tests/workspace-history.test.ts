@@ -312,9 +312,9 @@ test("bulk selection pages keep the same tenant and filters across REST and MCP"
   assert.ok(schedules.every(row => row.id !== "s-foreign-prompt" && row.id !== "s-outside-workspace"));
   assert.equal(rest.next_cursor, null);
 
-  await assert.rejects(call("/prompts/bulk-settings", { ids: [expected[0]], enabled: false }, "viewer", "PATCH"), { status: 403 });
-  assert.equal((await tool("update_prompt_settings", { ids: [expected[0], "foreign-prompt"], enabled: false }, true)).status, 404);
-  assert.deepEqual(await tool("update_prompt_settings", { ids: expected.slice(0, 100), enabled: false }), { updated: 100 });
+  await assert.rejects(call("/prompts/bulk-settings", { ids: [expected[0]], mode: "priority" }, "viewer", "PATCH"), { status: 403 });
+  assert.equal((await tool("update_prompt_settings", { ids: [expected[0], "foreign-prompt"], mode: "priority" }, true)).status, 404);
+  assert.deepEqual(await tool("update_prompt_settings", { ids: expected.slice(0, 100), mode: "priority" }), { updated: 100 });
   assert.deepEqual(await tool("move_prompts", { ids: [expected[0]], workspace_id: "target" }), { moved: 1 });
   assert.deepEqual(await tool("delete_prompts", { ids: [expected[1]] }), { deleted: 1 });
   assert.equal((await (await call(query + "&limit=20")).json() as { total: number }).total, 999);

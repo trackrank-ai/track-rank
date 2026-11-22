@@ -7,7 +7,7 @@ export type Readiness = {
   workspace: { id: string; name: string };
   brands: { id: string; name: string }[];
   combinations: {id: string; engine: string; location_name: string; language_code: string; brand_id: string | null;
-    enabled: number; eligibility_error: string | null; paused_schedules: {id: string; weekly_checks: number}[]; monitoring: "none" | "active" | "paused"}[];
+    eligibility_error: string | null; paused_schedules: {id: string; weekly_checks: number}[]; monitoring: "none" | "active" | "paused"}[];
   available: number;
   requested: number;
   can_run: boolean;
@@ -36,16 +36,14 @@ export function CollectionReview({ data, type, org, engines, timing, changeTimin
   data: Readiness; type: "run" | "schedule"; org: string; engines: Record<string, string>; timing: MonitoringTiming;
   changeTiming: (value: MonitoringTiming) => void; busy: boolean; confirm: (enabled: boolean, ids: string[]) => void; resume: (ids: string[]) => void; refresh: () => void; close: () => void;
 }) {
-  const unscheduled = data.combinations.filter(row => row.monitoring === "none" && row.enabled && !row.eligibility_error);
-  const paused = data.combinations.filter(row => row.monitoring === "paused" && row.enabled && !row.eligibility_error);
-  const active = data.combinations.filter(row => row.monitoring === "active" && row.enabled && !row.eligibility_error);
-  const ineligible = data.combinations.filter(row => !row.enabled || row.eligibility_error);
+  const unscheduled = data.combinations.filter(row => row.monitoring === "none" && !row.eligibility_error);
+  const paused = data.combinations.filter(row => row.monitoring === "paused" && !row.eligibility_error);
+  const active = data.combinations.filter(row => row.monitoring === "active" && !row.eligibility_error);
+  const ineligible = data.combinations.filter(row => row.eligibility_error);
   const pausedSchedules = paused.flatMap(row => row.paused_schedules);
   const eligibilityErrors = [...new Set(data.combinations.map(row => row.eligibility_error).filter(Boolean))];
-  const pausedCount = data.combinations.filter(row => !row.enabled).length;
   const runError = !data.can_run ? "Your access is read-only for collection."
     : !data.provider_connected ? "DataForSEO is required to run these prompts."
-    : pausedCount ? `${pausedCount} selected prompts are paused. Enable them before running this selection.`
     : eligibilityErrors.length ? eligibilityErrors.join(". ")
     : data.requested > data.available ? `This selection needs ${data.requested} checks and ${data.available} are available.` : "";
   const projection = monitoringProjection(timing, unscheduled.length);

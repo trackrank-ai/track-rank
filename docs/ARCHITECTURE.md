@@ -26,7 +26,7 @@ flowchart TD
 - Prompt sets belong to a workspace. Composite organization/workspace keys enforce membership, and D1 triggers clear memberships on moves and archives. Analytics shares its history boundary with run lists, research and export. Overview aggregates the full period in SQL and uses the recorded run workspace and brand snapshots.
 - Composite organization/resource foreign keys prevent cross-tenant workspace/brand references. API membership checks are enforced independently.
 - Prompt operation receipts snapshot the exact result of matching and saving one submitted set of text/engine combinations. Collection actions reference those IDs and record run admission and scheduling separately. Manual run batch keys identify the admitted samples independently of prompt library filters and prompt set membership.
-- Schedules attach to individual prompts. Each scheduled local time has its own date-and-time slot for duplicate dispatcher invocations and DST fall-back. Daily, weekly, M/W/F, custom weekdays; editable IANA timezone/time; same-day catch-up only.
+- Schedules attach to individual prompts. The schedule’s enabled state controls recurring execution. Unarchived prompts are also available for manual collection. Each scheduled local time has its own date-and-time slot for duplicate dispatcher invocations and DST fall-back. Daily, weekly, M/W/F, custom weekdays; editable IANA timezone/time; same-day catch-up only.
 - D1 migrations are explicit versioned SQL. Drizzle is presently used for authentication, not a claimed automatic PostgreSQL migration layer.
 
 ## Execution and reliability

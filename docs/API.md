@@ -26,7 +26,7 @@ Scopes: `read` for GET, `write` for research mutations, `run` for paid execution
 | POST | `/prompts/move` | Move up to 100 prompt IDs to another workspace in the same organization with `{ids, workspace_id}` |
 | GET | `/prompts/:id` | Read a saved prompt in the selected organization |
 | PATCH | `/prompts/:id` | Full prompt configuration, same as creation. Sending `tags` replaces the list. Omit it to preserve tags. |
-| PATCH | `/prompts/bulk-settings` | Set enabled state or execution mode on up to 100 selected prompts with `{ids, enabled?, mode?}` |
+| PATCH | `/prompts/bulk-settings` | Set execution mode on up to 100 selected prompts with `{ids, mode}` |
 | PATCH | `/prompts/bulk-tags` | Add or remove tags on up to 100 prompts with `{ids, action: "add" or "remove", tags}` |
 | DELETE | `/prompts/:id` or `/prompts/bulk` | Delete one prompt or a batch with `{ids}`, along with its schedules |
 | POST | `/prompts/:id/run` | Paid collection; `Idempotency-Key` recommended, 8–128 chars |
@@ -60,7 +60,7 @@ Scopes: `read` for GET, `write` for research mutations, `run` for paid execution
 
 Errors return JSON `{error}` and an HTTP status. JSON requests have a 32 KiB body limit. Bulk prompt saves have a larger route-specific limit to accommodate 500 prompts.
 
-The prompt library spans the organization when `workspace` is omitted. It supports `q` for prompt text, `engine`, `schedule=active` or `schedule=inactive`, `brand`, and `tag` (exact tag match, case insensitive). The response includes `tags`, the distinct tags on saved prompts within the workspace or organization before other filters are applied. A prompt is actively scheduled when the prompt and at least one of its schedules are enabled. Brand matching uses the prompt's associated brand or falls back to the workspace's primary brand. Pass the returned `next_cursor` as `before` and `before_id` to load the next page.
+The prompt library spans the organization when `workspace` is omitted. It supports `q` for prompt text, `engine`, `schedule=active` or `schedule=inactive`, `brand`, and `tag` (exact tag match, case insensitive). The response includes `tags`, the distinct tags on saved prompts within the workspace or organization before other filters are applied. A prompt is actively scheduled when at least one of its schedules is enabled. Brand matching uses the prompt's associated brand or falls back to the workspace's primary brand. Pass the returned `next_cursor` as `before` and `before_id` to load the next page.
 
 The first non-selection page of the prompt library and schedule list returns `total` for the current filters. Set `limit` to 1–100 for prompts or 1–500 for schedules to choose the page size. To gather every matching selection, keep the same filters and use `selection=1` for compact pages of up to 1,000 matches. Prompt selection rows contain `id` and `workspace_id`. Schedule selection rows include IDs and settings used to prefill shared edits. Forward both fields of `next_cursor` until it is null. Selection reads do not apply changes. Split large prompt settings, tags, move, and delete actions into requests of up to 100 IDs each.
 
@@ -89,7 +89,7 @@ Run requests replay the original admission without consuming more quota. Single-
 ### Prompt
 
 ```json
-{"workspace_id":"uuid","brand_id":null,"text":"Best cleaning services in Seattle?","engine":"chatgpt","mode":"standard","location_name":"United States","language_code":"en","enabled":true}
+{"workspace_id":"uuid","brand_id":null,"text":"Best cleaning services in Seattle?","engine":"chatgpt","mode":"standard","location_name":"United States","language_code":"en"}
 ```
 
 For single and bulk prompt saves, send an optional `tags` array, for example `["brand name", "seattle location"]`. Prompts can have up to 20 tags of up to 50 characters each. Tags are trimmed, lowercased, deduplicated, and may contain spaces. Commas separate tags in the UI. Existing matches reused during a batch save keep their tags. To clear all tags on an edit, send `tags: []`.
@@ -193,13 +193,13 @@ MCP mirrors these endpoints with `list_prompt_sets`, `create_prompt_set`, `renam
 |---|---|---|---|
 | POST | `/prompts/bulk-preview` | `preview_prompts` | Uses the bulk-save schema and reports exact per-engine matches and monitoring state. Requires write scope. |
 | POST | `/prompts/bulk-submit` | `submit_prompt_batch` | Saves reviewed prompts and optionally starts checks or schedules for the confirmed new combinations. |
-| POST | `/prompts/bulk` | `save_prompts` | Returns every submitted combination in order with `id`, `outcome`, prompt `enabled` and `monitoring`. Pass a UUID `operation_id` for a durable receipt and stable replay. |
+| POST | `/prompts/bulk` | `save_prompts` | Returns every submitted combination in order with `id`, `outcome` and `monitoring`. Pass a UUID `operation_id` for a durable receipt and stable replay. |
 | GET | `/prompts/receipts/:id` | `get_prompt_receipt` | Reads the stored save result and any recorded run and schedule action. |
 | POST | `/prompts/receipts/:id` | `start_prompt_receipt` | Accepts exact new `prompt_ids` from the receipt and `run_samples`, a `schedule`, or both. Retry the same payload to resume unfinished work. |
 | POST | `/collection/readiness` | `review_collection` | Accepts `prompt_ids` and optional `repetitions`. Returns workspace, tracked brands, execution settings, monitoring, permissions, provider connection and remaining monthly checks. Requires read scope. |
 | GET | `/runs/batches/:batch_key` | `get_run_batch` | Returns stored run IDs, requested count and the current run outcomes. Direct run and raw endpoints provide authorized evidence. |
 
-Preview combinations report `new` or `reused`; save reports `created`, `reused` or `updated`. Existing matches keep their settings and tags. A schedule can be enabled on a paused prompt; the prompt must also be enabled to collect. Readiness and receipt operations validate organization scope independently.
+Preview combinations report `new` or `reused`; save reports `created`, `reused` or `updated`. Existing matches keep their settings and tags. Every saved, unarchived prompt is available for manual runs and scheduling. Pausing a schedule only stops its recurring runs. Readiness and receipt operations validate organization scope independently.
 
 For a combined submission send `prompts` with the save fields and UUID `operation_id`, plus optional `action` with `approved` entries (`question` is a zero-based index into the deduplicated texts and `engine` is the confirmed variant), and `run_samples` and/or `schedule`. The server acts only on newly created IDs that were approved. Retry the entire original payload if the response is interrupted. A receipt action requires write scope and adds run scope for immediate checks. If both actions are requested, TrackRank completes manual admission before starting monitoring. Each step has its own recorded outcome. Quota or readiness failure leaves saved prompts and returns `error` with the recorded outcomes. A run-only action creates no schedules and a paused schedule action admits no runs. A new enabled schedule starts at the next future slot. Confirm provider spend before submitting immediate checks or enabling monitoring.
 

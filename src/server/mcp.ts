@@ -7,7 +7,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { z } from "zod";
 import { api } from "./api";
-import { bulkPromptIdsSchema, movePromptsSchema, bulkToggleSchema, bulkRunSchema, bulkReadinessSchema, bulkScheduleSchema, bulkScheduleUpdateSchema } from "./bulk";
+import { bulkPromptIdsSchema, movePromptsSchema, bulkPromptSettingsSchema, bulkRunSchema, bulkReadinessSchema, bulkScheduleSchema, bulkScheduleUpdateSchema } from "./bulk";
 import { listPageLimit } from "./prompt-library";
 import { createPromptSetSchema, setId, setNameSchema, updateSetMembersSchema } from "./prompt-sets";
 import { scopeFilters, runHistoryFilters } from "./run-history";
@@ -228,8 +228,8 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
     },
   );
   server.registerTool("update_prompt_settings", {
-    description: "Enable, pause, or change the execution mode of up to 100 selected prompts.",
-    inputSchema: bulkToggleSchema,
+    description: "Change the execution mode of up to 100 selected prompts.",
+    inputSchema: bulkPromptSettingsSchema,
   }, async (args) => invoke("/prompts/bulk-settings", "PATCH", args));
   server.registerTool("move_prompts", {
     description: "Move up to 100 selected prompts to another workspace in the same organization.",
