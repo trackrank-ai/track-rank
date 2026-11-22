@@ -15,7 +15,7 @@ Independent AI visibility tracking for [trackrank.ai](https://trackrank.ai). Ope
 - Optional explicit OpenRouter opportunity analysis with organization-supplied key and model. Separate inference costs apply.
 - Filterable run history and CSV export. Shareable research views show the answers, cited pages, and brand mentions for a domain, page, or grounding query.
 
-See [launch status](docs/LAUNCH.md), [operations and support](docs/OPERATIONS.md), [architecture](docs/ARCHITECTURE.md), [API/MCP reference](docs/API.md), and [design system](docs/DESIGN.md).
+See [launch status](docs/LAUNCH.md), [operations and support](docs/OPERATIONS.md), [architecture](docs/ARCHITECTURE.md), [API/MCP reference](docs/API.md), [product context](PRODUCT.md), and [provisional design notes](docs/DESIGN.md).
 
 ## Three ways to run TrackRank
 
