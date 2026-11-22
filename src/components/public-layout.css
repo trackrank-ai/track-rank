@@ -1,0 +1,271 @@
+.public-page {
+  --public-muted: #5c574f;
+  --public-record: #f3efe7;
+  --public-rule: #d9d2c5;
+  min-height: 100vh;
+}
+
+.dark .public-page {
+  --public-muted: #b6bdc9;
+  --public-record: #1d2630;
+  --public-rule: #3d4856;
+}
+
+.public-page .shell {
+  width: min(1200px, 100% - 4rem);
+}
+
+.public-page ::selection {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+
+.public-header, .public-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.25rem;
+  padding-block: 1.1rem;
+}
+
+.public-header { border-block-end: 1px solid var(--border); }
+
+.public-brand-suffix { color: var(--public-muted); font-weight: 450; }
+
+.public-header-actions, .public-nav { display: flex; align-items: center; gap: 1.25rem; }
+
+.public-nav a, .public-product a, .public-product-link {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  min-height: 2.75rem;
+  font-size: .9rem;
+  font-weight: 550;
+}
+
+.public-nav a:hover, .public-nav a[aria-current] {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: .25em;
+}
+
+.public-header .public-menu { display: none; }
+
+.public-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  align-items: center;
+  gap: clamp(2rem, 6vw, 6rem);
+  padding-block: clamp(3rem, 7vw, 6.5rem);
+}
+
+.public-hero h1 {
+  max-width: 13ch;
+  font-size: clamp(3.25rem, 6vw, 5.5rem);
+  font-weight: 650;
+  line-height: .99;
+  letter-spacing: -.04em;
+  text-wrap: balance;
+}
+
+.public-hero h1 em { color: var(--primary); font-style: normal; }
+
+.public-hero-description {
+  margin-block: 1.5rem 1.75rem;
+  max-width: 42ch;
+  color: var(--public-muted);
+  font-size: clamp(1rem, 2vw, 1.18rem);
+  line-height: 1.65;
+}
+
+.public-hosting-actions { display: flex; flex-wrap: wrap; gap: .65rem; }
+.public-hosting-actions a { min-height: 2.75rem; }
+.public-hosting p {
+  max-width: 62ch;
+  margin-top: .85rem;
+  font-size: .86rem;
+  line-height: 1.55;
+  color: var(--public-muted);
+}
+.public-hosting p strong { color: var(--foreground); font-weight: 600; }
+
+.public-product-link { margin-top: .75rem; }
+.public-product-link:hover, .public-product a:hover { text-decoration: underline; text-underline-offset: .25em; }
+
+.public-example {
+  min-width: 0;
+  padding: clamp(1rem, 3vw, 2rem);
+  border: 1px solid var(--public-rule);
+  border-radius: 14px;
+  background: var(--public-record);
+}
+
+.public-example-label {
+  color: var(--public-muted);
+  font-size: .82rem;
+  font-weight: 560;
+  padding-bottom: .65rem;
+  border-bottom: 1px solid var(--public-rule);
+  margin-bottom: 1rem;
+}
+
+.public-example h2 {
+  max-width: 27ch;
+  font-size: clamp(1.4rem, 2.8vw, 2.1rem);
+  font-weight: 650;
+  letter-spacing: -.028em;
+  line-height: 1.13;
+  text-wrap: balance;
+}
+
+.public-example-context {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .6rem 1.35rem;
+  margin-block: 1rem 1.2rem;
+  padding-block-end: 1.2rem;
+  border-block-end: 1px solid var(--public-rule);
+  font-size: .8rem;
+}
+.public-example-context dt { color: var(--public-muted); }
+.public-example-context dd { margin-top: .2rem; font-weight: 650; }
+
+.public-page .public-example .evidence-report { grid-template-columns: 1fr; gap: 1.15rem; }
+.public-example .evidence-report h3 { margin-bottom: .4rem; font-size: .875rem; }
+.public-example .evidence-answer { font-size: .93rem; line-height: 1.6; }
+.public-example .evidence-report-aside { display: flex; flex-wrap: wrap; gap: .85rem 1.75rem; border-block-start: 1px solid var(--public-rule); }
+.public-example .evidence-report-aside > section { border: 0; padding-top: .85rem; }
+.public-example .evidence-observations dt { display: none; }
+.public-example .evidence-observations dd { font-weight: 650; color: var(--primary); }
+.public-example .evidence-source-list li > div { padding-block: 0; min-height: 0; }
+.public-example .evidence-source-list strong + span { display: none; }
+.public-example .evidence-source-list a { padding-block: 0; color: var(--primary); text-decoration: underline; text-underline-offset: .2em; }
+
+.public-product {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+  gap: clamp(2rem, 7vw, 6rem);
+  border-top: 1px solid var(--border);
+  padding-block: clamp(2.75rem, 6vw, 5rem);
+}
+.public-product h2, .public-page :is(.pricing-section, .cost-section, .comparison-section) h2, .public-billing-support h2 {
+  font-size: clamp(1.8rem, 4vw, 2.7rem);
+  line-height: 1.1;
+  font-weight: 650;
+  letter-spacing: -.035em;
+  text-wrap: balance;
+  margin: 0 0 .9rem;
+}
+.public-product p, .public-page .pricing-intro, .public-page :is(.comparison-section, .cost-section, .public-billing-support) > p { color: var(--public-muted); line-height: 1.65; max-width: 66ch; }
+.public-product a { color: var(--primary); margin-top: .75rem; }
+.public-product ol { list-style: decimal; padding-inline-start: 1.4rem; }
+.public-product li { padding: 0 0 1rem .45rem; }
+.public-product li + li { padding-block-start: 1rem; border-block-start: 1px solid var(--border); }
+.public-product li::marker { color: var(--primary); font-size: .9rem; font-weight: 650; }
+.public-product h3 { font-weight: 650; margin-bottom: .3rem; }
+
+.public-page .pricing-standalone { border-block-start: 0; }
+.public-page .pricing-standalone h1 {
+  font-size: clamp(2.8rem, 7vw, 5rem);
+  font-weight: 650;
+  line-height: 1;
+  letter-spacing: -.04em;
+  margin-bottom: .8rem;
+}
+.public-page .pricing-grid {
+  margin-block: 1.45rem .65rem;
+  gap: .75rem;
+}
+.public-page .pricing-card { padding: clamp(1rem, 2.5vw, 1.75rem); border-radius: 14px; }
+.public-page .pricing-section .pricing-card :is(h2, h3) { font-size: 1rem; font-weight: 650; margin: 0; }
+.public-page .plan-price {
+  font-size: clamp(1.9rem, 3.7vw, 2.65rem);
+  font-weight: 650;
+  line-height: 1.1;
+  margin-block: .3rem .85rem;
+  font-variant-numeric: tabular-nums;
+}
+.public-page .pricing-card dl { display: grid; gap: .35rem; border-block-start: 1px solid var(--border); padding-top: .85rem; font-size: .87rem; }
+.public-page .pricing-card dl > div { display: flex; flex-wrap: wrap; gap: .25rem .6rem; justify-content: space-between; }
+.public-page .pricing-card dt { color: var(--public-muted); }
+.public-page .pricing-card dd { font-weight: 650; font-variant-numeric: tabular-nums; }
+.public-pricing-costs, .public-offer-status {
+  color: var(--public-muted);
+  font-size: .85rem;
+  margin-block: 0 1rem;
+}
+.public-offer-status { margin-top: 1rem; }
+.public-page .pricing-footnotes { margin-top: 1rem; max-width: 78ch; color: var(--public-muted); }
+.public-page .pricing-footnotes p + p { margin-top: .45rem; }
+
+.public-comparison-table { width: 100%; text-align: start; border-collapse: collapse; margin-top: .85rem; font-size: .9rem; }
+.public-comparison-list { display: none; }
+.public-comparison-table caption, .public-comparison-list > p { text-align: start; padding-block: .45rem .8rem; color: var(--public-muted); font-size: .85rem; }
+.public-comparison-table :is(th, td) { text-align: start; vertical-align: top; padding: .8rem .7rem; border-block-end: 1px solid var(--border); }
+.public-comparison-table thead th { background: var(--public-record); }
+.public-comparison-table a, .public-comparison-list a, .public-billing-support a, .public-page .pricing-footnotes a {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: .2em;
+}
+
+.public-page .calculator-inputs { align-items: end; }
+.public-page .calculator-results article { border-radius: 14px; }
+.public-page .data-note { font-size: .85rem; }
+.public-page .calculator-results h3 { font-weight: 650; }
+.public-page .calculator-results strong { font-variant-numeric: tabular-nums; }
+
+.public-billing-support { border-block-start: 1px solid var(--border); padding-block: 2.5rem; }
+.public-billing-support p + p { margin-top: .8rem; }
+
+.public-footer { border-block-start: 1px solid var(--border); line-height: 1.5; }
+.public-footer > span { color: var(--public-muted); font-size: .8rem; }
+
+@media (max-width: 770px) {
+  .public-page .shell { width: calc(100% - 2rem); }
+  .public-header { position: relative; padding-block: .85rem; gap: .6rem; }
+  .public-header .brand { font-size: 1.2rem; gap: .55rem; }
+  .public-header .brand-mark { width: 29px; height: 30px; }
+  .public-header-actions { gap: .4rem; }
+  .public-header .public-menu { display: inline-flex; }
+  .public-nav {
+    display: none;
+    z-index: 5;
+    position: absolute;
+    inset: 100% 0 auto;
+    padding: .45rem .85rem;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 0 0 12px 12px;
+  }
+  .public-nav[data-open="true"] { display: flex; flex-direction: column; align-items: stretch; gap: 0; }
+  .public-hero { grid-template-columns: 1fr; }
+  .public-hero h1 { font-size: clamp(2.65rem, 10vw, 4.5rem); }
+  .public-product { grid-template-columns: 1fr; gap: 1.3rem; }
+  .public-comparison-table { display: none; }
+  .public-comparison-list { display: block; margin-top: .65rem; }
+  .public-comparison-list > section { padding-block: .95rem; border-block-start: 1px solid var(--border); }
+  .public-comparison-list h3 { font-size: 1.05rem; font-weight: 650; }
+  .public-comparison-list dl { display: grid; gap: .6rem; margin-top: .55rem; font-size: .88rem; }
+  .public-comparison-list dt { color: var(--public-muted); font-size: .79rem; margin-bottom: .1rem; }
+  .public-footer { align-items: flex-start; flex-direction: column; }
+}
+
+@media (max-width: 390px) {
+  .public-header .brand { font-size: 1.05rem; }
+  .public-header .brand-mark { width: 25px; height: 27px; }
+  .public-header .public-menu, .public-header-actions > [data-slot="button"]:last-child { padding-inline: .45rem; }
+}
+
+.public-page :is(.public-header, .public-hosting-actions) [data-slot="button"] {
+  transition-property: box-shadow;
+}
+
+@media (max-width: 360px) {
+  .public-header .brand { gap: .35rem; font-size: 1rem; }
+  .public-header .brand-mark { width: 24px; height: 25px; }
+  .public-header .brand-mark svg { width: 21px; height: 21px; }
+  .public-header-actions { gap: .25rem; }
+  .public-header .public-menu svg { display: none; }
+  .public-header-actions .theme-toggle { width: 2rem; }
+}

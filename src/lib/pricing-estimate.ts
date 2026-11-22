@@ -13,7 +13,7 @@ export function estimatePricing(plans: PricedPlan[], prompts: number, engines: n
   const values = [prompts, engines, dailySamples, historyDays, providerPerRun];
   if (values.some(v => !Number.isFinite(v) || v < 0) || [prompts, engines, dailySamples, historyDays].some(v => !Number.isInteger(v) || v < 1)) return null;
   const runs = prompts * engines * dailySamples * 30;
-  const plan = plans.filter(p => p.currency === "usd" && p.interval === "month" && p.limits.runs_per_month >= runs && (p.limits.searchable_history_days ?? 0) >= historyDays)
+  const plan = plans.filter(p => p.currency === "usd" && p.interval === "month" && p.limits.runs_per_month >= runs && (p.limits.searchable_history_days ?? Infinity) >= historyDays)
     .sort((a,b) => a.price_cents-b.price_cents)[0];
   const provider = runs * providerPerRun;
   // Peec published packages are daily tracking on three models. No extrapolated price for unsupported configurations.

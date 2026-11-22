@@ -15,7 +15,7 @@ Independent AI visibility tracking for [trackrank.ai](https://trackrank.ai). Ope
 - Optional explicit OpenRouter opportunity analysis with organization-supplied key and model. Separate inference costs apply.
 - Filterable run history and CSV export. Shareable research views show the answers, cited pages, and brand mentions for a domain, page, or grounding query.
 
-See [launch status](docs/LAUNCH.md), [operations and support](docs/OPERATIONS.md), [architecture](docs/ARCHITECTURE.md), [API/MCP reference](docs/API.md), [product context](PRODUCT.md), and [provisional design notes](docs/DESIGN.md).
+See [launch status](docs/LAUNCH.md), [operations and support](docs/OPERATIONS.md), [architecture](docs/ARCHITECTURE.md), [API/MCP reference](docs/API.md), [product context](PRODUCT.md), and [interface design conventions](docs/DESIGN.md).
 
 ## Three ways to run TrackRank
 
@@ -24,6 +24,8 @@ See [launch status](docs/LAUNCH.md), [operations and support](docs/OPERATIONS.md
 - **Local:** follow the commands below. No Cloudflare login, Google, Resend, PostHog or paid provider key is needed to sign up and explore the app.
 
 ## Workspaces, research, and Settings
+
+Open a run to inspect its question, workspace, engine, status, recorded answer, brand observations and sources. The landing page shows a labeled example of that view. On phones, use the section chooser for app navigation and the workspace selector for client scope. Overview shows setup guidance before the first collection and scoped results once the workspace has runs.
 
 - Use the sidebar to switch between client workspaces or select **All workspaces** for the organization-wide view. **Default workspace** is a regular workspace. Workspaces share the organization's team, provider credentials, and billing.
 - Use **Manage workspaces**, **Brands**, and **Prompts** to manage those records. Deleting a workspace or prompt removes its schedules and preserves collected run history and evidence.
