@@ -1,0 +1,53 @@
+.tracking-list {
+  display: grid;
+  gap: 1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.tracking-list > li,
+.tracking-empty {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--card);
+  padding: 1rem;
+}
+.tracking-list h2 {
+  overflow-wrap: anywhere;
+}
+.tracking-list h2 a:hover {
+  text-decoration: underline;
+}
+.tracking-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr));
+  gap: .75rem 1rem;
+  margin: 0;
+}
+.tracking-summary dt {
+  color: var(--muted-foreground);
+  font-size: .875rem;
+}
+.tracking-summary dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+.tracking-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .25rem 1rem;
+  border-bottom: 1px solid var(--border);
+}
+.tracking-tabs a {
+  padding: .55rem .15rem;
+  color: var(--muted-foreground);
+  border-bottom: 2px solid transparent;
+}
+.tracking-tabs a:hover,
+.tracking-tabs a[aria-current="page"] {
+  color: var(--foreground);
+}
+.tracking-tabs a[aria-current="page"] {
+  border-color: var(--primary);
+  font-weight: 600;
+}

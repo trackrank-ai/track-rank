@@ -1,7 +1,7 @@
 import { analyticsScope, answerMetrics, type AnalyticsScope, type AnswerMetric, type TrendMetric } from "./analytics-filters";
 import { normalizePromptTag, validPromptTag } from "./prompt-tags";
 
-const appTabs = ["overview", "prompts", "research", "runs", "brands", "schedules", "team", "settings", "agents", "workspaces"] as const;
+const appTabs = ["overview", "tracking", "prompts", "research", "runs", "brands", "schedules", "team", "settings", "agents", "workspaces"] as const;
 export type AppTab = typeof appTabs[number];
 const researchTypes = ["domain", "page", "query"] as const;
 export type ResearchType = typeof researchTypes[number];
@@ -20,6 +20,7 @@ export type AppSearch = AnalyticsScope & {
   tab?: AppTab;
   prompt?: string;
   question?: string;
+  trackingView?: "overview" | "questions" | "answers" | "settings";
   questionView?: "answers" | "settings";
   promptView?: "create" | "schedule";
   setupIntent?: "schedule";
@@ -53,19 +54,24 @@ export function parseAppSearch(search: Record<string, unknown>): AppSearch {
   const researchValue = typeof search.researchValue === "string" && search.researchValue.length <= 4096
     ? search.researchValue.trim() : "";
   const tag = typeof search.tag === "string" ? normalizePromptTag(search.tag) : "";
-  const scoped = !tab || tab === "overview" || tab === "runs" || tab === "research";
+  const scoped = !tab || tab === "overview" || tab === "runs" || tab === "research" || tab === "tracking";
   const scope = analyticsScope(tab === "research" ? { ...search, compareBrand: undefined } : search);
   const metric = answerMetrics.find(value => value === search.metric);
   const trendMetric = search.trendMetric === "mention" || search.trendMetric === "citation" ? search.trendMetric : undefined;
-  const evidenceDay = tab === "runs" && trendMetric ? analyticsScope({ from: search.evidenceDay }).from : undefined;
+  const trackingSet = resourceId(search.set);
+  const trackingView = trackingSet && (tab === "tracking" || tab === "runs" || tab === "prompts" || tab === "schedules")
+    ? (["overview", "questions", "answers", "settings"] as const).find(value => value === search.trackingView) : undefined;
+  const historyContext = tab === "runs" || (tab === "tracking" && trackingView === "answers");
+  const evidenceDay = historyContext && trendMetric ? analyticsScope({ from: search.evidenceDay }).from : undefined;
   const questionContext = tab === "prompts" || (tab === "runs" && !!resourceId(search.run));
   const question = questionContext ? resourceId(search.question) : undefined;
   const libraryContext = tab === "prompts" || !!question;
   return {
     ...(scoped ? scope : tab === "prompts"
-      ? { set: resourceId(search.set), from: analyticsScope(search).from, to: analyticsScope(search).to } : {}),
-    ...(tab === "runs" && metric && (!metric.startsWith("compare_") || scope.compareBrand) ? { metric } : {}),
-    trendMetric: (!tab || tab === "overview" || tab === "runs") ? trendMetric : undefined,
+      ? { set: resourceId(search.set), from: analyticsScope(search).from, to: analyticsScope(search).to } : tab === "schedules" ? { set: trackingSet } : {}),
+    trackingView,
+    ...(historyContext && metric && (!metric.startsWith("compare_") || scope.compareBrand) ? { metric } : {}),
+    trendMetric: (!tab || tab === "overview" || historyContext || tab === "tracking") ? trendMetric : undefined,
     evidenceDay: evidenceDay && (!scope.from || evidenceDay >= scope.from) && (!scope.to || evidenceDay <= scope.to) ? evidenceDay : undefined,
     org: resourceId(search.org),
     workspace: resourceId(search.workspace),
@@ -86,11 +92,11 @@ export function parseAppSearch(search: Record<string, unknown>): AppSearch {
     run: tab === "runs" ? resourceId(search.run) : undefined,
     evidence: tab === "runs" && resourceId(search.run)
       ? (["answer", "citations", "queries", "organic", "analysis"] as const).find(value => value === search.evidence) : undefined,
-    runPrompt: tab === "runs" ? resourceId(search.runPrompt) : undefined,
-    q: (tab === "runs" || tab === "prompts") && typeof search.q === "string" && search.q.length <= 200 ? search.q : undefined,
-    status: tab === "runs" ? runStatuses.find(value => value === search.status) : undefined,
-    outcome: tab === "runs" ? runOutcomes.find(value => value === search.outcome) : undefined,
-    brand: tab === "runs" || tab === "prompts" ? resourceId(search.brand) : undefined,
+    runPrompt: historyContext ? resourceId(search.runPrompt) : undefined,
+    q: (historyContext || tab === "prompts") && typeof search.q === "string" && search.q.length <= 200 ? search.q : undefined,
+    status: historyContext ? runStatuses.find(value => value === search.status) : undefined,
+    outcome: historyContext ? runOutcomes.find(value => value === search.outcome) : undefined,
+    brand: historyContext || tab === "prompts" ? resourceId(search.brand) : undefined,
     researchGroup: tab === "research" || tab === "runs" ? researchTypes.find(type => type === search.researchGroup) : undefined,
     settingsSection: tab === "settings"
       ? (Object.keys(settingsSections) as SettingsSection[]).find(section => section === search.settingsSection) : undefined,

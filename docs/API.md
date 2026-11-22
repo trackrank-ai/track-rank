@@ -176,7 +176,8 @@ One organization has one account/subscription. Plan allowances and user roles ar
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/prompt-sets?workspace=<id>` | List sets and member counts. Omit workspace for all workspaces. |
+| GET | `/prompt-sets?workspace=<id>` | List named tracking sets and their summaries. Omit workspace for all workspaces. |
+| GET | `/prompt-sets/:id?workspace=<id>` | Read one tracking set summary. The optional workspace must match the set. |
 | POST | `/prompt-sets` | Create a set with `{workspace_id, name, prompt_ids?}`. Returns its stable `id`. |
 | PATCH | `/prompt-sets/:id` | Rename with `{name}`. |
 | DELETE | `/prompt-sets/:id` | Delete the set and memberships. Prompts, schedules, runs and evidence remain. |
@@ -184,6 +185,10 @@ One organization has one account/subscription. Plan allowances and user roles ar
 | GET | `/analytics` | Full-period run and eligible-answer totals, prompt coverage, per-brand counts, selected-brand daily trends and optional common-cohort comparison. |
 | GET | `/analytics/locations` | Up to 500 recorded collection locations in scope, ignoring the active location filter. |
 | GET | `/research` | Eligible answer total and up to 100 matching domains, pages, queries and detected brands per kind, ranked by distinct answers. A repeated domain, page, or query counts once per eligible answer. |
+
+Tracking set summaries include `question_count` (distinct questions), `member_count` (engine variants), and `engines`. Each variant counts once toward `scheduled_count` if any schedule is enabled, `paused_count` if every saved schedule is disabled, or `unscheduled_count` if it has no schedule. `last_completed_at` is the latest successful collection completion among current members in the set’s workspace. `next_scheduled_at` is the earliest stored due time across enabled schedules. Both times use epoch milliseconds or `null`.
+
+Use `GET /schedules?workspace=<id>&set=<id>` and MCP `list_schedules` with `set` to inspect the schedules for current members, including paused schedules. A shared variant’s schedule affects every set that contains it.
 
 Use `GET /prompts?view=library&set=<id>` for paginated members, including compact selection reads. Names are 1–100 characters. Create and membership updates accept up to 500 prompt IDs per request. Membership is unique per set and changes are idempotent. Every selected prompt must be active and in the set's workspace and organization before a request writes anything. For larger selections, follow creation with membership updates using the returned set ID. Read scope permits inspection and write scope is required for mutations.
 
@@ -195,7 +200,7 @@ Pass a distinct `compare_brand` with `tracked_brand` to get `comparison_daily`. 
 
 The Overview `organic` outcome links to `outcome=organic` for completed runs that recorded organic results without an AI answer. Its `no_answer` outcome links to `outcome=no_evidence` for completed runs with neither.
 
-MCP mirrors these endpoints with `list_prompt_sets`, `create_prompt_set`, `rename_prompt_set`, `delete_prompt_set`, `update_prompt_set_members`, `get_overview`, `list_collection_locations`, `get_research_summary`, `list_runs` and `export_runs`. MCP uses `workspace_id` for workspace, `set` for the set filter, `set_id` for mutations and a string array for `tags`. Confirm with the user before deleting a set.
+MCP mirrors these endpoints with `list_prompt_sets`, `get_prompt_set`, `create_prompt_set`, `rename_prompt_set`, `delete_prompt_set`, `update_prompt_set_members`, `get_overview`, `list_collection_locations`, `get_research_summary`, `list_runs` and `export_runs`. MCP uses `workspace_id` for workspace, `set` for the set filter, `set_id` for mutations and a string array for `tags`. Confirm with the user before deleting a set.
 
 ## Prompt review, receipts and collection batches
 

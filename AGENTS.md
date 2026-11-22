@@ -56,6 +56,8 @@ Local account creation and UI exploration need no paid provider credentials. Rea
 - Apply the global workspace selection to research drill-downs. Match domains, URLs and grounding queries against stored evidence from eligible AI answers. Link each match to its run and show brand mentions from the run snapshot.
 - Keep provider credentials, organization management and hosted billing in Settings. Use organization-scoped Settings links for Providers, Team & access, and Billing. Keep billing accessible when workspace access is paused. Show credential status and add, replace and remove actions per provider. Removing DataForSEO pauses collection schedules. Removing OpenRouter preserves collection schedules.
 
+- Use the workspace-owned prompt set for the **Tracking** list and detail. Preserve the set’s organization, workspace, and active view when linking to questions, schedules, or evidence. Summarize schedule state per variant. If a variant has multiple schedules, any enabled schedule makes the variant scheduled.
+
 ## Durable execution and data changes
 
 - Provider submission can spend money. Never blindly retry an accepted or uncertain submission. Correlate batch acknowledgments and callbacks to stable run/task IDs. Preserve per-run submission claims, durable polling, bounded recovery and explicit uncertain states. Advance the schedule cursor in the same D1 batch as run admission.

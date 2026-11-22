@@ -160,9 +160,13 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
     return path + "?" + query;
   }
   server.registerTool("list_prompt_sets", {
-    description: "List workspace-owned prompt sets and current member counts. Use list_prompts with set to inspect members.",
+    description: "List named workspace tracking sets with active, paused and unscheduled variant counts, engines, and check times. Use list_prompts with set to inspect members.",
     inputSchema: workspaceInput,
   }, async args => invoke(filteredPath("/prompt-sets", args)));
+  server.registerTool("get_prompt_set", {
+    description: "Read one named tracking set, including its workspace, engines, schedule counts, and check times.",
+    inputSchema: { set_id: setId, ...workspaceInput },
+  }, async ({ set_id, ...args }) => invoke(filteredPath(`/prompt-sets/${set_id}`, args)));
   server.registerTool("create_prompt_set", {
     description: "Create a named set in one workspace, optionally with up to 500 selected prompts. Requires write scope.",
     inputSchema: createPromptSetSchema,
@@ -393,16 +397,18 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
       description: "List active and paused schedules. The first page includes the matching total. Use selection for compact pages and next_cursor to continue.",
       inputSchema: {
         workspace_id: z.string().min(1).max(100).optional(),
+        set: setId.optional(),
         limit: listPageLimit.max(500).optional(),
         selection: z.boolean().optional(),
         before: z.number().int().nonnegative().optional(),
         before_id: z.string().min(1).max(100).optional(),
       },
     },
-    async ({ workspace_id, before, before_id, limit, selection }) => {
+    async ({ workspace_id, before, before_id, limit, selection, set }) => {
       const query = new URLSearchParams();
       if (selection) query.set("selection", "1");
       if (limit !== undefined) query.set("limit", String(limit));
+      if (set) query.set("set", set);
       if (workspace_id) query.set("workspace", workspace_id);
       if (before !== undefined) query.set("before", String(before));
       if (before_id !== undefined) query.set("before_id", before_id);

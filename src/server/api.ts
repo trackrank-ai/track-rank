@@ -1,6 +1,6 @@
 import { promptQuestionText } from "./prompt-questions";
 import { applyReceiptAction, readReceiptAction, receiptActionSchema, submitPromptBatch, submitPromptBatchSchema } from "./receipt-actions";
-import { promptSetsRoute } from "./prompt-sets";
+import { promptSetPredicate, promptSetsRoute, requirePromptSet, setId } from "./prompt-sets";
 import { analytics, collectionLocations, researchSummary } from "./analytics";
 import { bulkPromptTagsSchema, decodePrompt, promptTags, updatePromptTags } from "./prompt-tags";
 import { bulkPromptSettingsSchema, promptSettingsSchema, updatePromptSettings } from "./prompt-settings";
@@ -575,6 +575,7 @@ export async function api(
     const workspace = u.searchParams.get("workspace");
     if (workspace) await belongs(env, "workspaces", org, workspace);
     const parsed = z.object({
+      set: setId.optional(),
       before: z.coerce.number().int().nonnegative().optional(),
       before_id: id.optional(),
       limit: z.coerce.number().pipe(listPageLimit.max(500)).optional(),
@@ -582,12 +583,14 @@ export async function api(
     }).refine(filters => (filters.before === undefined) === (filters.before_id === undefined))
       .safeParse(Object.fromEntries(u.searchParams));
     if (!parsed.success) throw new HttpError(400, "Invalid schedule filters or cursor");
-    const { before, before_id, limit, selection } = parsed.data;
+    const { before, before_id, limit, selection, set } = parsed.data;
+    if (set) await requirePromptSet(env, org, set, workspace ?? undefined);
     const pageSize = selection ? 1000 : limit ?? 500;
     const source = `FROM schedules s
        JOIN prompts p ON p.org_id=s.org_id AND p.id=s.prompt_id
-       WHERE s.org_id=? AND p.archived_at IS NULL${workspace ? " AND p.workspace_id=?" : ""}`;
-    const scope = workspace ? [org, workspace] : [org];
+       WHERE s.org_id=? AND p.archived_at IS NULL${workspace ? " AND p.workspace_id=?" : ""}
+       ${set ? " AND " + promptSetPredicate("p") : ""}`;
+    const scope = [org, ...(workspace ? [workspace] : []), ...(set ? [set] : [])];
     const columns = selection
       ? "s.id,s.created_at,s.preset,s.days,s.times_json,s.timezone,s.repetitions,s.enabled"
       : "s.*,p.workspace_id,p.text AS prompt_text,p.engine";

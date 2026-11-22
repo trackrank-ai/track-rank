@@ -572,3 +572,42 @@ test("question answers reconcile with the library while remaining scoped to curr
   await assert.rejects(call(`/runs?question_id=${foreign}`), { status: 404 });
   await assert.rejects(call(`/prompts?question_id=${foreign}`), { status: 404 });
 });
+
+test("tracking sets summarize distinct variants and filter schedules within their workspace", async () => {
+  const { sql, call } = setup();
+  sql.exec(`INSERT INTO prompts(id,org_id,workspace_id,text,engine,created_at,updated_at)
+    VALUES('second-engine','org','source','First question','gemini',0,0);
+    INSERT INTO schedules(id,org_id,prompt_id,preset,days,times_json,timezone,enabled,created_at,batch_id,next_due_at) VALUES
+      ('paused-copy','org','prompt','daily','[1]','["09:00"]','UTC',0,0,'batch-a',10),
+      ('enabled-1','org','prompt','daily','[1]','["10:00"]','UTC',1,0,'batch-b',200),
+      ('enabled-2','org','prompt','daily','[1]','["11:00"]','UTC',1,0,'batch-c',100),
+      ('paused','org','second-engine','daily','[1]','["11:00"]','UTC',0,0,'batch-d',20);
+    INSERT INTO runs(id,org_id,prompt_id,workspace_id,prompt_text,config,status,idempotency_key,created_at,updated_at)
+    VALUES ('good','org','prompt','source','First question','{}','succeeded','good',1,50),
+      ('failed','org','prompt','source','First question','{}','failed','failed',2,99),
+      ('old-workspace','org','prompt','target','First question','{}','succeeded','old-workspace',2,100);`);
+  const { id } = await (await call("/prompt-sets", {
+    workspace_id: "source", name: "Tracked", prompt_ids: ["prompt", "second-engine", "alt"],
+  })).json() as { id: string };
+  const { id: empty } = await (await call("/prompt-sets", {
+    workspace_id: "source", name: "Empty",
+  })).json() as { id: string };
+  const expected = {
+    id, workspace_id: "source", name: "Tracked", member_count: 3, question_count: 2,
+    engines: ["chatgpt", "gemini"], scheduled_count: 1, paused_count: 1, unscheduled_count: 1,
+    last_completed_at: 50, next_scheduled_at: 100,
+  };
+  assert.deepEqual(await (await call(`/prompt-sets/${id}?workspace=source`, undefined, "viewer")).json(), { set: expected });
+  await assert.rejects(call(`/prompt-sets/${id}?workspace=target`), { status: 404 });
+  await assert.rejects(call("/prompt-sets/not-a-set", undefined, "viewer"), { status: 404 });
+  const { sets } = await (await call("/prompt-sets")).json() as { sets: unknown[] };
+  assert.deepEqual(sets, [{
+    id: empty, workspace_id: "source", name: "Empty", member_count: 0, question_count: 0, engines: [],
+    scheduled_count: 0, paused_count: 0, unscheduled_count: 0, last_completed_at: null, next_scheduled_at: null,
+  }, expected]);
+  const filtered = await (await call(`/schedules?workspace=source&set=${id}&limit=1`, undefined, "viewer")).json() as any;
+  assert.equal(filtered.total, 4);
+  assert.ok(filtered.next_cursor);
+  assert.equal((await (await call(`/schedules?set=${empty}`)).json() as any).total, 0);
+  await assert.rejects(call(`/schedules?workspace=target&set=${id}&selection=1`), { status: 404 });
+});

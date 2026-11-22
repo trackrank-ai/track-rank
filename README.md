@@ -25,6 +25,8 @@ See [launch status](docs/LAUNCH.md), [operations and support](docs/OPERATIONS.md
 
 ## Workspaces, research, and Settings
 
+Open **Tracking** to find named sets in the selected workspace, or across the organization with **All workspaces**. A set groups saved question variants and shows which engines are included, how many variants are scheduled, paused or unscheduled, and the last completed and next scheduled check. Use its **Overview**, **Questions**, **Answers**, and **Settings** links to share scoped results or manage the set. A schedule belongs to a variant, so changing it affects each set that includes that variant.
+
 Open a run to inspect its question, workspace, engine, status, recorded answer, brand observations and sources. The landing page shows a labeled example of that view. On phones, use the section chooser for app navigation and the workspace selector for client scope. Overview shows setup guidance before the first collection. After collection, open the runs behind mention and website citation rates, switch the daily trend between metrics, or compare brands using answers that tracked both.
 
 - Use the sidebar to switch between client workspaces or select **All workspaces** for the organization-wide view. **Default workspace** is a regular workspace. Workspaces share the organization's team, provider credentials, and billing.
