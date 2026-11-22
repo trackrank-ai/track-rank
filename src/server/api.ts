@@ -1,3 +1,5 @@
+import { promptSetsRoute } from "./prompt-sets";
+import { analytics, collectionLocations, researchSummary } from "./analytics";
 import { bulkPromptTagsSchema, decodePrompt, promptTags, updatePromptTags } from "./prompt-tags";
 import { body } from "./request-body";
 import { bulkPromptIdsSchema, movePromptsSchema, bulkRunSchema, bulkScheduleSchema, bulkToggleSchema, updateBulkSchedules, bulkScheduleUpdateSchema, selectedRows, createBulkRuns, createBulkSchedules, MAX_BULK_SELECTION_REQUEST_BYTES } from "./bulk";
@@ -325,10 +327,16 @@ export async function api(
     );
     return json({ ok: true });
   }
+  if (path === "/prompt-sets" || path.startsWith("/prompt-sets/")) return promptSetsRoute(req, env, org, path, u.searchParams);
+  if (method === "GET") {
+    if (path === "/analytics") return json(await analytics(env, org, u.searchParams));
+    if (path === "/analytics/locations") return json(await collectionLocations(env, org, u.searchParams));
+    if (path === "/research") return json(await researchSummary(env, org, u.searchParams));
+  }
   if (path === "/prompts" && method === "GET") {
     const w = u.searchParams.get("workspace");
     if (w) await belongs(env, "workspaces", org, w);
-    if (u.searchParams.get("view") === "library" || u.searchParams.has("tag"))
+    if (u.searchParams.get("view") === "library" || u.searchParams.has("tag") || u.searchParams.has("set"))
       return json(await listSavedPrompts(env, org, u.searchParams));
     return json({
       prompts: (await all(
@@ -477,7 +485,6 @@ export async function api(
     return json(await updateBulkSchedules(env, org, await body(req, bulkScheduleUpdateSchema, MAX_BULK_SELECTION_REQUEST_BYTES)));
   }
   if (path === "/runs" && method === "GET") {
-    const w = u.searchParams.get("workspace");
     const timestamp = u.searchParams.get("before");
     const beforeId = u.searchParams.get("before_id");
     const before = Number(timestamp);
@@ -485,7 +492,6 @@ export async function api(
       (timestamp !== null && (!/^\d+$/.test(timestamp) || !Number.isSafeInteger(before) || !id.safeParse(beforeId).success))) {
       throw new HttpError(400, "Invalid run history cursor");
     }
-    if (w) await belongs(env, "workspaces", org, w, true);
     const { conditions, bindings } = await searchableHistoryWhere(env, org, u.searchParams);
     if (timestamp !== null) {
       conditions.push("(created_at,id)<(?,?)");
@@ -831,8 +837,6 @@ export async function api(
     });
   }
   if (path === "/export" && method === "GET") {
-    const workspace = u.searchParams.get("workspace");
-    if (workspace) await belongs(env, "workspaces", org, workspace, true);
     const { conditions, bindings } = await searchableHistoryWhere(env, org, u.searchParams);
     const rows = await all<Row>(
       env,

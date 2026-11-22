@@ -1,3 +1,4 @@
+import { promptSetPredicate, requirePromptSet, setId } from "./prompt-sets";
 import { decodePrompt, promptTag } from "./prompt-tags";
 import { z } from "zod";
 import { all, one, HttpError, type Env, type Row } from "./types";
@@ -10,6 +11,7 @@ const libraryFilters = z.object({
   schedule: z.enum(["active", "inactive"]).optional(),
   brand: z.string().min(1).max(100).optional(),
   tag: promptTag.optional(),
+  set: setId.optional(),
   limit: z.coerce.number().pipe(listPageLimit.max(100)).optional(),
   selection: z.literal("1").optional(),
   before: z.coerce.number().int().nonnegative().optional(),
@@ -25,6 +27,11 @@ export async function listSavedPrompts(env: Env, org: string, params: URLSearchP
   if (filters.workspace) {
     conditions.push("p.workspace_id=?");
     values.push(filters.workspace);
+  }
+  if (filters.set) {
+    await requirePromptSet(env, org, filters.set, filters.workspace);
+    conditions.push(promptSetPredicate("p"));
+    values.push(filters.set);
   }
   const tagScope = conditions.join(" AND ");
   const tagValues = [...values];

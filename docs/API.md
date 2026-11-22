@@ -152,7 +152,7 @@ See [authentication and invitations](AUTHENTICATION.md) for Google/password reco
 
 ### Searchable history entitlement
 
-Plan `limits.searchable_history_days`, when present, restricts `GET /runs` (including research filters), `GET /export`, and equivalent MCP tools to runs created within the rolling window. Direct run/evidence endpoints remain available under normal tenant and entitlement checks; no automatic deletion occurs. Settings and MCP context expose the assigned limit. Legacy revisions without this field retain unrestricted history.
+Plan `limits.searchable_history_days`, when present, restricts Overview, research, `GET /runs`, `GET /export`, and equivalent MCP tools to runs created within the rolling window. Direct run/evidence endpoints remain available under normal tenant and entitlement checks; no automatic deletion occurs. Settings and MCP context expose the assigned limit. Legacy revisions without this field retain unrestricted history.
 
 ## Billing accounts and delegated access
 
@@ -165,3 +165,24 @@ Plan `limits.searchable_history_days`, when present, restricts `GET /runs` (incl
 - MCP `get_billing`, `billing_management_handoff`, `billing_admin_handoff` mirror these read/recovery paths, including when product entitlement is paused. Keys cannot mutate billing permissions or create payment sessions; interactive confirmation is required.
 
 One organization has one account/subscription. Plan allowances and user roles are independent; custom enterprise terms use the existing versioned-plan operator workflow.
+
+## Prompt sets and visibility analytics
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/prompt-sets?workspace=<id>` | List sets and member counts. Omit workspace for all workspaces. |
+| POST | `/prompt-sets` | Create a set with `{workspace_id, name, prompt_ids?}`. Returns its stable `id`. |
+| PATCH | `/prompt-sets/:id` | Rename with `{name}`. |
+| DELETE | `/prompt-sets/:id` | Delete the set and memberships. Prompts, schedules, runs and evidence remain. |
+| PATCH | `/prompt-sets/:id/members` | Update with `{action: "add" or "remove", prompt_ids}`. |
+| GET | `/analytics` | Full-period run and eligible-answer totals, prompt coverage, per-brand counts and selected-brand daily trends. |
+| GET | `/analytics/locations` | Up to 500 recorded collection locations in scope, ignoring the active location filter. |
+| GET | `/research` | Eligible answer total and up to 100 matching domains, pages, queries and detected brands per kind, ranked by distinct answers. |
+
+Use `GET /prompts?view=library&set=<id>` for paginated members, including compact selection reads. Names are 1–100 characters. Create and membership updates accept up to 500 prompt IDs per request. Membership is unique per set and changes are idempotent. Every selected prompt must be active and in the set's workspace and organization before a request writes anything. For larger selections, follow creation with membership updates using the returned set ID. Read scope permits inspection and write scope is required for mutations.
+
+Analytics, research, run history and export share `workspace`, `set`, `tags` (comma-separated, all must match), `engine`, `location` (exact recorded location, case insensitive), and inclusive UTC `from` / `to` dates (`YYYY-MM-DD`). Dates use the run's recorded creation timestamp. Analytics and research default to 30 UTC dates ending today. Pass those same dates to history and export for reconciliation. All search endpoints apply the organization's rolling history limit. Set and tag filters use current prompts in the run's recorded workspace. Retagging and membership edits immediately affect historical results. Moving a prompt clears its set memberships. Unfiltered workspace aggregates include its earlier runs in their original workspace.
+
+`tracked_brand` selects the brand for daily trends. Brand totals count successful samples with an AI answer and that brand in the recorded run configuration. Mention and citation counts use the recorded match outcomes. Prompt coverage counts current selected prompts with at least one eligible answer in scope. Its denominator is the current set/tag selection across the workspace. Recorded engine, location and date narrow the evidence for coverage. History and export accept `metric=eligible|coverage|brand|mention|citation` to retrieve the contributing runs. `brand`, `mention`, and `citation` also require `tracked_brand`. The existing history `brand_id` matches eligible runs that mentioned or cited a brand. Research item filters continue to use `research_type` and `research_value` on run history.
+
+MCP mirrors these endpoints with `list_prompt_sets`, `create_prompt_set`, `rename_prompt_set`, `delete_prompt_set`, `update_prompt_set_members`, `get_overview`, `list_collection_locations`, `get_research_summary`, `list_runs` and `export_runs`. MCP uses `workspace_id` for workspace, `set` for the set filter, `set_id` for mutations and a string array for `tags`. Confirm with the user before deleting a set.

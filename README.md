@@ -35,6 +35,10 @@ See [launch status](docs/LAUNCH.md), [operations and support](docs/OPERATIONS.md
 
 In **Prompts**, add comma-separated tags when saving or editing prompts, or add and remove tags on a selection. **Filter by tag** shows matches within the selected client workspace. Choose **All workspaces** to search across the organization.
 
+Use **Prompt sets** in **Prompts** to group a selection from one workspace. Select all matching prompts across pages, name the set, and open **View performance**. A prompt can belong to several sets. Renaming or deleting a set preserves its prompts and collection history.
+
+**Overview** starts with **All prompts**. Filter by set, intersect tags, and choose a recorded collection location, engine, brand and UTC date range. Copy the URL to share that view. The server computes the entire searchable period, and metric links open the contributing runs. Rates show sample fractions, and coverage shows how many selected prompts had an eligible answer. Set membership and tags reflect the current prompt library. Moving a prompt clears its set memberships and keeps earlier runs in their original workspace.
+
 ## Local development — clean checkout
 
 Install Git and Node.js 22.13+ (Node 24 recommended), then:
@@ -71,7 +75,7 @@ The core suite uses an isolated in-memory SQLite D1 test adapter and mocked prov
 
 Infrastructure: Cloudflare Worker `trackrank-ai`, D1 `trackrank-db`, private R2 `trackrank-answers`, Workflow `trackrank-tracking`, and Cron `*/5 * * * *`. Deployment configuration is committed in `wrangler.jsonc`.
 
-Back up the target database and review pending migrations before deploying. Apply pending migrations before running the matching deploy command. Migrations `0016` through `0018` switch to canonical schedules and remove obsolete billing and usage fields. Pause scheduled execution during this cutover and deploy the matching Worker before resuming. Migration `0019` is required for durable collection dispatch and `0020` is required for prompt tags. See the [billing and release runbook](docs/BILLING-OPERATIONS.md) for backup, recovery, and release checks.
+Back up the target database and review pending migrations before deploying. Apply pending migrations before running the matching deploy command. Migrations `0016` through `0018` switch to canonical schedules and remove obsolete billing and usage fields. Pause scheduled execution during this cutover and deploy the matching Worker before resuming. Migration `0019` is required for durable collection dispatch and `0020` is required for prompt tags. Apply `0024` before deploying prompt sets and server-side Overview analytics. See the [billing and release runbook](docs/BILLING-OPERATIONS.md) for backup, recovery, and release checks.
 
 Staging uses its own Cloudflare resources and Stripe test configuration.
 

@@ -8,7 +8,8 @@ import { z } from "zod";
 import { api } from "./api";
 import { bulkPromptIdsSchema, movePromptsSchema, bulkToggleSchema, bulkRunSchema, bulkScheduleSchema, bulkScheduleUpdateSchema } from "./bulk";
 import { listPageLimit } from "./prompt-library";
-import { runHistoryFilters } from "./run-history";
+import { createPromptSetSchema, setId, setNameSchema, updateSetMembersSchema } from "./prompt-sets";
+import { scopeFilters, runHistoryFilters } from "./run-history";
 import { authenticate } from "./auth";
 import { HttpError, type Ctx, type Env } from "./types";
 export async function mcp(req: Request, env: Env, ctx: Ctx) {
@@ -147,6 +148,53 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
     },
     async (args) => invoke("/brands", "POST", args),
   );
+  const workspaceInput = { workspace_id: setId.optional() };
+  function filteredPath(path: string, { workspace_id, ...filters }: { workspace_id?: string } & Record<string, unknown>) {
+    const query = new URLSearchParams();
+    if (workspace_id) query.set("workspace", workspace_id);
+    for (const [key, value] of Object.entries(filters)) {
+      if (value !== undefined && (!Array.isArray(value) || value.length)) query.set(key, String(value));
+    }
+    return path + "?" + query;
+  }
+  server.registerTool("list_prompt_sets", {
+    description: "List workspace-owned prompt sets and current member counts. Use list_prompts with set to inspect members.",
+    inputSchema: workspaceInput,
+  }, async args => invoke(filteredPath("/prompt-sets", args)));
+  server.registerTool("create_prompt_set", {
+    description: "Create a named set in one workspace, optionally with up to 500 selected prompts. Requires write scope.",
+    inputSchema: createPromptSetSchema,
+  }, async args => invoke("/prompt-sets", "POST", args));
+  server.registerTool("rename_prompt_set", {
+    description: "Rename a prompt set. Requires write scope.",
+    inputSchema: setNameSchema.extend({ set_id: setId }),
+  }, async ({ set_id, ...args }) => invoke(`/prompt-sets/${set_id}`, "PATCH", args));
+  server.registerTool("delete_prompt_set", {
+    description: "Delete a prompt set and its memberships, preserving prompts and history. Requires write scope. Confirm with the user.",
+    inputSchema: { set_id: setId },
+  }, async ({ set_id }) => invoke(`/prompt-sets/${set_id}`, "DELETE"));
+  server.registerTool("update_prompt_set_members", {
+    description: "Add or remove up to 500 prompts in the same workspace. Requires write scope.",
+    inputSchema: updateSetMembersSchema.extend({ set_id: setId }),
+  }, async ({ set_id, ...args }) => invoke(`/prompt-sets/${set_id}/members`, "PATCH", args));
+  const reportingInput = { ...scopeFilters.shape, ...workspaceInput };
+  server.registerTool("get_overview", {
+    description: "Compute full-period visibility totals, coverage, brand rates and UTC daily trends. Pass tracked_brand for daily brand statistics.",
+    inputSchema: reportingInput,
+  }, async args => invoke(filteredPath("/analytics", args)));
+  server.registerTool("list_collection_locations", {
+    description: "List locations recorded on runs in the reporting scope.",
+    inputSchema: reportingInput,
+  }, async args => invoke(filteredPath("/analytics/locations", args)));
+  server.registerTool("get_research_summary", {
+    description: "Summarize cited domains, pages, grounding queries and detected brands across the reporting scope.",
+    inputSchema: reportingInput,
+  }, async args => invoke(filteredPath("/research", args)));
+  const historyInput = { ...runHistoryFilters.omit({ workspace: true }).shape, ...workspaceInput };
+  server.registerTool("export_runs", {
+    description: "Export up to 1,000 filtered runs as CSV.",
+    inputSchema: historyInput,
+  }, async args => invoke(filteredPath("/export", args)));
   server.registerTool(
     "list_prompts",
     {
@@ -154,6 +202,7 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
       inputSchema: {
         workspace_id: z.string().min(1).max(100).optional(),
         tag: promptTag.optional(),
+        set: setId.optional(),
         limit: listPageLimit.max(100).optional(),
         selection: z.boolean().optional(),
         q: z.string().max(200).optional(),
@@ -275,21 +324,12 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
       description:
         "List run history with status, citations, grounding queries and mentions. Continue with next_before and next_before_id.",
       inputSchema: z.object({
-        ...runHistoryFilters.shape,
-        workspace_id: z.string().optional(),
+        ...historyInput,
         before: z.number().int().nonnegative().optional(),
         before_id: z.string().min(1).max(100).optional(),
       }).refine(args => (args.before === undefined) === (args.before_id === undefined), "Supply both cursor fields"),
     },
-    async (args) => {
-      const q = new URLSearchParams();
-      if (args.workspace_id) q.set("workspace", args.workspace_id);
-      if (args.before !== undefined) q.set("before", String(args.before));
-      if (args.before_id !== undefined) q.set("before_id", args.before_id);
-      for (const key of ["engine", "prompt_id", "q", "status", "brand_id", "research_type", "research_value"] as const)
-        if (args[key]) q.set(key, args[key]);
-      return invoke("/runs?" + q);
-    },
+    async (args) => invoke(filteredPath("/runs", args)),
   );
   server.registerTool(
     "get_run",

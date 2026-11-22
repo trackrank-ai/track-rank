@@ -1,10 +1,12 @@
+import { analyticsScope, type AnalyticsScope, type AnswerMetric } from "./analytics-filters";
 import { normalizePromptTag, validPromptTag } from "./prompt-tags";
 
 const appTabs = ["overview", "prompts", "research", "runs", "brands", "schedules", "team", "settings", "agents", "workspaces"] as const;
 export type AppTab = typeof appTabs[number];
 export type ResearchType = "domain" | "page" | "query";
 
-export type AppSearch = {
+export type AppSearch = AnalyticsScope & {
+  metric?: AnswerMetric;
   org?: string;
   workspace?: string;
   tab?: AppTab;
@@ -28,7 +30,11 @@ export function parseAppSearch(search: Record<string, unknown>): AppSearch {
   const researchValue = typeof search.researchValue === "string" && search.researchValue.length <= 4096
     ? search.researchValue.trim() : "";
   const tag = typeof search.tag === "string" ? normalizePromptTag(search.tag) : "";
+  const scoped = !tab || tab === "overview" || tab === "runs" || tab === "research";
+  const metric = (["eligible", "coverage", "brand", "mention", "citation"] as const).find(value => value === search.metric);
   return {
+    ...(scoped ? analyticsScope(search) : { set: tab === "prompts" ? resourceId(search.set) : undefined }),
+    ...(tab === "runs" && metric ? { metric } : {}),
     org: resourceId(search.org),
     workspace: resourceId(search.workspace),
     tab,
@@ -36,8 +42,8 @@ export function parseAppSearch(search: Record<string, unknown>): AppSearch {
     tag: tab === "prompts" && validPromptTag(tag) ? tag : undefined,
     run: tab === "runs" ? resourceId(search.run) : undefined,
     runPrompt: tab === "runs" ? resourceId(search.runPrompt) : undefined,
-    researchType: tab === "research" && researchValue ? researchType : undefined,
-    researchValue: tab === "research" && researchType && researchValue ? researchValue : undefined,
+    researchType: (tab === "research" || tab === "runs") && researchValue ? researchType : undefined,
+    researchValue: (tab === "research" || tab === "runs") && researchType && researchValue ? researchValue : undefined,
     trial: search.trial === "start" ? "start" : undefined,
   };
 }

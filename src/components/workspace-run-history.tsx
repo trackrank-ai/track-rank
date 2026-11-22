@@ -1,3 +1,5 @@
+import { analyticsQuery, type AnalyticsScope, type AnswerMetric } from "@/lib/analytics-filters";
+import type { ResearchType } from "@/lib/app-location";
 import { Link } from "@tanstack/react-router";
 import { ArrowUpRight, Download } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -22,7 +24,7 @@ export function RunStatus({ value }: { value: string }) {
   return <Badge variant="outline" className={"run-status status-" + value}>{value}</Badge>;
 }
 
-export function WorkspaceRunHistory({ org, workspace, workspaceName, workspaceNames, runPrompt, prompts, brands, engines, request, refresh, onPromptChange }: {
+export function WorkspaceRunHistory({ org, workspace, workspaceName, workspaceNames, runPrompt, prompts, brands, engines, request, refresh, scope, metric, researchType, researchValue, onPromptChange }: {
   org: string;
   workspace: string;
   workspaceName: string;
@@ -33,16 +35,24 @@ export function WorkspaceRunHistory({ org, workspace, workspaceName, workspaceNa
   engines: Record<string, string>;
   request: (path: string) => Promise<Item>;
   refresh: Item[];
+  scope: AnalyticsScope;
+  metric?: AnswerMetric;
+  researchType?: ResearchType;
+  researchValue?: string;
   onPromptChange: (id: string) => void;
 }) {
   const [keyword, setKeyword] = useState("");
-  const [engine, setEngine] = useState("");
+  const [engine, setEngine] = useState(scope.engine ?? "");
   const [status, setStatus] = useState("");
   const [brand, setBrand] = useState("");
   const [page, setPage] = useState<RunPage | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
-  const query = new URLSearchParams();
-  if (workspace) query.set("workspace", workspace);
+  const query = analyticsQuery(scope, workspace);
+  if (metric) query.set("metric", metric);
+  if (researchType && researchValue) {
+    query.set("research_type", researchType);
+    query.set("research_value", researchValue);
+  }
   if (keyword.trim()) query.set("q", keyword.trim());
   if (engine) query.set("engine", engine);
   if (status) query.set("status", status);
@@ -97,6 +107,12 @@ export function WorkspaceRunHistory({ org, workspace, workspaceName, workspaceNa
           <Download size={14} /> Export CSV
         </a>
       </div>
+      {Object.values(scope).some(Boolean) && <p className="app-inline-form">
+        <Link to="/app" search={{ ...scope, org, workspace: workspace || "all", tab: researchType ? "research" : "overview", researchType, researchValue }}>
+          {researchType ? "Back to research" : "Back to Overview"}
+        </Link>
+        <Link to="/app" search={{ org, workspace: workspace || "all", tab: "runs" }}>Clear Overview filters</Link>
+      </p>}
       <div className="form-grid prompt-filters">
         <label className="app-field"><span>Search run history</span>
           <input type="search" value={keyword} onChange={e => setKeyword(e.target.value)} maxLength={200}
@@ -130,12 +146,12 @@ export function WorkspaceRunHistory({ org, workspace, workspaceName, workspaceNa
       {!current && <p role="status">Loading run history…</p>}
       {current?.error && <p role="alert">{current.error}</p>}
       {current && !current.error && !current.runs.length && (
-        <p className="data-note">{keyword || engine || status || brand || runPrompt
+        <p className="data-note">{keyword || engine || status || brand || runPrompt || metric || researchType || Object.values(scope).some(Boolean)
           ? "No runs match these filters. Try a different keyword or clear a filter."
           : "No runs in this workspace yet. Go to Prompts to start a collection."}</p>
       )}
       {current?.runs.map(run => (
-        <Link key={run.id} className="run-row" to="/app" search={{ org, workspace: workspace || "all", tab: "runs", run: run.id, runPrompt }}>
+        <Link key={run.id} className="run-row" to="/app" search={{ ...scope, org, workspace: workspace || "all", tab: "runs", run: run.id, runPrompt, metric, researchType, researchValue }}>
           <span><strong>{run.prompt_text}</strong><small>
             {!workspace && workspaceNames[run.workspace_id] && `${workspaceNames[run.workspace_id]} · `}
             {engines[run.config?.engine]} · {new Date(run.created_at).toLocaleString()} · {run.config?.mode}
