@@ -1,5 +1,6 @@
 import { promptQuestionText } from "./prompt-questions";
 import { hashToken } from "./crypto";
+import { setId, setNameSchema } from "./prompt-sets";
 import { promptTags } from "./prompt-tags";
 import {assertProviderOptions} from "./provider-options";
 import {z} from 'zod';
@@ -14,6 +15,8 @@ export const promptBatchSchema=z.object({
  texts:z.array(promptQuestionText).min(1).max(MAX_PROMPT_COMBINATIONS),
  engines:z.array(z.enum(['chatgpt','gemini','google'])).min(1).max(3),
  operation_id:z.uuid().optional(),
+ tracking_set_name:setNameSchema.shape.name.optional(),
+ tracking_set_id:setId.optional(),
  tags:promptTags.optional(),
  mode:z.enum(['standard','priority','live']).default('standard'),location_name:z.string().trim().min(2).max(200).default('United States'),language_code:z.string().min(2).max(20).default('en'),
 }).strict();
@@ -29,9 +32,15 @@ type Combination = {
  outcome: "new" | "created" | "reused" | "updated";
 };
 
-async function reviewPromptBatch(env: Env, org: string, input: unknown, save: boolean) {
+async function reviewPromptBatch(env: Env, org: string, input: unknown, save: boolean, action?: unknown) {
  const b=promptBatchSchema.parse(input);const texts=[...new Set(b.texts)],engines=[...new Set(b.engines)];
- const payloadHash = b.operation_id && save ? await hashToken(JSON.stringify(b)) : null;
+ const hasTrackingSet = b.tracking_set_name !== undefined || b.tracking_set_id !== undefined;
+ if (b.tracking_set_name && b.tracking_set_id)
+  throw new HttpError(400, "Choose a new name or an existing tracking set.");
+ if (save && hasTrackingSet && !b.operation_id)
+  throw new HttpError(400, "An operation ID is required to save questions to a tracking set.");
+ const payloadHash = b.operation_id && save
+  ? await hashToken(JSON.stringify(hasTrackingSet ? { prompts: b, action: action ?? null } : b)) : null;
  if (payloadHash) {
   const stored = await storedReceipt(env, org, b.operation_id!);
   if (stored) return replayReceipt(stored, payloadHash);
@@ -41,6 +50,10 @@ async function reviewPromptBatch(env: Env, org: string, input: unknown, save: bo
   throw new HttpError(400, `Detected ${combinations} prompt/engine combinations. Save at most ${MAX_PROMPT_COMBINATIONS} per batch.`);
  const workspace = await one<{ id: string; name: string }>(env, 'SELECT id,name FROM workspaces WHERE id=? AND org_id=? AND archived_at IS NULL',b.workspace_id,org);
  if (!workspace) throw new HttpError(404, 'Workspace not found');
+ const existingSet = b.tracking_set_id
+  ? await one<{ id: string; name: string }>(env, "SELECT id,name FROM prompt_sets WHERE org_id=? AND workspace_id=? AND id=?", org, workspace.id, b.tracking_set_id)
+  : null;
+ if (b.tracking_set_id && !existingSet) throw new HttpError(404, "Tracking set not found in this workspace");
  await requireWorkspaceBrand(env,org,b.workspace_id,b.brand_id);
  await assertProviderOptions(engines,b.location_name,b.language_code);
  const entries = texts.flatMap(text => engines.map(engine => ({ text, engine, id: uuid() })));
@@ -68,20 +81,38 @@ async function reviewPromptBatch(env: Env, org: string, input: unknown, save: bo
  const tags = b.tags === undefined ? null : JSON.stringify(b.tags);
  const receiptGuard = b.operation_id ? " AND NOT EXISTS(SELECT 1 FROM prompt_receipts WHERE org_id=? AND id=?)" : "";
  const guardArgs = b.operation_id ? [org, b.operation_id] : [];
+ const setExists = "EXISTS(SELECT 1 FROM prompt_sets WHERE org_id=? AND workspace_id=? AND id=?)";
+ const workspaceExists = "EXISTS(SELECT 1 FROM workspaces WHERE org_id=? AND id=? AND archived_at IS NULL)";
+ const targetGuard = existingSet ? " AND " + setExists : hasTrackingSet ? " AND " + workspaceExists : "";
+ const targetArgs = existingSet ? [org, b.workspace_id, existingSet.id] : hasTrackingSet ? [org, b.workspace_id] : [];
  const insert = env.DB.prepare(`INSERT INTO prompts(id,org_id,workspace_id,brand_id,text,engine,mode,
    location_name,language_code,created_at,updated_at,tags)
    SELECT json_extract(c.value,'$.id'),?,?,?,json_extract(c.value,'$.text'),
      json_extract(c.value,'$.engine'),?,?,?,?,?,?
    FROM json_each(?) c
-   WHERE NOT EXISTS(SELECT 1 FROM prompts p WHERE ${sameCombination})${receiptGuard}`)
+   WHERE NOT EXISTS(SELECT 1 FROM prompts p WHERE ${sameCombination})${receiptGuard}${targetGuard}`)
   .bind(org, b.workspace_id, b.brand_id ?? null, b.mode, b.location_name, b.language_code,
-   time, time, tags ?? "[]", selection, ...scope, ...guardArgs);
+   time, time, tags ?? "[]", selection, ...scope, ...guardArgs, ...targetArgs);
  if (payloadHash) {
+  const trackingSet = existingSet ?? (b.tracking_set_name ? { id: uuid(), name: b.tracking_set_name } : null);
+  const statements = [insert];
+  if (trackingSet && !existingSet) {
+   statements.push(env.DB.prepare(`INSERT INTO prompt_sets(id,org_id,workspace_id,name)
+     SELECT ?,org_id,id,? FROM workspaces WHERE org_id=? AND id=? AND archived_at IS NULL${receiptGuard}`)
+    .bind(trackingSet.id, trackingSet.name, org, b.workspace_id, ...guardArgs));
+  }
+  if (trackingSet) {
+   statements.push(env.DB.prepare(`INSERT OR IGNORE INTO prompt_set_members(org_id,workspace_id,set_id,prompt_id)
+     SELECT ?,?,?,id FROM (${reviewSql}) WHERE id IS NOT NULL AND ${setExists}${receiptGuard}`)
+    .bind(org, b.workspace_id, trackingSet.id, ...reviewArgs, org, b.workspace_id, trackingSet.id, ...guardArgs));
+  }
+  const receiptSetGuard = trackingSet ? " HAVING " + setExists : "";
+  const receiptSetArgs = trackingSet ? [org, b.workspace_id, trackingSet.id] : [];
   const saveReceipt = env.DB.prepare(`INSERT OR IGNORE INTO prompt_receipts(org_id,id,payload_hash,receipt,created_at)
-    SELECT ?,?,?,json_object('id',?,'workspace',json(?),'questions',?,'saved_combinations',count(id),
-      'prompts',json_group_array(json_object('id',id,'text',text,'engine',engine,'monitoring',monitoring,'outcome',outcome))),?
-    FROM (${reviewSql})`).bind(org, b.operation_id, payloadHash, b.operation_id, JSON.stringify(workspace), texts.length, time, ...reviewArgs);
-  await env.DB.batch([insert, saveReceipt]);
+    SELECT ?,?,?,json_patch(json_object('id',?,'workspace',json(?),'questions',?,'saved_combinations',count(id),
+      'prompts',json_group_array(json_object('id',id,'text',text,'engine',engine,'monitoring',monitoring,'outcome',outcome))),json(?)),?
+    FROM (${reviewSql})${receiptSetGuard}`).bind(org, b.operation_id, payloadHash, b.operation_id, JSON.stringify(workspace), texts.length, JSON.stringify(trackingSet ? { tracking_set: trackingSet } : {}), time, ...reviewArgs, ...receiptSetArgs);
+  await env.DB.batch([...statements, saveReceipt]);
   const stored = await storedReceipt(env, org, b.operation_id!);
   if (!stored) throw new HttpError(409, "The save receipt is unavailable. Retry the same operation.");
   return replayReceipt(stored, payloadHash);
@@ -96,11 +127,11 @@ export function previewPromptBatch(env: Env, org: string, input: unknown) {
  return reviewPromptBatch(env, org, input, false);
 }
 
-export function savePromptBatch(env: Env, org: string, input: unknown) {
- return reviewPromptBatch(env, org, input, true);
+export function savePromptBatch(env: Env, org: string, input: unknown, action?: unknown) {
+ return reviewPromptBatch(env, org, input, true, action);
 }
 
-type Receipt = { id?: string; workspace: { id: string; name: string }; questions: number; saved_combinations: number; prompts: Combination[] };
+type Receipt = { id?: string; tracking_set?: { id: string; name: string }; workspace: { id: string; name: string }; questions: number; saved_combinations: number; prompts: Combination[] };
 
 function storedReceipt(env: Env, org: string, id: string) {
  return one<{ payload_hash: string; receipt: string }>(env, "SELECT payload_hash,receipt FROM prompt_receipts WHERE org_id=? AND id=?", org, id);

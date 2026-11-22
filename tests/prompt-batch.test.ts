@@ -141,6 +141,44 @@ test("REST and MCP share receipt actions, exact batch status and readiness", asy
   assert.equal(blocked.schedule, null);
   assert.equal(sql.prepare("SELECT count(*) AS n FROM runs").get()?.n, 0);
   assert.equal(sql.prepare("SELECT count(*) AS n FROM schedules").get()?.n, 0);
+  const named = {
+    ...payload, texts: [...payload.texts, "A question about tracking sets?"],
+    tracking_set_name: "Example tracking set", operation_id: crypto.randomUUID(),
+  };
+  const namedPreview = await tool("preview_prompts", named);
+  assert.deepEqual(namedPreview.prompts.map((row: any) => row.outcome), ["reused", "reused", "new", "new"]);
+  assert.equal(sql.prepare("SELECT count(*) AS n FROM prompt_sets").get()?.n, 0);
+  const namedReceipt = await call("/prompts/bulk-submit", { prompts: named });
+  const namedReplay = await tool("submit_prompt_batch", { prompts: named });
+  assert.deepEqual(namedReplay, namedReceipt);
+  assert.equal(namedReceipt.tracking_set.name, named.tracking_set_name);
+  assert.equal(sql.prepare("SELECT count(*) AS n FROM prompt_set_members WHERE set_id=?").get(namedReceipt.tracking_set.id)?.n, 4);
+  assert.equal(sql.prepare("SELECT count(*) AS n FROM runs").get()?.n, 0);
+  assert.equal(sql.prepare("SELECT count(*) AS n FROM schedules").get()?.n, 0);
+  const existingOnly = await tool("submit_prompt_batch", {
+    prompts: { ...named, operation_id: crypto.randomUUID(), tracking_set_name: "Existing combinations" },
+  });
+  assert.ok(existingOnly.prompts.every((row: any) => row.outcome === "reused"));
+  assert.equal(sql.prepare("SELECT count(*) AS n FROM prompt_set_members WHERE set_id=?").get(existingOnly.tracking_set.id)?.n, 4);
+  await assert.rejects(call("/prompts/bulk-submit", {
+    prompts: named,
+    action: { approved: [{ question: 1, engine: "chatgpt" }], schedule },
+  }), { status: 409 });
+  assert.equal(sql.prepare("SELECT count(*) AS n FROM prompt_sets").get()?.n, 2);
+  assert.equal(sql.prepare("SELECT count(*) AS n FROM schedules").get()?.n, 0);
+  const append = {
+    ...named, tracking_set_name: undefined, tracking_set_id: namedReceipt.tracking_set.id,
+    texts: ["An additional question?"], engines: ["chatgpt"], operation_id: crypto.randomUUID(),
+  };
+  const appended = await tool("submit_prompt_batch", { prompts: append });
+  assert.deepEqual(await call("/prompts/bulk-submit", { prompts: append }), appended);
+  assert.deepEqual(appended.tracking_set, namedReceipt.tracking_set);
+  assert.equal(sql.prepare("SELECT count(*) AS n FROM prompt_set_members WHERE set_id=?").get(namedReceipt.tracking_set.id)?.n, 5);
+  sql.exec("INSERT INTO workspaces(id,org_id,name,created_at) VALUES('elsewhere','org','Elsewhere',0)");
+  await assert.rejects(call("/prompts/bulk-submit", {
+    prompts: { ...append, workspace_id: "elsewhere", operation_id: crypto.randomUUID() },
+  }), { status: 404 });
+  assert.equal(sql.prepare("SELECT count(*) AS n FROM prompt_questions WHERE workspace_id='elsewhere'").get()?.n, 0);
   env.CREDENTIALS_KEY = Buffer.alloc(32, 4).toString("base64");
   env.RUN_WORKFLOW = { createBatch: async ({instances}: any) => ({created: instances, errors: []}) } as any;
   sql.prepare("INSERT INTO credentials VALUES(?,?,1,0)").run("org", await seal(env, "org", { login: "test", password: "fixture" }));
@@ -157,6 +195,44 @@ test("REST and MCP share receipt actions, exact batch status and readiness", asy
   const loaded = await call("/runs/batches/" + operation_id);
   assert.deepEqual(loaded.runs.map((run: any) => run.status), ["uncertain", "succeeded"]);
   assert.equal(sql.prepare("SELECT count(*) AS n FROM schedules").get()?.n, 2);
+
+  const recurring = {
+    prompts: { ...named, texts: ["Scheduled tracking set question?"], engines: ["google"], operation_id: crypto.randomUUID() },
+    action: { approved: [{ question: 0, engine: "google" }], schedule },
+  };
+  const futureOnly = await tool("submit_prompt_batch", recurring);
+  const futureReplay = await call("/prompts/bulk-submit", recurring);
+  assert.deepEqual(futureReplay, futureOnly);
+  assert.equal(futureOnly.result.run, null);
+  assert.equal(futureOnly.result.schedule.schedules.length, 1);
+  assert.ok(futureOnly.result.schedule.schedules[0].next_due_at > Date.now());
+  assert.equal(sql.prepare("SELECT count(*) AS n FROM runs").get()?.n, 2);
+
+
+  const optedIn = {
+    prompts: { ...append, operation_id: crypto.randomUUID() },
+    action: { approved: [{ question: 0, engine: "chatgpt", existing_id: appended.prompts[0].id }], run_samples: 1 },
+  };
+  const opted = await tool("submit_prompt_batch", optedIn);
+  assert.deepEqual(await call("/prompts/bulk-submit", optedIn), opted);
+  assert.equal(opted.result.run.accepted, 1);
+  const stored = await tool("get_prompt_receipt", { operation_id: opted.id });
+  assert.deepEqual(await tool("start_prompt_receipt", { operation_id: opted.id, action: stored.action.selection }), opted.result);
+  assert.equal(sql.prepare("SELECT count(*) AS n FROM runs").get()?.n, 3);
+
+  const optInRecurring = {
+    ...optedIn, prompts: { ...append, operation_id: crypto.randomUUID() },
+    action: { approved: optedIn.action.approved, schedule },
+  };
+  const scheduledExisting = await tool("submit_prompt_batch", optInRecurring);
+  assert.equal(scheduledExisting.result.schedule.schedules.length, 1);
+  const unchanged = await tool("submit_prompt_batch", {
+    ...optInRecurring, prompts: { ...append, operation_id: crypto.randomUUID() },
+  });
+  assert.equal(unchanged.result, null);
+  assert.equal(sql.prepare("SELECT count(*) AS n FROM schedules WHERE prompt_id=?").get(appended.prompts[0].id)?.n, 1);
+  assert.equal(sql.prepare("SELECT count(*) AS n FROM runs").get()?.n, 3);
+
 });
 
 test("shared question migration preserves engine and historical references", () => {

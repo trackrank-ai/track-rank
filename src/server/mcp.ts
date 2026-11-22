@@ -281,7 +281,7 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
     inputSchema: { operation_id: z.uuid() },
   }, async ({ operation_id }) => invoke("/prompts/receipts/" + operation_id));
   server.registerTool("submit_prompt_batch", {
-    description: "Save reviewed prompt variants and optionally collect or schedule only the approved new combinations. Confirm provider spend before requesting active collection. Retry with identical arguments.",
+    description: "Save reviewed prompt variants, optionally create or add to a tracking set, and collect only approved variants. Include an exact existing_id to opt a saved variant into collection when saving to a tracking set. Confirm provider spend before requesting active collection. Retry with identical arguments.",
     inputSchema: submitPromptBatchSchema,
   }, async args => invoke("/prompts/bulk-submit", "POST", args));
   server.registerTool("start_prompt_receipt", {
@@ -295,7 +295,7 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
   server.registerTool(
     "save_prompts",
     {
-      description: "Save a batch of prompts with shared tags. Exact matches reuse existing variants. Saving does not start any runs.",
+      description: "Save a batch of prompts with shared tags. Pass an operation ID with tracking_set_name to create a set or tracking_set_id to add all saved variants to a set. Exact matches reuse existing variants. Saving does not start any runs.",
       inputSchema: promptBatchSchema,
     },
     async (args) => invoke("/prompts/bulk", "POST", args),

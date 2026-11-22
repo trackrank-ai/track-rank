@@ -33,8 +33,8 @@ export function monitoringProjection(timing: MonitoringTiming, count: number) {
   };
 }
 
-export function MonitoringEditor({ timing, change, count, expanded = false }: {
-  timing: MonitoringTiming; change: (value: MonitoringTiming) => void; count: number; expanded?: boolean;
+export function MonitoringEditor({ timing, change, count, expanded = false, showProjection = true }: {
+  timing: MonitoringTiming; change: (value: MonitoringTiming) => void; count: number; expanded?: boolean; showProjection?: boolean;
 }) {
   const weekdayGroup = useId();
   const repetitionsHintId = `${weekdayGroup}-samples`;
@@ -89,6 +89,6 @@ export function MonitoringEditor({ timing, change, count, expanded = false }: {
         </details>
       </div>
     </details>
-    {projection.weekly !== null && <p className="data-note">{projection.weekly} checks per scheduled week{projection.next && ` · First occurrence ${projection.next}`}</p>}
+    {showProjection && projection.weekly !== null && <p className="data-note">{projection.weekly} checks per scheduled week{projection.next && ` · First occurrence ${projection.next}`}</p>}
   </div>;
 }

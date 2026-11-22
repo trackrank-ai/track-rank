@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { bulkScheduleSchema, createBulkRuns, createBulkSchedules, selectedRows } from "./bulk";
 import { getPromptReceipt, promptBatchSchema, savePromptBatch } from "./prompt-batch";
+import { setId } from "./prompt-sets";
 import { exec, HttpError, one, type Env } from "./types";
 
 function validateTimezone(timezone?: string) {
@@ -24,6 +25,7 @@ export const submitPromptBatchSchema = z.object({
     approved: z.array(z.object({
       question: z.number().int().min(0).max(499),
       engine: z.enum(["chatgpt", "gemini", "google"]),
+      existing_id: setId.optional(),
     }).strict()).min(1).max(500),
   }).refine(value => value.run_samples || value.schedule, "Choose a collection or schedule action").optional(),
 }).strict();
@@ -35,18 +37,33 @@ export async function submitPromptBatch(
   const { prompts, action } = input;
   validateTimezone(action?.schedule?.timezone);
   const texts = [...new Set(prompts.texts)];
-  const approved = new Set<string>();
+  const approved = new Map<string, string | undefined>();
   for (const item of action?.approved ?? []) {
     if (!texts[item.question] || !prompts.engines.includes(item.engine))
       throw new HttpError(400, "The confirmed combination is outside the submitted selection");
-    approved.add(JSON.stringify([texts[item.question], item.engine]));
+    if (item.existing_id && !prompts.tracking_set_name && !prompts.tracking_set_id)
+      throw new HttpError(400, "Existing variants can only be approved when saving questions to a tracking set");
+    const key = JSON.stringify([texts[item.question], item.engine]);
+    if (approved.has(key) && approved.get(key) !== item.existing_id)
+      throw new HttpError(400, "Conflicting approvals for an engine combination");
+    approved.set(key, item.existing_id);
   }
-  const receipt = await savePromptBatch(env, org, prompts);
-  const ids = receipt.prompts.filter(row => row.outcome === "created" && approved.has(JSON.stringify([row.text, row.engine])))
-    .map(row => row.id as string);
+  const receipt = await savePromptBatch(env, org, prompts, action);
+  const approvedExisting = new Set<string>();
+  const ids: string[] = [];
+  for (const row of receipt.prompts) {
+    const key = JSON.stringify([row.text, row.engine]);
+    if (!row.id || !approved.has(key)) continue;
+    const existingId = approved.get(key);
+    if (existingId === undefined && row.outcome === "created") ids.push(row.id);
+    if (existingId === row.id && row.outcome === "reused" && (!action?.schedule || row.monitoring === "none")) {
+      approvedExisting.add(row.id);
+      ids.push(row.id);
+    }
+  }
   const result = action && ids.length ? await applyReceiptAction(env, org, prompts.operation_id, {
     prompt_ids: ids, run_samples: action.run_samples, schedule: action.schedule,
-  }, dispatch) : null;
+  }, dispatch, approvedExisting) : null;
   return { ...receipt, result };
 }
 
@@ -64,24 +81,32 @@ export async function readReceiptAction(env: Env, org: string, id: string) {
   } : null;
 }
 
+function collectionPayload(input: z.output<typeof receiptActionSchema>, promptIds: string[]) {
+  return JSON.stringify({ prompt_ids: promptIds, run_samples: input.run_samples, schedule: input.schedule });
+}
+
 export async function applyReceiptAction(
   env: Env, org: string, id: string, input: z.output<typeof receiptActionSchema>,
   dispatch: (ids: string[]) => void,
+  approvedExisting?: ReadonlySet<string>,
 ) {
   validateTimezone(input.schedule?.timezone);
   const receipt = await getPromptReceipt(env, org, id);
   const promptIds = [...new Set(input.prompt_ids)].sort();
-  const permitted = new Set(receipt.prompts.filter(prompt => prompt.outcome === "created").map(prompt => prompt.id));
-  if (promptIds.some(prompt => !permitted.has(prompt))) throw new HttpError(409, "Choose new prompt combinations from this receipt");
-  const payload = JSON.stringify({ ...input, prompt_ids: promptIds });
+  const payload = collectionPayload(input, promptIds);
   const previous = await storedAction(env, org, id);
   if (!previous) {
+    const permitted = new Set(receipt.prompts.filter(prompt => prompt.outcome === "created").map(prompt => prompt.id));
+    if (promptIds.some(prompt => !permitted.has(prompt) && !approvedExisting?.has(prompt)))
+      throw new HttpError(409, "Choose confirmed prompt combinations from this receipt");
     const prompts = await selectedRows(env, org, "prompts", promptIds, null);
     if (prompts.some(prompt => prompt.workspace_id !== receipt.workspace.id)) throw new HttpError(409, "The selection changed workspace");
     await exec(env, "INSERT OR IGNORE INTO prompt_receipt_actions(org_id,receipt_id,payload) VALUES(?,?,?)", org, id, payload);
   }
   const action = await storedAction(env, org, id);
-  if (action?.payload !== payload) throw new HttpError(409, "This receipt already has a different collection action");
+  const saved = action ? receiptActionSchema.parse(JSON.parse(action.payload)) : null;
+  if (!action || !saved || collectionPayload(saved, saved.prompt_ids) !== payload)
+    throw new HttpError(409, "This receipt already has a different collection action");
   let run = action.run_result ? JSON.parse(action.run_result) : null;
   let schedule = action.schedule_result ? JSON.parse(action.schedule_result) : null;
   try {
