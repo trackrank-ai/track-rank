@@ -161,7 +161,6 @@ function Login() {
       </div>
       <Card className="auth-card">
         <CardContent>
-          <span className="section-eyebrow">YOUR NEXT MOVE STARTS HERE</span>
           <h1>
             {mode === "signup"
               ? "Create your account."
