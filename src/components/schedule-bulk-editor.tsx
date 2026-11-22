@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { editedScheduleTimes, scheduleDays, type SchedulePatch, type SchedulePreset } from "@/lib/schedule-settings";
+import { editedScheduleTimes, parseSampleCount, sampleCountError, scheduleDays, type SchedulePatch, type SchedulePreset } from "@/lib/schedule-settings";
 
 type Schedule = {
   preset: SchedulePreset;
@@ -21,13 +21,15 @@ export function ScheduleBulkEditor({ rows, busy, save, cancel }: {
   cancel: () => void;
 }) {
   const [patch, setPatch] = useState<SchedulePatch>({});
+  const [samples, setSamples] = useState("");
+  const samplesHintId = useId();
   const [replaceTimes, setReplaceTimes] = useState(false);
   const [slots, setSlots] = useState("");
   const times = slots.split(",").map(value => value.trim());
   const validTimes = times.length <= 8 && times.every(time => /^([01]\d|2[0-3]):[0-5]\d$/.test(time));
-  const validRepetitions = patch.repetitions === undefined
-    || (Number.isInteger(patch.repetitions) && patch.repetitions >= 1 && patch.repetitions <= 10);
-  const changes = replaceTimes && validTimes ? { ...patch, times } : patch;
+  const repetitions = parseSampleCount(samples);
+  const validRepetitions = samples === "" || repetitions !== undefined;
+  const changes = { ...patch, repetitions, ...(replaceTimes && validTimes ? { times } : {}) };
   function currentValue(values: string[]) {
     return new Set(values).size > 1 ? "Mixed" : values[0];
   }
@@ -75,13 +77,14 @@ export function ScheduleBulkEditor({ rows, busy, save, cancel }: {
     </fieldset>}
     <details className="advanced-settings">
       <summary>Advanced timing
-        {patch.repetitions !== undefined && ` · ${patch.repetitions} samples per slot`}
+        {repetitions !== undefined && ` · ${repetitions} samples per slot`}
         {replaceTimes && " · Replace time slots"}
       </summary>
       <div className="form-stack">
         <label className="app-field"><span>Samples per slot · {currentValue(rows.map(row => String(row.repetitions)))}</span>
-          <input type="number" placeholder="Keep each sample count" aria-invalid={!validRepetitions} value={patch.repetitions ?? ""} onChange={e => setPatch(current => ({ ...current, repetitions: e.target.value ? Number(e.target.value) : undefined }))} />
-          {!validRepetitions && <small>Enter a whole number from 1 to 10.</small>}
+          <input inputMode="numeric" placeholder="Keep each sample count" aria-invalid={!validRepetitions}
+            aria-describedby={!validRepetitions ? samplesHintId : undefined} value={samples} onChange={e => setSamples(e.target.value)} />
+          {!validRepetitions && <small id={samplesHintId}>{sampleCountError}</small>}
         </label>
         <label className="check-field"><input type="checkbox" checked={replaceTimes} onChange={e => {
           setReplaceTimes(e.target.checked);
@@ -93,7 +96,7 @@ export function ScheduleBulkEditor({ rows, busy, save, cancel }: {
         </label>}
       </div>
     </details>
-    <p aria-live="polite">{rows.length} schedules selected. Expected active checks per week {weekly({})} → {weekly(changes)}.</p>
+    <p aria-live="polite">{rows.length} schedules selected. Expected active checks per week {weekly({})}{validRepetitions ? ` → ${weekly(changes)}` : ""}.</p>
     <div className="form-actions">
       <Button disabled={!canSave}>Save settings</Button>
       <Button type="button" variant="ghost" onClick={cancel}>Cancel bulk edit</Button>

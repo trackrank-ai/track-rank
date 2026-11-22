@@ -25,6 +25,9 @@ test('calculator never promises savings for more expensive or incomparable confi
   assert.equal(estimatePricing(plans,351,3,1,30,.01)!.alternative,undefined);
   for (const value of [NaN,Infinity,-1,0,1.5]) assert.equal(estimatePricing(plans,value,3,1,30,.01),null);
   assert.equal(estimatePricing(plans,50,3,1,30,-1),null);
+  assert.equal(estimatePricing(plans,1_000_001,3,1,30,.01),null);
+  assert.equal(estimatePricing(plans,50,4,1,30,.01),null);
+  assert.equal(estimatePricing(plans,50,3,11,30,.01),null);
   assert.equal(estimatePricing(plans.filter(p=>p.currency==='eur'),50,3,1,30,.01)!.plan,undefined);
 });
 test('trial countdown rounds partial days up, clamps expiry and renders persistent Starter context', () => {

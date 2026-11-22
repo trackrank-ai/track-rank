@@ -1,5 +1,7 @@
 # TrackRank design system
 
+The [November 2026 technical audit](design-audit-2026-11-22.md) records measured contrast, spacing and responsive behavior across the public site and authenticated app.
+
 ## Foundation
 
 Use shadcn/ui (New York / neutral, CSS-variable theming) and Tailwind CSS v4. Components are owned source in `src/components/ui`, added from the official registry using `npx shadcn@latest add <component>`. Configuration lives in `components.json`. Prefer these components over one-off primitives; use `cn` for class composition.
@@ -27,6 +29,8 @@ For a workspace awaiting its first collection, put the next setup step ahead of 
 Use `form-stack` for related fields, `form-grid` for independent columns, `app-inline-form` for a field and its action, and `form-actions` for a group of buttons. Align the submit button with the input edge below its label. At narrow widths let fields take their own line and wrap related buttons together. Keep a consistent control height within a row and allow larger touch targets.
 
 Keep the selection count, Run and Schedule visible together. Open **Manage selection** for moving, tagging or deleting the selected variants. Keep sampling and engine settings under Advanced. Show active report filters and schedule timing in their disclosure summaries.
+
+Group variant settings and their actions on separate rows with a visible gap. Let the settings use the full row at narrow widths. Numeric fields should tolerate clearing and retyping, show their valid range, and enable the affected action when the draft is valid.
 
 ## Bulk selection
 

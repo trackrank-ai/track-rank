@@ -1580,7 +1580,7 @@ input:is([type="checkbox"], [type="radio"]) {
   justify-content: center;
   flex-direction: column;
   font-size: 13px;
-  color: var(--text-8b7c69, #8b7c69);
+  color: var(--muted-foreground);
 }
 .app-shell {
   display: grid;
@@ -1621,9 +1621,8 @@ input:is([type="checkbox"], [type="radio"]) {
   gap: 9px;
 }
 .org-switcher > span {
-  font-size: 8px;
-  letter-spacing: 1px;
-  color: var(--text-9c8d7a, #9c8d7a);
+  font-size: .75rem;
+  color: var(--muted-foreground);
 }
 .org-switcher select {
   text-overflow: ellipsis;
@@ -1639,15 +1638,19 @@ input:is([type="checkbox"], [type="radio"]) {
   max-width: 100%;
 }
 .create-org {
-  font-size: 9px;
-  color: var(--text-8c7b65, #8c7b65);
+  font-size: .8125rem;
+  color: var(--muted-foreground);
   margin-top: 9px;
 }
 .create-org summary {
   display: flex;
   align-items: center;
   gap: 5px;
+  min-height: 1.5rem;
   cursor: pointer;
+}
+@media (pointer: coarse) {
+  .create-org summary { min-height: 2.75rem; }
 }
 .create-org form {
   display: flex;
@@ -1726,13 +1729,13 @@ input:is([type="checkbox"], [type="radio"]) {
 }
 .app-sidebar-bottom small {
   display: block;
-  font-size: 9px;
-  color: var(--text-9d8c75, #9d8c75);
+  font-size: .75rem;
+  color: var(--muted-foreground);
   margin-top: 4px;
 }
 .app-sidebar-bottom [data-slot="button"] {
   font-size: 10px;
-  color: var(--text-8b7054, #8b7054);
+  color: var(--muted-foreground);
   padding-left: 0;
 }
 .app-main {
@@ -1766,6 +1769,8 @@ input:is([type="checkbox"], [type="radio"]) {
 .app-topbar strong {
   color: var(--text-62513b, #62513b);
   font-weight: 450;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 .app-slash {
@@ -1923,8 +1928,8 @@ input:is([type="checkbox"], [type="radio"]) {
   padding: 20px;
 }
 .app-stat span {
-  font-size: 10px;
-  color: var(--text-998366, #998366);
+  font-size: .75rem;
+  color: var(--muted-foreground);
 }
 .app-stat strong {
   display: block;
@@ -1934,8 +1939,8 @@ input:is([type="checkbox"], [type="radio"]) {
   margin-block: 12px 8px;
 }
 .app-stat small {
-  font-size: 8px;
-  color: var(--text-a68f70, #a68f70);
+  font-size: .75rem;
+  color: var(--muted-foreground);
 }
 .app-content > [data-slot="card"],
 .app-two-col > [data-slot="card"] {
@@ -1976,7 +1981,7 @@ input:is([type="checkbox"], [type="radio"]) {
 }
 .panel-title [data-slot="button"] {
   font-size: 9px;
-  color: var(--text-a37249, #a37249);
+  color: var(--muted-foreground);
 }
 .empty-state {
   text-align: center;
@@ -2190,8 +2195,9 @@ form.app-inline-form,
   display: flex;
   align-items: center;
   gap: 9px;
-  font-size: 11px;
-  color: var(--text-94704b, #94704b);
+  font-size: .875rem;
+  color: var(--muted-foreground);
+  min-height: 1.5rem;
   cursor: pointer;
 }
 .idea-option {
@@ -2208,16 +2214,15 @@ form.app-inline-form,
   cursor: pointer;
 }
 .saved-prompt {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-  padding-block: 18px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: .5rem 1rem;
+  padding-block: 1rem;
   border-top: 1px solid var(--border);
 }
-.saved-prompt > div:first-child {
-  flex: 1;
-  min-width: 0;
+.saved-prompt[data-selectable="true"] {
+  grid-template-columns: auto minmax(0, 1fr) auto;
 }
 .saved-prompt strong {
   font-size: 12px;
@@ -2227,18 +2232,13 @@ form.app-inline-form,
 }
 .saved-prompt small {
   display: block;
-  font-size: 9px;
-  color: var(--text-a58c6b, #a58c6b);
+  font-size: .75rem;
+  color: var(--muted-foreground);
   line-height: 1.7;
   margin-top: 6px;
 }
-.saved-prompt > div:last-child {
-  display: flex;
-  gap: 7px;
-}
-.saved-prompt [data-slot="button"] {
-  font-size: 9px;
-  height: 29px;
+.saved-prompt-action {
+  justify-self: start;
 }
 .citation-row {
   display: flex;
@@ -2281,6 +2281,9 @@ form.app-inline-form,
   font-size: 10px;
   padding-inline: 12px;
   cursor: pointer;
+}
+.app-content [data-slot="tabs-trigger"][data-state="inactive"]:not(:hover) {
+  color: var(--muted-foreground);
 }
 .app-content [data-slot="tabs-content"] {
   min-width: 0;
@@ -2593,9 +2596,6 @@ form.app-inline-form,
     width: 100%;
     margin: 0;
   }
-  .saved-prompt {
-    align-items: start;
-  }
   .schedule-row {
     flex-wrap: wrap;
   }
@@ -2642,19 +2642,19 @@ form.app-inline-form,
   .app-brand {
     font-size: 19px;
   }
-  .org-switcher {
+  .app-sidebar .org-switcher {
     margin: 0;
     gap: 4px;
     max-width: 155px;
   }
-  .org-switcher > span {
+  .app-sidebar .org-switcher > span {
     display: none;
   }
-  .org-switcher select {
+  .app-sidebar .org-switcher select {
     font-size: 10px;
     padding: 7px;
   }
-  .create-org {
+  .app-sidebar .create-org {
     grid-column: 1/3;
     margin: 0;
   }
@@ -2765,14 +2765,10 @@ form.app-inline-form,
   .app-stat [data-slot="card-content"] {
     padding: 15px;
   }
-  .app-stat span {
-    font-size: 9px;
-  }
   .app-stat strong {
     font-size: 30px;
   }
   .app-stat small {
-    font-size: 7px;
     line-height: 1.7;
     display: block;
   }
@@ -2830,18 +2826,8 @@ form.app-inline-form,
   .check-field {
     font-size: 10px;
   }
-  .saved-prompt {
-    flex-direction: column;
-    gap: 13px;
-  }
-  .saved-prompt > div:last-child {
-    align-self: end;
-  }
   .saved-prompt strong {
     font-size: 11px;
-  }
-  .saved-prompt small {
-    font-size: 8px;
   }
   .saved-prompt code,
   .simple-row code {
@@ -3198,7 +3184,7 @@ form.app-inline-form,
 .dark .theme-toggle .theme-sun { display:block; }
 .dark .theme-toggle .theme-moon { display:none; }
 .auth-theme { position:absolute; top:28px; right:24px; }
-.topbar-actions { display:flex; align-items:center; gap:8px; }
+.topbar-actions { display:flex; flex:none; align-items:center; gap:8px; }
 @media(max-width:600px) { .header nav { gap:10px; } .header nav>a { display:none; } .topbar-actions .invite-shortcut { font-size:0; gap:0; padding:8px; } .app-topbar { flex-wrap:wrap; height:auto; min-height:64px; gap:10px; padding-block:12px; } }
 
 /* Public legal/support pages share the saved light/dark theme. */
@@ -3217,11 +3203,15 @@ form.app-inline-form,
 .legal-content li { margin-block:10px; }
 .legal-content a,.auth-legal a { text-decoration:underline; text-underline-offset:3px; }
 .legal-links { display:flex; flex-wrap:wrap; gap:10px 18px; font-size:.8rem; }
+.legal-links a { display:inline-flex; align-items:center; min-height:1.5rem; }
 .legal-links a:hover { text-decoration:underline; text-underline-offset:3px; }
 .legal-links a:focus-visible,.legal-page a:focus-visible { outline:2px solid var(--ring); outline-offset:4px; }
 .legal-footer { display:flex; flex-wrap:wrap; gap:20px; justify-content:space-between; padding-block:28px; border-top:1px solid var(--border); font-size:.8rem; color:var(--muted-foreground); }
 .auth-legal { font-size:.78rem; line-height:1.6; color:var(--muted-foreground); margin-block:18px; }
-.auth-panel .legal-links { margin-block:18px; }
+.auth-card .legal-links { margin-block:1rem; }
+@media (pointer: coarse) {
+  .legal-links a { min-height: 2.75rem; }
+}
 .footer { flex-wrap:wrap; gap:20px; }
 @media(max-width:600px) { .legal-content { margin-top:16px; } .legal-header { padding-block:20px; } }
 
@@ -3312,24 +3302,23 @@ form.app-inline-form,
 }
 
 
-.saved-prompt {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start;
+.saved-prompt[data-selectable="true"] > .prompt-variants {
+  grid-column: 2 / -1;
 }
-.saved-prompt[data-selectable="true"] {
-  grid-template-columns: auto minmax(0, 1fr) auto;
-}
-.prompt-variants {
-  margin-top: 8px;
-}
-.prompt-variants summary {
+.prompt-variants > summary {
   cursor: pointer;
+  padding-block: .375rem;
 }
 .prompt-variant {
   border-top: 1px solid var(--border);
-  margin-top: 10px;
-  padding-top: 10px;
+  margin-block-start: .75rem;
+  padding-block-start: .75rem;
+}
+.prompt-variant > .advanced-settings {
+  max-inline-size: 48rem;
+}
+.prompt-variant > .bulk-selection {
+  margin-block-start: .75rem;
 }
 .prompt-row-title {
   display: flex;
@@ -3346,15 +3335,21 @@ form.app-inline-form,
 .dark .prompt-engine-icon img[src$="/chatgpt.svg"] {
   filter: invert(1);
 }
-@media (max-width: 640px) {
-  .saved-prompt {
-    grid-template-columns: minmax(0, 1fr);
+@media (pointer: coarse) {
+  .ideas-panel > summary,
+  .prompt-variants > summary {
+    min-height: 2.75rem;
+    align-content: center;
   }
+}
+@media (max-width: 640px) {
   .saved-prompt[data-selectable="true"] {
     grid-template-columns: auto minmax(0, 1fr);
   }
-  .saved-prompt > div:last-child {
-    grid-column: -2 / -1;
-    flex-wrap: wrap;
+  .saved-prompt-action {
+    grid-column: 2;
+  }
+  .prompt-variant > .bulk-selection > .check-field {
+    flex-basis: 100%;
   }
 }

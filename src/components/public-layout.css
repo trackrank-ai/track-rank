@@ -2,6 +2,7 @@
   --public-muted: #5c574f;
   --public-record: #f3efe7;
   --public-rule: #d9d2c5;
+  container: public-page / inline-size;
   min-height: 100vh;
 }
 
@@ -66,6 +67,7 @@
   line-height: .99;
   letter-spacing: -.04em;
   text-wrap: balance;
+  overflow-wrap: anywhere;
 }
 
 .public-hero h1 em { color: var(--primary); font-style: normal; }
@@ -79,7 +81,13 @@
 }
 
 .public-hosting-actions { display: flex; flex-wrap: wrap; gap: .65rem; }
-.public-hosting-actions a { min-height: 2.75rem; }
+.public-hosting-actions a {
+  max-width: 100%;
+  min-height: 2.75rem;
+  height: auto;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 .public-hosting p {
   max-width: 62ch;
   margin-top: .85rem;
@@ -171,6 +179,7 @@
   line-height: 1;
   letter-spacing: -.04em;
   margin-bottom: .8rem;
+  overflow-wrap: anywhere;
 }
 .public-page .pricing-grid {
   margin-block: 1.45rem .65rem;
@@ -210,6 +219,7 @@
 }
 
 .public-page .calculator-inputs { align-items: end; }
+.public-page .calculator-inputs :is(input, select) { border-color: var(--public-muted); }
 .public-page .calculator-results article { border-radius: 14px; }
 .public-page .data-note { font-size: .85rem; }
 .public-page .calculator-results h3 { font-weight: 650; }
@@ -221,12 +231,12 @@
 .public-footer { border-block-start: 1px solid var(--border); line-height: 1.5; }
 .public-footer > span { color: var(--public-muted); font-size: .8rem; }
 
-@media (max-width: 770px) {
-  .public-page .shell { width: calc(100% - 2rem); }
-  .public-header { position: relative; padding-block: .85rem; gap: .6rem; }
+@container public-page (max-width: 48.125rem) {
+  .public-page .shell { width: calc(100% - min(2rem, 10vw)); }
+  .public-header { position: relative; flex-wrap: wrap; padding-block: .85rem; gap: .6rem; }
   .public-header .brand { font-size: 1.2rem; gap: .55rem; }
   .public-header .brand-mark { width: 29px; height: 30px; }
-  .public-header-actions { gap: .4rem; }
+  .public-header-actions { flex-wrap: wrap; max-width: 100%; gap: .4rem; }
   .public-header .public-menu { display: inline-flex; }
   .public-nav {
     display: none;
@@ -239,9 +249,10 @@
     border-radius: 0 0 12px 12px;
   }
   .public-nav[data-open="true"] { display: flex; flex-direction: column; align-items: stretch; gap: 0; }
-  .public-hero { grid-template-columns: 1fr; }
-  .public-hero h1 { font-size: clamp(2.65rem, 10vw, 4.5rem); }
-  .public-product { grid-template-columns: 1fr; gap: 1.3rem; }
+  .public-hero { grid-template-columns: minmax(0, 1fr); }
+  .public-hero h1 { font-size: clamp(2.35rem, calc(1.6rem + 5.25vw), 4.5rem); }
+  .public-page .pricing-standalone h1 { font-size: clamp(1.8rem, calc(1.05rem + 7.75vw), 5rem); }
+  .public-product { grid-template-columns: minmax(0, 1fr); gap: 1.3rem; }
   .public-comparison-table { display: none; }
   .public-comparison-list { display: block; margin-top: .65rem; }
   .public-comparison-list > section { padding-block: .95rem; border-block-start: 1px solid var(--border); }
@@ -254,7 +265,9 @@
 @media (max-width: 390px) {
   .public-header .brand { font-size: 1.05rem; }
   .public-header .brand-mark { width: 25px; height: 27px; }
-  .public-header .public-menu, .public-header-actions > [data-slot="button"]:last-child { padding-inline: .45rem; }
+  .public-header .public-menu, .public-header-actions > [data-slot="button"]:last-child {
+    padding-inline: clamp(.25rem, 1.85vw, .45rem);
+  }
 }
 
 .public-page :is(.public-header, .public-hosting-actions) [data-slot="button"] {

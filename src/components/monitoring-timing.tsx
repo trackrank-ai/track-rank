@@ -1,6 +1,6 @@
 import { useId } from "react";
 import { Button } from "@/components/ui/button";
-import { scheduleDays, type SchedulePreset } from "@/lib/schedule-settings";
+import { parseSampleCount, sampleCountError, scheduleDays, type SchedulePreset } from "@/lib/schedule-settings";
 import { nextScheduleSlot } from "@/lib/schedule-slots";
 
 export type MonitoringTiming = {
@@ -9,23 +9,24 @@ export type MonitoringTiming = {
   days: number[];
   times: string[];
   timezone: string;
-  repetitions: number;
+  repetitions: string;
 };
 
 const weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const presets = { daily: "Daily", weekly: "Weekly", mwf: "Monday, Wednesday, Friday", custom: "Custom weekdays" };
 
 export function defaultMonitoringTiming(): MonitoringTiming {
-  return { name: "", preset: "weekly", days: [1], times: ["09:00"], timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC", repetitions: 1 };
+  return { name: "", preset: "weekly", days: [1], times: ["09:00"], timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC", repetitions: "1" };
 }
 
 export function monitoringProjection(timing: MonitoringTiming, count: number) {
   const days = scheduleDays(timing.preset, timing.days);
   const times = [...new Set(timing.times)].sort();
-  const valid = !!days.length && times.every(time => /^([01]\d|2[0-3]):[0-5]\d$/.test(time));
+  const repetitions = parseSampleCount(timing.repetitions);
+  const valid = repetitions !== undefined && !!days.length && times.every(time => /^([01]\d|2[0-3]):[0-5]\d$/.test(time));
   const next = valid ? nextScheduleSlot({ days, times, timezone: timing.timezone }, Date.now()) : null;
   return {
-    valid, weekly: count * days.length * times.length * timing.repetitions,
+    valid, repetitions, weekly: valid ? count * days.length * times.length * repetitions : null,
     next: next === null ? "" : new Intl.DateTimeFormat(undefined, {
       dateStyle: "full", timeStyle: "short", timeZone: timing.timezone,
     }).format(next) + " (" + timing.timezone + ")",
@@ -36,6 +37,7 @@ export function MonitoringEditor({ timing, change, count }: {
   timing: MonitoringTiming; change: (value: MonitoringTiming) => void; count: number;
 }) {
   const weekdayGroup = useId();
+  const repetitionsHintId = `${weekdayGroup}-samples`;
   const projection = monitoringProjection(timing, count);
   const setTime = (index: number, value: string) => change({ ...timing, times: timing.times.map((time, i) => i === index ? value : time) });
   return <div className="form-stack">
@@ -43,7 +45,7 @@ export function MonitoringEditor({ timing, change, count }: {
       <summary className="break-words">Schedule timing · {presets[timing.preset]}{timing.preset === "weekly" && timing.days.length ? ` on ${weekdays[timing.days[0]]}` : ""}
         {timing.times[0] ? ` at ${timing.times[0]}` : ""} · {timing.timezone}
         {timing.times.length > 1 && ` · ${timing.times.length} time slots`}
-        {timing.repetitions > 1 && ` · ${timing.repetitions} samples per slot`}</summary>
+        {projection.repetitions !== undefined && projection.repetitions > 1 && ` · ${projection.repetitions} samples per slot`}</summary>
       <div className="form-stack">
         <div className="form-grid">
           <label className="app-field"><span>Cadence</span><select value={timing.preset} onChange={e => change({ ...timing, preset: e.target.value as SchedulePreset, days: [timing.days[0] ?? 1] })}>
@@ -68,7 +70,11 @@ export function MonitoringEditor({ timing, change, count }: {
           <div className="form-stack">
             <div className="form-grid">
               <label className="app-field"><span>Samples per engine combination per slot</span>
-                <input type="number" min={1} max={10} value={timing.repetitions} onChange={e => change({ ...timing, repetitions: Math.max(1, Math.min(10, Math.floor(Number(e.target.value) || 1))) })} />
+                <input inputMode="numeric" value={timing.repetitions}
+                  aria-invalid={projection.repetitions === undefined}
+                  aria-describedby={projection.repetitions === undefined ? repetitionsHintId : undefined}
+                  onChange={e => change({ ...timing, repetitions: e.target.value })} />
+                {projection.repetitions === undefined && <small id={repetitionsHintId}>{sampleCountError}</small>}
               </label>
               <label className="app-field"><span>Batch name (optional)</span><input maxLength={100} value={timing.name} onChange={e => change({ ...timing, name: e.target.value })} /></label>
             </div>
@@ -83,6 +89,6 @@ export function MonitoringEditor({ timing, change, count }: {
         </details>
       </div>
     </details>
-    <p className="data-note">{projection.weekly} checks per scheduled week{projection.next && ` · First occurrence ${projection.next}`}</p>
+    {projection.weekly !== null && <p className="data-note">{projection.weekly} checks per scheduled week{projection.next && ` · First occurrence ${projection.next}`}</p>}
   </div>;
 }
