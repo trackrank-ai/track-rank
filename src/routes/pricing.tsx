@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { LegalLayout, ContactLink } from "@/components/legal-layout";
-import { PricingSection, CostCalculator, AlternativesComparison } from "@/components/pricing-section";
+import { ContactLink } from "@/components/legal-layout";
+import { PublicLayout } from "@/components/public-layout";
+import { AlternativesComparison, CostCalculator, PricingSection } from "@/components/pricing-section";
 import { getPricingCatalog } from "@/server/site-config";
 
 export const Route = createFileRoute("/pricing")({
@@ -14,13 +15,16 @@ export const Route = createFileRoute("/pricing")({
 
 function Pricing() {
   const { hosted, offers } = Route.useLoaderData();
-  return <LegalLayout title="Pricing" intro={hosted ? "Hosted plans are billed per organization. Self-hosting is free." : "This installation is self-hosted and requires no TrackRank subscription."}>
-    <PricingSection hosted={hosted} offers={offers} />
-    {hosted && <><AlternativesComparison offers={offers} /><CostCalculator offers={offers} /></>}
-    {hosted && <section>
-      <h2>Cancellation, invoices and support</h2>
-      <p>Organization owners can update their payment method, view invoices, and cancel at the end of the paid period in Manage billing. Request a full refund within 7 days of your first paid charge.</p>
-      <p>Read the <Link to="/terms">Terms</Link> and <Link to="/privacy">Privacy Policy</Link>. Billing or refund questions can go to <ContactLink subject="Billing / refund" />.</p>
-    </section>}
-  </LegalLayout>;
+  return <PublicLayout page="pricing">
+    <PricingSection hosted={hosted} offers={offers} standalone />
+    <AlternativesComparison hosted={hosted} offers={offers} />
+    <CostCalculator hosted={hosted} offers={offers} />
+    {hosted && (
+      <section className="public-billing-support" aria-labelledby="billing-support-title">
+        <h2 id="billing-support-title">Cancellation, invoices and support</h2>
+        <p>Organization owners can update their payment method, view invoices, and cancel at the end of the paid period in Manage billing. Request a full refund within 7 days of your first paid charge.</p>
+        <p>Read the <Link to="/terms">Terms</Link> and <Link to="/privacy">Privacy Policy</Link>. For billing or refund questions, email <ContactLink subject="Billing / refund" />.</p>
+      </section>
+    )}
+  </PublicLayout>;
 }
