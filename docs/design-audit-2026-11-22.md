@@ -1,0 +1,57 @@
+# TrackRank technical design audit · November 22, 2026
+
+| Dimension | Score | Finding |
+| --- | ---: | --- |
+| Accessibility | 2/4 | Several light-mode text pairs and target sizes miss WCAG AA. |
+| Performance | 3/4 | Lightweight assets and route splitting coexist with a large authenticated route and serial startup requests. |
+| Theming | 2/4 | Light and dark are implemented, with color-named overrides bypassing semantic roles in the authenticated UI. |
+| Responsive design | 2/4 | The sampled pages fit at default text size. Enlarged text pushes public actions beyond the viewport. |
+| Implementation integrity | 3/4 | The shared evidence and app workflows are recognizable, with drift in form, spacing and metadata treatments. |
+| **Total** | **12/20** | **Acceptable · significant work needed** |
+
+**Implementation integrity verdict · Pass.** The public sample identifies an engine, question, answer and source. Authenticated navigation distinguishes organization, workspace and destination. Bulk actions retain their scope and expose paused schedules separately from paid collection. Shared controls and form layout classes are present. Page-specific overrides still create inconsistent form behavior and visual treatment.
+
+## Scope and evidence
+
+The audit reviewed the pre-spacing authenticated UI and the calculator with editable number drafts, from local commit `a09e065`. It also inspected the sample inputs as they existed before the authenticated editing change. Scores reflect that baseline. See the follow-up checks below for changes verified during the audit.
+
+Chrome 133 rendered Home, Pricing, sign-in and Privacy and the authenticated Overview, Prompts, Schedules, Run History, Sources & research and Settings. The fixture contained a saved question and a paused schedule with no collection results. Checks used a 1440 px desktop viewport, 320 px light and 390 px dark mobile viewports, explicit light/dark rendering and reduced motion. The public app was checked in its local self-host configuration. Tests included keyboard focus from one calculator input to the next, synthesized touch taps on the mobile menu and Compare link, persisted theme selection across reload, and natural-width and enlarged-text layout measurements. The baseline app scans used a fallback font where the isolated Vite server disallowed the symlinked font path. Color measurements and the substantial public overflow were checked separately from font measurements.
+
+The Impeccable source scan returned one warning for Geist. The project explicitly specifies self-hosted Geist. Rendered detector runs covered Home, Pricing and sign-in at 1280 px and the authenticated Prompts page at desktop width. The public headline warning was a useful prompt to inspect small layouts. At default text size the CTA remained available at 320 px. Isolated line-wrap advisories and the nested-card prompts were treated as visual observations. The detector and axe agreed on thin, low-contrast identity and scope text. The detector's `.ai` logo contrast result is exempt from WCAG text contrast requirements. Axe checks sampled WCAG 2.x A/AA rules. Manual checks covered focus, label relationships, error visibility, disabled states and reflow. Coverage did not include physical devices, assistive-technology sessions, hosted checkout, provider calls, a hosted trial banner, populated history charts, or real Core Web Vitals.
+
+## Findings
+
+**Eight issues · 0 blocking, 5 major, 3 minor.**
+
+| Priority | Issue and evidence | Impact and next action |
+| --- | --- | --- |
+| P1 | **Light app colors obscure workspace and status text.** Workspace caption 2.88:1, account email 2.91:1, current section 4.42:1, new-workspace disclosure 3.65:1 and opening status 3.84:1. Repeated at desktop and phone widths. [App shell](../src/routes/app.tsx), [shell styling](../src/styles.css#L1575). WCAG 1.4.3. | Analysts can miss which workspace or account is active. Use a shared readable secondary text color on each shell surface and increase the smallest functional labels. `$impeccable colorize` |
+| P1 | **Light content has low-contrast controls and record context.** Prompts idea disclosure 4.09:1, saved variant workspace/engine 3.19:1, Schedules create link 3.94:1, inactive Research tabs 4.15:1, and Settings metrics and caveat 3.62:1 and 3.09:1. [Application sections](../src/routes/app.tsx), [shared tabs](../src/components/ui/tabs.tsx). WCAG 1.4.3. | Engine and workspace identity are essential for bulk selection. Reuse theme-aware text roles and test each role against its actual background. `$impeccable colorize` |
+| P1 | **Number box boundaries are difficult to see before focus.** The calculator uses a white field and `#dedbd3` border, which gives approximately 1.4:1 against the white field and 1.3:1 against the light page. A visible orange focus outline appears on keyboard entry. [Calculator field styling](../src/styles.css#L3270). WCAG 1.4.11. | Users with low vision may miss the bounds of editable controls. Give form controls a semantic boundary color with 3:1 contrast against the adjacent surface and retest rest, focus and invalid states in both themes. `$impeccable colorize` |
+| P1 | **Adjacent targets are too small on sign-in and Settings.** Sign-in footer links measured 19.2 px tall and axe reported 19.2 px safe diameter at 320, 390 and 1440 px. At 320 and 390 px, the Settings new-organization disclosure was about 13.5 px tall with 13.6 px safe diameter. [Legal navigation](../src/components/legal-layout.tsx#L9), [Settings](../src/routes/app.tsx). WCAG 2.5.8. | Adjacent actions are easy to hit by mistake. Increase target padding with a 24 px minimum and preserve space between wrapping links. `$impeccable adapt` |
+| P1 | **Public navigation clips at enlarged text sizes.** With a 320 px viewport and a 200% root font-size override in Chromium, Home and Pricing measured 547 px document scroll width. Menu reached x=351, theme x=423, Sign in x=547, and the self-host CTA x=429. At 640 px with CSS zoom 2, Pricing measured 717 px document width. These are reproducible magnification and text-size simulations. [Public header](../src/components/public-layout.css#L35), [mobile styles](../src/components/public-layout.css#L229). Relevant criteria are WCAG 1.4.4 and 1.4.10. | Users need horizontal scrolling to reach primary actions. Let the header and CTA wrap, use shrinkable tracks, and repeat with browser zoom and large default fonts. `$impeccable adapt` |
+| P2 | **Sampling controls normalize incomplete edits at each keystroke.** The baseline schedule creation, individual/bulk schedule edit and selected-prompt run inputs store numeric state and clamp during typing. Clearing the field reintroduces a value before the user finishes. The public calculator at `a09e065` kept zero visible and showed a validation message. Replacing it with 123 gave 11,070 runs at default engines and samples. [Timing control](../src/components/monitoring-timing.tsx), [bulk schedule editor](../src/components/schedule-bulk-editor.tsx), [calculator](../src/components/pricing-section.tsx#L35). | A rushed edit can result in a different run count and cost. Preserve the draft and validate before generating a projection or submission. Associate field-specific errors with the input. This was addressed separately on the working branch. `$impeccable harden` |
+| P2 | **The narrow app shell spends a large share of the first viewport on controls and account details.** At 320 px, baseline Prompts put Refresh on its own row and its page heading around y=473. Form sections use a mix of shared classes and local wrappers with different gaps. [Authenticated layout](../src/styles.css), [workspace controls](../src/routes/app-workspace.css). | Users scroll before reaching the common action. Keep account and contextual controls compact and align fields and actions with the shared form layouts. The responsive authenticated layout was updated separately on the working branch. `$impeccable layout` |
+| P2 | **The app waits for owner billing administration before loading the workspace.** The initial application load reads billing, then billing admins for an owner, then requests workspaces, brands, prompts and settings in parallel. A successful baseline build shipped about 273 KiB of shared JS (86 KiB gzip), 236 KiB in the authenticated route (69 KiB gzip) and 83 KiB in global CSS (17 KiB gzip). These are individual asset sizes, not total route transfer. [Initial data load](../src/routes/app.tsx#L485). | Each serial stage delays primary data on slow connections. Preserve billing checks and defer admin lists until needed. Profile route splits and loading on a throttled production build before changing boundaries. `$impeccable optimize` |
+
+## Patterns and strengths
+
+- Numeric editing needs a shared draft and validation approach. Layout consistency also depends on whether controls adopt `form-stack`, `form-grid`, `app-inline-form` and `form-actions` consistently.
+- The palette has semantic base tokens plus many value-named text, surface and border aliases. These aliases allow component-specific foregrounds to drift away from their backgrounds.
+- At default text sizes the scanned default, empty and paused-schedule states had no document-level horizontal scroll. The pricing comparison used a stacked list on phones with its values still available, and the mobile Compare link reached it on a synthesized touch tap.
+- The calculator uses native named inputs. Its results are announced politely. The sampled prompt form disabled Review for empty input, and the schedule buttons guarded empty selections. No collection was started.
+- The app persisted explicit dark selection and theme switching survived reload. Public assets are small SVGs and subsetted local WOFF2 files. The audited interactions use native controls and simple transitions with reduced-motion support. No custom drag behavior was present in the interactions sampled.
+
+## Follow-up checks on the working branch
+
+- Browser checks confirmed that a sample field could be cleared and retyped as 5, valid bounds were accepted, invalid values were blocked, and bulk actions retained the selected variants.
+- The gap between the prompt filters and bulk controls increased from 0 to 12 px at widths from 320 to 1440 px. At 768 px, the schedule editor increased from 277 to 434 px and Research tabs no longer clipped.
+- Contrast, target sizing and public reflow are tracked against the baseline above. The audit score has not been recalculated for changes made during implementation.
+
+## Recommended actions
+
+1. **P1 · `$impeccable colorize`** Resolve light text and input boundary contrast with semantic tokens and regression checks.
+2. **P1 · `$impeccable adapt`** Restore enlarged-text reflow and enlarge the confirmed undersized interactive targets.
+3. **P2 · `$impeccable harden` and `$impeccable layout`** Verify final branch sample editing, invalid states and mobile control grouping against the baseline.
+4. **P2 · `$impeccable optimize`** Measure production startup on a throttled connection and separate billing administration from critical workspace loading.
+5. **`$impeccable polish`** Repeat the desktop, phone, dark, keyboard and enlarged-text checks after fixes.
