@@ -534,3 +534,41 @@ test("comparison rates, outcome counts and matching evidence use recorded run co
   await assert.rejects(rest("/runs", { compare_brand: "", metric: "compare_mention" }), { status: 400 });
   await assert.rejects(rest("/runs", { workspace: "foreign", metric: "brand" }), { status: 404 });
 });
+
+test("question answers reconcile with the library while remaining scoped to current workspace variants", async () => {
+  const { sql, call } = setup();
+  sql.exec(`INSERT INTO prompts(id,org_id,workspace_id,text,engine,created_at,updated_at,tags) VALUES
+    ('gemini','org','source','First question','gemini',1,1,'["research"]'),
+    ('copy','org','target','First question','gemini',1,1,'["research"]');
+    UPDATE prompts SET tags='["research"]' WHERE id='prompt';`);
+  const now = Date.now();
+  const day = new Date(now).toISOString().slice(0, 10);
+  const insert = sql.prepare(`INSERT INTO runs(id,org_id,prompt_id,workspace_id,prompt_text,config,status,answer_text,citations,mentions,has_answer,idempotency_key,created_at,updated_at)
+    VALUES(?,'org',?,?,'First question',?,?,'Recorded answer','[{"url":"https://example.test/source"}]',?,?,?,?,?)`);
+  function run(id: string, prompt: string, workspace: string, engine: string, brand: string, mentioned: boolean, status = "succeeded", hasAnswer = 1) {
+    insert.run(id, prompt, workspace, JSON.stringify({ engine, brands: [{ id: brand, name: "Client" }] }), status,
+      JSON.stringify([{ brand_id: brand, mentioned }]), hasAnswer, id, now, now);
+  }
+  run("match-chatgpt", "prompt", "source", "chatgpt", "client", false);
+  run("match-gemini", "gemini", "source", "gemini", "client", true);
+  run("legacy", "gemini", "source", "gemini", "other", false);
+  run("failed", "gemini", "source", "gemini", "client", true, "failed");
+  run("no-answer", "gemini", "source", "gemini", "client", true, "succeeded", 0);
+  run("other-question", "alt", "source", "gemini", "client", true);
+  run("wrong-workspace", "gemini", "target", "gemini", "client", true);
+  run("workspace-copy", "copy", "target", "gemini", "client", true);
+  const question = sql.prepare("SELECT question_id FROM prompts WHERE id='prompt'").get()?.question_id;
+  const foreign = sql.prepare("SELECT question_id FROM prompts WHERE id='foreign-prompt'").get()?.question_id;
+  const library = await (await call(`/prompts?question_id=${question}&workspace=source&engine=gemini&tracked_brand=client&from=${day}&to=${day}`, undefined, "viewer")).json() as any;
+  assert.equal(library.prompts.length, 1);
+  assert.equal(library.prompts[0].variants[0].latest_completed_at, now);
+  assert.deepEqual(library.prompts[0].variants[0].brand_period, { samples: 1, mentions: 1 });
+  const query = `?question_id=${question}&engine=gemini&workspace=source&metric=brand&tracked_brand=client&tags=research&from=${day}&to=${day}`;
+  const answers = await (await call("/runs" + query, undefined, "viewer")).json() as any;
+  assert.deepEqual(answers.runs.map((row: any) => row.id), ["match-gemini"]);
+  assert.equal(answers.runs[0].citations[0].url, "https://example.test/source");
+  assert.match(await (await call("/export" + query)).text(), /match-gemini/);
+  await assert.rejects(call(`/runs?question_id=${question}&workspace=target`), { status: 404 });
+  await assert.rejects(call(`/runs?question_id=${foreign}`), { status: 404 });
+  await assert.rejects(call(`/prompts?question_id=${foreign}`), { status: 404 });
+});

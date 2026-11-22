@@ -13,6 +13,14 @@ export async function searchableHistoryWhere(env: Env, org: string, params: URLS
   else if (filters.workspace) required(await one(env,
     "SELECT id FROM workspaces WHERE org_id=? AND id=?", org, filters.workspace));
   const where = historyWhere(org, filters);
+  if (filters.question_id) {
+    const question = required(await one<{ workspace_id: string }>(env,
+      "SELECT workspace_id FROM prompt_questions WHERE org_id=? AND id=?" +
+        (filters.workspace ? " AND workspace_id=?" : ""),
+      org, filters.question_id, ...(filters.workspace ? [filters.workspace] : [])));
+    where.conditions.push("runs.workspace_id=?");
+    where.bindings.push(question.workspace_id);
+  }
   const { limits } = await organizationPlan(env, org);
   if (limits.searchable_history_days !== undefined) {
     where.conditions.push("runs.created_at>=?");
@@ -34,6 +42,9 @@ export const runHistoryFilters = scopeFilters.extend({
   workspace: setId.optional(),
   compare_brand: setId.optional(),
   metric: z.enum(answerMetrics).optional(),
+  question_id: setId.optional(),
+  prompt_schedule: z.enum(["active", "inactive"]).optional(),
+  prompt_brand: setId.optional(),
   prompt_id: z.string().min(1).max(100).optional(),
   q: z.string().trim().max(200).optional(),
   outcome: z.enum(["pending", "failed", "uncertain", "organic", "no_answer", "no_evidence", "eligible"]).optional(),
@@ -53,6 +64,8 @@ export function parseHistoryFilters(params: URLSearchParams) {
   if (filters.from && filters.to && filters.from > filters.to)
     throw new HttpError(400, "The start date must be on or before the end date");
   if (!!filters.research_type !== !!filters.research_value) throw new HttpError(400, "Choose a research item");
+  if ((filters.prompt_schedule || filters.prompt_brand) && !filters.question_id)
+    throw new HttpError(400, "Choose a question before filtering its variants");
   if (filters.metric && filters.metric !== "eligible" && filters.metric !== "coverage" && !filters.tracked_brand)
     throw new HttpError(400, "Choose a tracked brand");
   if (filters.compare_brand && (!filters.tracked_brand || filters.compare_brand === filters.tracked_brand))
@@ -83,6 +96,12 @@ export function brandOutcome(brand: string, field: "mentioned" | "cited") {
     json_extract(mention.value,'$.brand_id')=${brand} AND json_extract(mention.value,'$.${field}')=1 END)`;
 }
 
+export const activePromptSchedule =
+  "EXISTS(SELECT 1 FROM schedules s WHERE s.org_id=p.org_id AND s.prompt_id=p.id AND s.enabled=1)";
+export const associatedPromptBrand = `(p.brand_id=? OR (p.brand_id IS NULL AND EXISTS(
+  SELECT 1 FROM workspaces w WHERE w.org_id=p.org_id AND w.id=p.workspace_id AND w.brand_id=?
+)))`;
+
 export function currentPromptWhere(filters: z.output<typeof runHistoryFilters>) {
   const conditions = ["p.archived_at IS NULL"];
   const bindings: unknown[] = [];
@@ -104,8 +123,19 @@ function historyWhere(org: string, filters: z.output<typeof runHistoryFilters>) 
     conditions.push("runs.workspace_id=?");
     bindings.push(filters.workspace);
   }
-  if (filters.set || filters.tags?.length || filters.metric === "coverage") {
+  if (filters.question_id || filters.set || filters.tags?.length || filters.metric === "coverage") {
     const selected = currentPromptWhere(filters);
+    if (filters.question_id) {
+      selected.conditions.push("p.question_id=?");
+      selected.bindings.push(filters.question_id);
+    }
+    if (filters.prompt_schedule) {
+      selected.conditions.push(filters.prompt_schedule === "active" ? activePromptSchedule : "NOT " + activePromptSchedule);
+    }
+    if (filters.prompt_brand) {
+      selected.conditions.push(associatedPromptBrand);
+      selected.bindings.push(filters.prompt_brand, filters.prompt_brand);
+    }
     conditions.push(`EXISTS (SELECT 1 FROM prompts p WHERE p.org_id=runs.org_id AND p.id=runs.prompt_id
       AND p.workspace_id=runs.workspace_id AND ${selected.conditions.join(" AND ")})`);
     bindings.push(...selected.bindings);

@@ -65,6 +65,8 @@ The prompt library spans the organization when `workspace` is omitted. It suppor
 The first non-selection page of the prompt library and schedule list returns `total` for the current filters. Set `limit` to 1–100 for prompts or 1–500 for schedules to choose the page size. To gather every matching selection, keep the same filters and use `selection=1` for compact pages of up to 1,000 matches. Prompt selection groups contain variants reduced to `id` and `workspace_id`. Schedule selection rows include IDs and settings used to prefill shared edits. Forward both fields of `next_cursor` until it is null. Selection reads do not apply changes. Split large prompt settings, tags, move, and delete actions into requests of up to 100 IDs each.
 
 The prompt library and MCP `list_prompts` group matching variants by question. Each group contains `id` (the stable question ID), `workspace_id`, `text`, `created_at`, and `variants`. Saving identical wording in a workspace attaches the variants to the same question. Filters apply to variants before grouping, and totals and cursors count groups. Pass the variant IDs to existing bulk actions. Question wording is immutable. Save revised wording as a new prompt. You can archive the old variants and remove their schedules while keeping access to their runs.
+Use `GET /prompts?view=library&question_id=<id>&workspace=<id>` or `list_prompts` with `question_id` and `workspace_id` to read a question and its saved engine settings. A foreign question or mismatched workspace returns 404. Each full variant includes `latest_completed_at`, the most recent successful completion timestamp in searchable history, or null.
+
 
 Manual and scheduled runs share the organization's monthly allowance.
 
@@ -85,6 +87,8 @@ Deleting a prompt or workspace archives its metadata for existing runs and remov
 Create a brand with `workspace_id` to track it in that workspace immediately. New runs match the brands explicitly tracked in their workspace. Listing schedules accepts an optional `workspace` filter.
 
 Run history sorts by creation timestamp and run ID, newest first. To get the next page, pass both `next_before` as `before` and `next_before_id` as `before_id`, with the same workspace filter. The MCP `list_runs` tool accepts the same cursor fields. Both response fields are null at the end. Provide both cursor parameters together.
+To open a question’s evidence, pass `question_id` to `GET /runs`, `GET /export`, `list_runs`, or `export_runs`. Run searches match current variants and their recorded workspace. The usual history, date, engine, set, and tag restrictions apply. Use `metric=eligible` for AI answers or `metric=brand&tracked_brand=<id>` for eligible answers that tracked the selected brand. `prompt_schedule=active|inactive` and `prompt_brand=<id>` optionally mirror the library’s variant filters. Open each record with `GET /runs/<id>` or `get_run` to inspect the full answer and citations. Historical evidence remains available from the general run history after a variant is moved or archived.
+
 
 Run requests replay the original admission without consuming more quota. Single-run keys reserve the `bulk:` and `schedule:` prefixes for internal use. Bulk admission accepts an optional `expected_workspace_id` from readiness to detect a move after review and an optional `receipt_id` to attach the batch to that save receipt. If the original run or a recorded batch sample has been removed, retrying its idempotency key returns HTTP 410.
 

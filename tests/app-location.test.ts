@@ -47,3 +47,19 @@ test("research groups and organization settings destinations survive sign-in", (
     assert.deepEqual(Object.fromEntries(search), original);
   }
 });
+
+test("question detail and its filters survive the sign-in return", () => {
+  const original = new URLSearchParams({
+    org: "agency", workspace: "client", tab: "prompts", question: "question-123", questionView: "answers",
+    q: "first question", promptEngine: "gemini", promptSchedule: "active", promptBrand: "client", brand: "client",
+    from: "2026-11-01", to: "2026-11-20",
+  });
+  for (const search of [
+    original,
+    new URLSearchParams({ ...Object.fromEntries(original), tab: "runs", run: "answer-123", evidence: "citations" }),
+  ]) {
+    const login = new URL(appLoginPath("?" + search, ""), "https://trackrank.invalid");
+    const result = new URL(login.searchParams.get("next")!, login).searchParams;
+    assert.deepEqual(Object.fromEntries(result), Object.fromEntries(search));
+  }
+});

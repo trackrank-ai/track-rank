@@ -338,7 +338,7 @@ export async function api(
   if (path === "/prompts" && method === "GET") {
     const w = u.searchParams.get("workspace");
     if (w) await belongs(env, "workspaces", org, w);
-    if (u.searchParams.get("view") === "library" || u.searchParams.has("tag") || u.searchParams.has("set"))
+    if (u.searchParams.get("view") === "library" || u.searchParams.has("tag") || u.searchParams.has("set") || u.searchParams.has("question_id"))
       return json(await listSavedPrompts(env, org, u.searchParams));
     return json({
       prompts: (await all(
