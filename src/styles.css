@@ -2125,7 +2125,8 @@ form.app-inline-form,
 .form-grid > .app-inline-form {
   margin-block: 0;
 }
-.app-inline-form [data-slot="button"] {
+.app-inline-form > [data-slot="button"] {
+  align-self: auto;
   flex-shrink: 0;
 }
 .app-field {
