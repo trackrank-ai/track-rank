@@ -3,6 +3,7 @@ import { CollectionDetails, CollectionReview, type Readiness } from "@/component
 import { defaultMonitoringTiming, MonitoringEditor, monitoringProjection } from "@/components/monitoring-timing";
 import { ScheduleBulkEditor } from "@/components/schedule-bulk-editor";
 import { Overview, OverviewFilters, useReport } from "@/components/overview";
+import { PromptSettingsEditor, type PromptSettings } from "@/components/prompt-settings-editor";
 import { PromptSets, type PromptSet } from "@/components/prompt-sets";
 import { analyticsQuery, analyticsScope, defaultPeriod, type AnalyticsScope } from "@/lib/analytics-filters";
 import { BulkPageNavigation, BulkSelection, changeSelection, useBulkPages } from "@/components/bulk-selection";
@@ -222,7 +223,6 @@ function App() {
     [runDetail, setSelectedRun] = useState<Item | null>(null),
     [promptDetail, setPromptDetail] = useState<Item | null>(null),
     [detailError, setDetailError] = useState(""),
-    [editPrompt, setEditPrompt] = useState<Item | null>(null),
     [promptText, setPromptText] = useState(""),
     [promptTagInput, setPromptTagInput] = useState(""),
     [ideas, setIdeas] = useState<string[]>([]),
@@ -260,19 +260,18 @@ function App() {
   if (search.to) libraryQuery.set("to", search.to);
   const libraryPath = "/prompts?" + libraryQuery;
   const savedSelection = [...promptSelection.keys()];
+  const selectedEngines = [...new Set([...promptSelection.values()].map(prompt => prompt.engine))].sort().join(",");
   const mixedWorkspaceSelection = new Set([...promptSelection.values()].map(prompt => prompt.workspace_id)).size > 1;
   const selectedRunCount = savedSelection.length * runSamples;
   const promptFilterCount = [promptEngineFilter, promptScheduleFilter, promptBrandFilter, search.tag].filter(Boolean).length;
   const filteredPrompts = !!(promptSearch.trim() || promptEngineFilter || promptScheduleFilter || promptBrandFilter || search.tag || search.set);
-  const promptInput = useMemo(() => editPrompt
-    ? { prompts: promptText.trim() ? [promptText.trim()] : [], repeated: 0, error: "" }
-    : inspectPromptInput(promptText, promptSeparator), [editPrompt, promptText, promptSeparator]);
+  const promptInput = useMemo(() => inspectPromptInput(promptText, promptSeparator), [promptText, promptSeparator]);
   const promptCombinations = promptInput.prompts.length * promptEngineChoices.length;
   const tooManyPromptCombinations = promptCombinations > MAX_PROMPT_COMBINATIONS;
   const promptsToRemove = tooManyPromptCombinations
     ? promptInput.prompts.length - Math.floor(MAX_PROMPT_COMBINATIONS / promptEngineChoices.length)
     : 0;
-  const savingWorkspace = editPrompt?.workspace_id ?? (workspaceId || promptWorkspace);
+  const savingWorkspace = workspaceId || promptWorkspace;
   const brandIds = (id: string): string[] => JSON.parse(workspaces.find(w => w.id === id)?.brand_ids || "[]");
   const trackedBrandIds = new Set(brandIds(workspaceId));
   const promptBrandIds = new Set(brandIds(savingWorkspace));
@@ -542,12 +541,6 @@ function App() {
     setEditingScheduleSelection(false);
   }, [org, workspace]);
   useEffect(() => {
-    setPromptEngineChoices([editPrompt?.engine || "chatgpt"]);
-    setPromptLocation(editPrompt?.location_name || "United States");
-    setPromptLanguage(editPrompt?.language_code || "en");
-    setLocationQuery("");
-  }, [editPrompt?.id]);
-  useEffect(() => {
     if (!workspaceReady || tab !== "prompts" || !promptEngineChoices.length) return;
     let canceled = false;
     setProviderChoicesLoading(true);
@@ -576,7 +569,6 @@ function App() {
     setProviderChoices(null);
     setEditingScheduleSelection(false);
     setSelectedRun(null);
-    setEditPrompt(null);
     setPromptText("");
     setNewKey("");
     setInvite("");
@@ -610,7 +602,6 @@ function App() {
     };
   }, [tab, workspaceReady, isAdmin, request]);
   useEffect(() => {
-    setEditPrompt(null);
     setPromptText("");
     setPromptTagInput("");
   }, [org, workspace]);
@@ -625,12 +616,6 @@ function App() {
     } finally {
       setBusy(false);
     }
-  }
-  function editSavedPrompt(prompt: Item) {
-    setEditPrompt(prompt);
-    setPromptText(prompt.text);
-    setPromptTagInput((prompt.tags || []).join(", "));
-    window.scrollTo({ top: 0, behavior: "smooth" });
   }
   async function changeSelectedPrompts(
     ids: string[], path: string, method: string, data: object, responseField: string, clearCompleted = false,
@@ -669,16 +654,30 @@ function App() {
     if (activeWorkspace.current === workspaceKey && search.tag && "action" in changes && changes.action === "remove") setPromptSelection(new Map());
     setNotice(message);
   }
+  function renderPromptSettings(prompt: Item) {
+    const current = {
+      mode: prompt.mode,
+      location_name: prompt.location_name,
+      language_code: prompt.language_code,
+      brand_id: prompt.brand_id,
+      tags: prompt.tags,
+    };
+    const allowedBrands = new Set(brandIds(prompt.workspace_id));
+    return <PromptSettingsEditor key={JSON.stringify([org, prompt.id, current])} engines={prompt.engine}
+      busy={bulkBusy} current={current} brands={brands.filter(brand => allowedBrands.has(brand.id))
+        .map(brand => ({ id: brand.id, name: brand.name }))} request={request}
+      save={(changes: PromptSettings) => action(async () => {
+        await request("/prompts/" + encodeURIComponent(prompt.id), "PATCH", changes);
+        if (activeOrg.current !== org) return;
+        await load();
+        setNotice("Engine settings saved.");
+      })} />;
+  }
   function removePrompts(ids: string[]) {
     if (!confirm(`Delete ${ids.length === 1 ? "this prompt" : ids.length + " prompts"} and their schedules? Previously queued and collected runs stay in Run history.`)) return;
     void action(async () => {
       const deleted = await changeSelectedPrompts(ids, "/prompts/bulk", "DELETE", {}, "deleted", true);
       if (deleted === null) return;
-      if (editPrompt && ids.includes(editPrompt.id)) {
-        setEditPrompt(null);
-        setPromptText("");
-        setPromptTagInput("");
-      }
       if (search.prompt && ids.includes(search.prompt)) setTab("prompts");
       await load();
       setNotice(`Deleted ${deleted} ${deleted === 1 ? "prompt" : "prompts"}.`);
@@ -1386,10 +1385,12 @@ function App() {
                             <Button variant="ghost" size="sm" asChild>
                               <Link to="/app" search={{ ...sectionSearch("runs"), runPrompt: linkedPrompt.id }}>View prompt runs</Link>
                             </Button>
-                            {canWrite && <div className="form-actions flex-wrap">
-                              <Button variant="outline" size="sm" onClick={() => editSavedPrompt(linkedPrompt)}>Edit prompt</Button>
-                              <Button variant="outline" size="sm" disabled={busy} onClick={() => removePrompts([linkedPrompt.id])}>Delete prompt</Button>
-                            </div>}
+                            {canWrite && <>
+                              {renderPromptSettings(linkedPrompt)}
+                              <div className="form-actions flex-wrap">
+                                <Button variant="outline" size="sm" disabled={busy} onClick={() => removePrompts([linkedPrompt.id])}>Delete prompt</Button>
+                              </div>
+                            </>}
                           </>
                         ) : <p role="status">Loading prompt…</p>}
                       </CardContent>
@@ -1480,7 +1481,7 @@ function App() {
                     <CardContent>
                       <div className="panel-title">
                         <h2>
-                          {editPrompt ? "Edit prompt" : "Add a research prompt"}
+                          Add a research prompt
                         </h2>
                         <Badge variant="secondary">
                           Scraper collection only
@@ -1503,28 +1504,17 @@ function App() {
                               const { prompts: texts, error: inputError } = promptInput;
                               if (inputError) throw new Error(inputError);
                               const selected = f.getAll("engines").map(String);
-                              const ordered = editPrompt && selected.includes(editPrompt.engine) ? [editPrompt.engine, ...selected.filter(e => e !== editPrompt.engine)] : selected;
-                              if (!texts.length || !ordered.length || !savingWorkspace || tooManyPromptCombinations)
+                              if (!texts.length || !selected.length || !savingWorkspace || tooManyPromptCombinations)
                                 throw new Error("Choose a workspace, valid prompts and engines within the batch limit.");
                               const payload = {
                                 workspace_id: savingWorkspace, brand_id: f.get("brand_id") || null,
-                                texts, engines: ordered, tags: splitPromptTags(f.get("tags")), ...(editPrompt ? { source_id: editPrompt.id } : {}),
+                                texts, engines: selected, tags: splitPromptTags(f.get("tags")),
                                 mode: f.get("mode"), location_name: f.get("location_name"), language_code: f.get("language_code"),
                               };
                               const serialized = JSON.stringify(payload);
-                              if (!editPrompt && (intent === "review" || draftReview?.payload !== serialized)) {
+                              if (intent === "review" || draftReview?.payload !== serialized) {
                                 const preview = await request("/prompts/bulk-preview", "POST", payload);
                                 setDraftReview({ payload: serialized, data: preview, key: crypto.randomUUID() });
-                                return;
-                              }
-                              if (editPrompt) {
-                                await request("/prompts/bulk", "POST", { ...payload, operation_id: crypto.randomUUID() });
-                                setPromptText("");
-                                setPromptTagInput("");
-                                setEditPrompt(null);
-                                form.reset();
-                                setNotice("Prompt changes saved.");
-                                await load();
                                 return;
                               }
                               const approved = draftReview!.data.prompts.filter((row: Item) => row.outcome === "new")
@@ -1541,9 +1531,8 @@ function App() {
                               });
                             });
                           }}
-                          key={editPrompt?.id || "new"}
                         >
-                          {allWorkspaces && !editPrompt && (
+                          {allWorkspaces && (
                             <FormField label="Save prompts to workspace">
                               <select value={promptWorkspace} onChange={e => { setDraftReview(null); setPromptWorkspace(e.target.value); }} required>
                                 <option value="">Choose a workspace</option>
@@ -1551,12 +1540,11 @@ function App() {
                               </select>
                             </FormField>
                           )}
-                          <FormField label={editPrompt ? "Prompt" : "Prompts — paste your list"} hint={editPrompt ? "Wording changes apply to every engine tracking this question. Select extra engines below to add variants." : "Paste one question per line. For CSV-style input, change the paste format in Prompt settings."}>
+                          <FormField label="Prompts — paste your list" hint="Paste one question per line. For CSV-style input, change the paste format in Prompt settings.">
                             <textarea
                               name="text"
                               required
                               minLength={3}
-                              maxLength={editPrompt ? 700 : undefined}
                               value={promptText}
                               onChange={(e) => { setDraftReview(null); setPromptText(e.target.value); }}
                               placeholder="Who are the best house cleaning services in Seattle?"
@@ -1568,7 +1556,7 @@ function App() {
                             {" × "}{promptEngineChoices.length} {promptEngineChoices.length === 1 ? "engine" : "engines"}
                             {" = "}{promptCombinations} combinations. {promptInput.repeated} repeated input {promptInput.repeated === 1 ? "line" : "lines"}. Up to {MAX_PROMPT_COMBINATIONS} per batch.
                           </p>
-                          {!editPrompt && promptInput.prompts.length > 0 && (
+                          {promptInput.prompts.length > 0 && (
                             <details>
                               <summary>Preview parsed questions</summary>
                               <ol>{promptInput.prompts.slice(0, 5).map(text => <li key={text}>{text}</li>)}</ol>
@@ -1591,10 +1579,10 @@ function App() {
                             </fieldset>
                           </div>
                           <details className="advanced-settings">
-                            <summary>Prompt settings{promptSeparator === "commas" && !editPrompt ? " · Comma-separated" : ""}</summary>
+                            <summary>Prompt settings{promptSeparator === "commas" ? " · Comma-separated" : ""}</summary>
                             <div className="form-grid">
-                              {!editPrompt && <FormField label="Paste format"><select value={promptSeparator} onChange={e => setPromptSeparator(e.target.value)}><option value="lines">One per line — keep commas in prompts</option><option value="commas">Comma-separated — quote prompts containing commas</option></select></FormField>}
-                              <FormField label="Tags (optional)" hint={editPrompt ? "Separate tags with commas. Clear this field to remove all tags." : "Separate tags with commas. Tags apply to each new prompt and engine variant."}>
+                              <FormField label="Paste format"><select value={promptSeparator} onChange={e => setPromptSeparator(e.target.value)}><option value="lines">One per line — keep commas in prompts</option><option value="commas">Comma-separated — quote prompts containing commas</option></select></FormField>
+                              <FormField label="Tags (optional)" hint="Separate tags with commas. Tags apply to each new prompt and engine variant.">
                                 <input name="tags" placeholder="brand name, alternatives, seattle location"
                                   maxLength={MAX_PROMPT_TAGS * (MAX_PROMPT_TAG_LENGTH + 2)}
                                   value={promptTagInput} onChange={e => setPromptTagInput(e.target.value)} />
@@ -1605,7 +1593,7 @@ function App() {
                               >
                                 <select
                                   name="mode"
-                                  defaultValue={editPrompt?.mode || "standard"}
+                                  defaultValue="standard"
                                 >
                                   <option value="standard">Standard queue</option>
                                   <option value="priority">Priority queue</option>
@@ -1628,7 +1616,7 @@ function App() {
                                 <select
                                   key={savingWorkspace}
                                   name="brand_id"
-                                  defaultValue={editPrompt?.brand_id || ""}
+                                  defaultValue=""
                                 >
                                   <option value="">
                                     No associated brand
@@ -1642,7 +1630,7 @@ function App() {
                               </FormField>
                             </div>
                           </details>
-                          {draftReview && !editPrompt && <section className="form-stack">
+                          {draftReview && <section className="form-stack">
                             <h3>Review combinations</h3>
                             <p>{previewNew} new · {draftReview.data.prompts.length - previewNew} already saved</p>
                             <details open={draftReview.data.prompts.length <= 10}>
@@ -1674,24 +1662,11 @@ function App() {
                             </details>
                           </section>}
                           <div className="form-actions">
-                            {(editPrompt || !draftReview) && <Button value={editPrompt ? "edit" : "review"} disabled={busy || providerChoicesLoading || !providerChoices || !!providerChoices.error ||
+                            {!draftReview && <Button value="review" disabled={busy || providerChoicesLoading || !providerChoices || !!providerChoices.error ||
                               !savingWorkspace || !promptEngineChoices.length || !promptInput.prompts.length || !!promptInput.error || tooManyPromptCombinations}>
                               <Plus size={14} />
-                              {editPrompt ? "Save changes" : "Review prompts"}
+                              Review prompts
                             </Button>}
-                            {editPrompt && (
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                onClick={() => {
-                                  setEditPrompt(null);
-                                  setPromptText("");
-                                  setPromptTagInput("");
-                                }}
-                              >
-                                Cancel editing
-                              </Button>
-                            )}
                           </div>
                         </form>
                       ) : (
@@ -1742,7 +1717,7 @@ function App() {
                       <button
                         key={i}
                         className="idea-option"
-                        disabled={!!editPrompt || (promptSeparator === "commas" && !!promptInput.error)}
+                        disabled={promptSeparator === "commas" && !!promptInput.error}
                         onClick={() => {
                           setPromptText(current => {
                             if (promptSeparator === "commas") {
@@ -1850,7 +1825,16 @@ function App() {
                             <p className="data-note">Schedules and future runs follow the prompts. Previously queued and collected runs stay in their original workspace.</p>
                           </details>
                         )}
-                        <details><summary>Advanced · sampling & bulk settings</summary><form className="app-inline-form" onSubmit={e=>submit(e,async f=>{await updateSelectedPrompts("/prompts/bulk-settings", { mode: f.get("bulk_mode") }, "Execution mode updated for selected prompts.");})}><FormField label="Execution mode for selected prompts" hint="Priority and live may cost more on future runs. This only changes saved settings."><select name="bulk_mode"><option value="standard">Standard queue</option><option value="priority">Priority queue</option><option value="live">Live</option></select></FormField><Button disabled={bulkBusy || !savedSelection.length}>Apply mode to selected</Button></form><FormField label="Samples per engine variant" hint="Independent samples are queued for collection. Each sample is a separate provider charge and run."><input type="number" min={1} max={10} value={runSamples} onChange={e=>setRunSamples(Math.max(1,Math.min(10,Number(e.target.value)||1)))} /></FormField></details>
+                        <details>
+                          <summary>Advanced · sampling & bulk settings</summary>
+                          <FormField label="Samples per engine variant" hint="Independent samples are queued for collection. Each sample is a separate provider charge and run.">
+                            <input type="number" min={1} max={10} value={runSamples}
+                              onChange={e => setRunSamples(Math.max(1, Math.min(10, Number(e.target.value) || 1)))} />
+                          </FormField>
+                          {savedSelection.length > 0 && <PromptSettingsEditor key={workspaceKey + selectedEngines}
+                            engines={selectedEngines} busy={bulkBusy} request={request}
+                            save={changes => action(() => updateSelectedPrompts("/prompts/bulk-settings", changes, "Engine settings updated for selected prompts."))} />}
+                        </details>
                       </div>}
                       {canWrite && savedSelection.length > 0 && (
                         <details className="advanced-settings">
@@ -1896,23 +1880,6 @@ function App() {
                                   {allWorkspaces && workspaceNames[group.workspace_id] && `${workspaceNames[group.workspace_id]} · `}
                                   {[...new Set(variants.map(variant => engines[variant.engine]))].join(" · ")}
                                 </small>
-                                {canWrite && <details className="prompt-variants">
-                                  <summary>Edit question</summary>
-                                  <form key={group.text} className="app-inline-form" onSubmit={event => {
-                                    const details = event.currentTarget.closest("details");
-                                    void submit(event, async values => {
-                                      await request("/prompt-questions/" + group.id, "PATCH", { text: values.get("text") });
-                                      await load();
-                                      if (details) details.open = false;
-                                      setNotice("Question updated for all tracked engines.");
-                                    });
-                                  }}>
-                                    <FormField label="Question" hint="Applies to every engine tracking this question.">
-                                      <textarea name="text" defaultValue={group.text} required minLength={3} maxLength={700} />
-                                    </FormField>
-                                    <Button size="sm" disabled={busy}>Save question</Button>
-                                  </form>
-                                </details>}
                                 <details className="prompt-variants" open={search.brand ? true : undefined}>
                                   <summary>Engine settings and results</summary>
                                   {variants.map(p => <div className="prompt-variant" key={p.id}>
@@ -1938,6 +1905,7 @@ function App() {
                                     {p.latest_answer_id && p.latest_answer_id !== p.latest_collection?.id && <Link className="small-link" to="/app"
                                       search={{ org, workspace: p.workspace_id, tab: "runs", run: p.latest_answer_id }}>View latest answer</Link>}
                                     {p.brand_period && <p className="data-note">Mentioned in {p.brand_period.mentions} of {p.brand_period.samples} eligible answers</p>}
+                                    {canWrite && renderPromptSettings(p)}
                                     {canWrite && <div className="bulk-selection">
                                       {variants.length > 1 && <label className="check-field">
                                         <input type="checkbox" checked={promptSelection.has(p.id)} disabled={bulkBusy || promptPages.loading}
@@ -1945,7 +1913,6 @@ function App() {
                                           onChange={event => setPromptSelection(current => changeSelection(current, [p], event.target.checked))} />
                                         Select variant
                                       </label>}
-                                      <Button variant="outline" size="sm" onClick={() => editSavedPrompt(p)}>Edit engine settings</Button>
                                       <Button variant="outline" size="sm" disabled={busy || !!pendingRun}
                                         onClick={() => queuePromptBatch([p.id], 1)}>Run {engines[p.engine]}</Button>
                                       <Button variant="outline" size="sm" disabled={busy}
