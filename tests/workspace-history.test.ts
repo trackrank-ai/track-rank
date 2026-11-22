@@ -523,10 +523,12 @@ test("comparison rates, outcome counts and matching evidence use recorded run co
     assert.equal(await tool("export_runs", { metric }), csv);
     assert.equal(csv.split("\r\n").length, ids.length + 1);
   }
-  for (const [outcome, id] of [["organic", "organic-only"], ["no_answer", "no-answer"], ["failed", "failed"]]) {
+  for (const [outcome, id] of [["organic", "organic-only"], ["no_evidence", "no-answer"], ["failed", "failed"]]) {
     const { runs } = await (await rest("/runs", { outcome })).json() as any;
     assert.deepEqual(runs.map((row: any) => row.id), [id]);
   }
+  const missing = await (await rest("/runs", { outcome: "no_answer" })).json() as any;
+  assert.deepEqual(new Set(missing.runs.map((row: any) => row.id)), new Set(["organic-only", "no-answer"]));
   assert.deepEqual((await (await rest("/analytics", { to: from })).json() as any).comparison_daily, []);
   await assert.rejects(rest("/analytics", { compare_brand: "client" }), { status: 400 });
   await assert.rejects(rest("/runs", { compare_brand: "", metric: "compare_mention" }), { status: 400 });

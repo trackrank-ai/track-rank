@@ -269,7 +269,7 @@ export function Overview({
       <div className="app-inline-form overview-outcomes" aria-label="Collection outcomes">
         {([["pending", "Pending"], ["failed", "Failed"], ["uncertain", "Uncertain"], ["organic", "Organic only (no AI Overview)"],
           ["no_answer", "No AI answer or organic results"], ["eligible", "Eligible AI answers"]] as const)
-          .map(([outcome, label]) => <Link key={outcome} to="/app" search={{ ...metricLink(), outcome }}>
+          .map(([outcome, label]) => <Link key={outcome} to="/app" search={{ ...metricLink(), outcome: outcome === "no_answer" ? "no_evidence" : outcome }}>
             {label} ({data.outcomes[outcome] ?? 0})
           </Link>)}
       </div>

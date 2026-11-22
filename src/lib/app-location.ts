@@ -9,7 +9,7 @@ export const settingsSections = { providers: "Providers", team: "Team & access",
 export type SettingsSection = keyof typeof settingsSections;
 
 export const runStatuses = ["queued", "submitting", "submitted", "succeeded", "failed", "uncertain"] as const;
-export const runOutcomes = ["pending", "failed", "uncertain", "organic", "no_answer", "eligible"] as const;
+export const runOutcomes = ["pending", "failed", "uncertain", "organic", "no_answer", "no_evidence", "eligible"] as const;
 
 export type AppSearch = AnalyticsScope & {
   metric?: AnswerMetric;

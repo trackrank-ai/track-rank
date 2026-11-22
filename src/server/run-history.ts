@@ -36,7 +36,7 @@ export const runHistoryFilters = scopeFilters.extend({
   metric: z.enum(answerMetrics).optional(),
   prompt_id: z.string().min(1).max(100).optional(),
   q: z.string().trim().max(200).optional(),
-  outcome: z.enum(["pending", "failed", "uncertain", "organic", "no_answer", "eligible"]).optional(),
+  outcome: z.enum(["pending", "failed", "uncertain", "organic", "no_answer", "no_evidence", "eligible"]).optional(),
   status: z.enum(["queued", "submitting", "submitted", "succeeded", "failed", "uncertain"]).optional(),
   brand_id: z.string().min(1).max(100).optional(),
   research_type: z.enum(["domain", "page", "query"]).optional(),
@@ -70,7 +70,8 @@ export const outcomePredicates = {
   failed: "runs.status='failed'",
   uncertain: "runs.status='uncertain'",
   organic: `${missingAnswer} AND ${hasOrganic}`,
-  no_answer: `${missingAnswer} AND NOT (${hasOrganic})`,
+  no_answer: missingAnswer,
+  no_evidence: `${missingAnswer} AND NOT (${hasOrganic})`,
   eligible: eligibleAnswer,
 };
 export const runConfig = "CASE WHEN json_valid(runs.config) THEN runs.config ELSE '{}' END";
