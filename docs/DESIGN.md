@@ -22,6 +22,10 @@ The homepage describes the live open-source product and hosted service. The inte
 
 Stack landing sections on small screens, hide nonfunctional preview sidebar, retain all preview data tabs. Respect reduced motion; give focusable controls clear focus rings. Retain visible illustrative-data labels at every viewport.
 
+## Bulk selection
+
+Use the shared bulk selection control for lists with bulk actions. Show the selected count, support a mixed checkbox state, and let users clear the selection. Offer the full matching count only after the current page is selected and additional pages exist. Keep selections across page navigation. Expanding the selection reads matches in the active organization, workspace and filters. It never performs a bulk write.
+
 ## Shareable app navigation
 
 Give each authenticated section and shareable record a stable URL. Use the existing app search parameters for organization, workspace, section, and record identity. Add to that contract when creating a new destination. Use real links for navigation and keep loading and permission errors in the destination view. A shared URL must survive refresh, browser history, and sign-in. The server still checks membership and resource ownership. Keep credentials, invitation tokens, and other secrets out of shareable app queries.

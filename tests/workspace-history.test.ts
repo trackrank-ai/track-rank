@@ -256,3 +256,66 @@ test("tier search windows apply to REST, research, export and MCP without deleti
     assert.equal(sql.prepare("SELECT count(*) AS n FROM runs").get()?.n,2);
   }
 });
+
+test("bulk selection pages keep the same tenant and filters across REST and MCP", async () => {
+  const { sql, env, call } = setup();
+  const { mcp } = await import("../src/server/mcp");
+  const { hashToken } = await import("../src/server/crypto");
+  const insert = sql.prepare(`INSERT INTO prompts(id,org_id,workspace_id,text,created_at,updated_at,tags)
+    VALUES(?, 'org', ?, 'Selection fixture', 1, 1, ?)`);
+  const expected = Array.from({ length: 1001 }, (_, index) => `match-${String(index).padStart(4, "0")}`);
+  for (const id of expected) insert.run(id, "source", '["batch"]');
+  insert.run("outside-workspace", "target", '["batch"]');
+  insert.run("outside-tag", "source", "[]");
+  sql.exec("UPDATE prompts SET tags='[\"batch\"]', text='Selection fixture' WHERE id='foreign-prompt'");
+  sql.exec(`INSERT INTO schedules(id,org_id,prompt_id,preset,days,times_json,timezone,created_at)
+    SELECT 's-' || id, org_id, id, 'daily', '[0]', '["09:00"]', 'UTC', 1 FROM prompts`);
+
+  const key = "trk_bulk_selection_fixture";
+  sql.prepare(`INSERT INTO api_keys(id,org_id,user_id,name,prefix,token_hash,scopes,expires_at,created_at)
+    VALUES('selection-key','org','owner','Agent','trk',?,'["read","write"]',?,0)`).run(await hashToken(key), Date.now() + 60_000);
+  async function tool(name: string, args: object, isError = false) {
+    const request = new Request("https://example.test/mcp", {
+      method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }),
+    });
+    const { result } = await (await mcp(request, env, { waitUntil() {} } as any)).json() as {
+      result: { isError: boolean; content: { text: string }[] };
+    };
+    assert.equal(result.isError, isError, result.content[0].text);
+    return JSON.parse(result.content[0].text);
+  }
+
+  const query = "/prompts?view=library&workspace=source&tag=batch&q=selection";
+  const page: any = await (await call(query + "&limit=20")).json();
+  assert.equal(page.total, 1001);
+  assert.equal(page.prompts.length, 20);
+  const matching = { workspace_id: "source", tag: "batch", q: "selection", selection: true };
+  const first: any = await (await call(query + "&selection=1")).json();
+  assert.equal(first.prompts.length, 1000);
+  assert.deepEqual(first.prompts[0], { id: expected.at(-1), workspace_id: "source" });
+  const last = await tool("list_prompts", { ...matching, ...first.next_cursor });
+  assert.equal(last.next_cursor, null);
+  assert.deepEqual([...first.prompts, ...last.prompts].map(row => row.id), [...expected].reverse());
+  await assert.rejects(call(query + "&limit=101"), { status: 400 });
+  await assert.rejects(call(query + "&selection=1&before=1"), { status: 400 });
+
+  const schedulePage = await tool("list_schedules", { workspace_id: "source", limit: 20 });
+  assert.equal(schedulePage.total, 1004);
+  assert.equal(schedulePage.schedules.length, 20);
+  const selectedSchedules: any = await (await call("/schedules?workspace=source&selection=1")).json();
+  const rest = await tool("list_schedules", {
+    workspace_id: "source", selection: true, ...selectedSchedules.next_cursor,
+  });
+  const schedules = [...selectedSchedules.schedules, ...rest.schedules];
+  assert.equal(new Set(schedules.map(row => row.id)).size, 1004);
+  assert.ok(schedules.every(row => row.id !== "s-foreign-prompt" && row.id !== "s-outside-workspace"));
+  assert.equal(rest.next_cursor, null);
+
+  await assert.rejects(call("/prompts/bulk-settings", { ids: [expected[0]], enabled: false }, "viewer", "PATCH"), { status: 403 });
+  assert.equal((await tool("update_prompt_settings", { ids: [expected[0], "foreign-prompt"], enabled: false }, true)).status, 404);
+  assert.deepEqual(await tool("update_prompt_settings", { ids: expected.slice(0, 100), enabled: false }), { updated: 100 });
+  assert.deepEqual(await tool("move_prompts", { ids: [expected[0]], workspace_id: "target" }), { moved: 1 });
+  assert.deepEqual(await tool("delete_prompts", { ids: [expected[1]] }), { deleted: 1 });
+  assert.equal((await (await call(query + "&limit=20")).json() as { total: number }).total, 999);
+});

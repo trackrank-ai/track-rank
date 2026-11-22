@@ -27,6 +27,7 @@ See [launch status](docs/LAUNCH.md), [operations and support](docs/OPERATIONS.md
 
 - Use the sidebar to switch between client workspaces or select **All workspaces** for the organization-wide view. **Default workspace** is a regular workspace. Workspaces share the organization's team, provider credentials, and billing.
 - Use **Manage workspaces**, **Brands**, and **Prompts** to manage those records. Deleting a workspace or prompt removes its schedules and preserves collected run history and evidence.
+- In **Prompts** and **Schedules**, choose **Select all on page** to select the visible rows. If more rows match, choose **Select all: N** to include every matching page in the current workspace and filters. Selections carry across pages and **Clear selection** clears them.
 - In **Prompts**, select prompts from one workspace and choose **Run selected** to queue runs up to your remaining monthly allowance. TrackRank splits large selections into requests. Each sample has its own status in run history and incurs a separate provider charge.
 - Choose **Schedule selected** to save the prompts in one paused schedule batch. The form shows the runs per scheduled day, including samples and extra daily times. The scheduler queues due runs under the same monthly allowance as manual collections.
 - In **Sources & research**, select a domain, cited page, or grounding query to see matching answers and brand mentions. Copy the detail URL to share it with teammates who have access. Open a matching answer to see its full run.

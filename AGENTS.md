@@ -94,7 +94,7 @@ npm run typecheck
 
 # Product principles
 
-- **Bulk by default.** Collection interfaces lead with selection/select-all and shared actions. Creating, editing, running, pausing and scheduling should work on batches; a single item is a batch of one, not the primary interaction model.
+- **Bulk by default.** Collection interfaces lead with selection and shared actions. Use the shared bulk selection control. Select the current page first, then offer the full matching count when there are more pages. Keep selections when moving between pages and apply the active organization, workspace and filters when expanding selection. Creating, editing, running, pausing and scheduling should work on batches; a single item is a batch of one, not the primary interaction model.
 - Use progressive disclosure. Keep common tasks simple. Put location/language overrides, execution details, repeated samples and extra daily time slots under Advanced, with visible defaults and estimated total runs.
 - Repeated samples are independent provider requests with distinct identities. Retries must be idempotent and must never quietly resubmit uncertain/accepted provider work.
 - Explain Organization (team/billing/credentials) → Workspaces (client/brand/campaign folders) → Prompts, with multiple tracked brands per workspace. Use the sidebar workspace selector for scope across the app. `All workspaces` covers the organization. `Default workspace` is a regular workspace.
