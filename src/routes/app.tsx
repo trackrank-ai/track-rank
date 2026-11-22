@@ -1544,7 +1544,7 @@ function App() {
                     trendMetric={search.trendMetric} evidenceDay={search.evidenceDay}
                     backLink={trackingLink("overview")}
                     historyLink={patch => patch.run ? { ...search, ...patch, org, workspace, tab: "runs" }
-                      : { org, workspace, tab: "tracking", set: trackedSet.id, trackingView: "answers" }}
+                      : { ...(patch.metric ? { ...search, ...patch } : {}), org, workspace, tab: "tracking", set: trackedSet.id, trackingView: "answers" }}
                     onChange={patch => void navigate({ search: { ...search, ...patch }, replace: "q" in patch })} />}
                   {trackingView === "settings" && <TrackingSetSettings key={trackedSet.id} org={org} set={trackedSet}
                     canWrite={canWrite} request={request} onChange={() => setSetRevision(value => value + 1)}
