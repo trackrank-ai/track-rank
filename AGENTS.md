@@ -13,7 +13,7 @@ Applies to this repository. Read this before changing code. More-specific instru
 ## Stack and code map
 
 - TypeScript / React 19 / TanStack Start and Router / Vite. Cloudflare Workers hosts the app; D1 stores metadata, private R2 stores raw evidence, Workflows executes runs, and Cron dispatches/reconciles work.
-- `src/routes/`: pages, onboarding and authenticated UI. `src/components/ui/`: shared shadcn/Radix primitives. `src/styles.css`: shared styles. Use `PRODUCT.md` for audience and workflow decisions. The visual guidance in `docs/DESIGN.md` describes the provisional implementation.
+- `src/routes/`: pages, onboarding and authenticated UI. `src/components/ui/`: shared shadcn/Radix primitives. `src/styles.css`: shared styles. Use `PRODUCT.md` for audience and workflow decisions. Follow the evidence presentation, accessible controls, mobile navigation and record identity conventions in `docs/DESIGN.md`.
 - `src/worker.ts`: HTTP routing, auth/API/MCP/webhook entry points and scheduled work. `src/server/types.ts`: environment bindings and shared helpers.
 - `src/server/api.ts`: REST routes, validation and tenant authorization. `mcp.ts`: MCP tools and agent-facing schemas.
 - `auth.ts`, `auth-schema.ts`, `local-auth.ts`: identity, roles, invitations and tightly scoped local verification bypass.

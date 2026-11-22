@@ -4,23 +4,23 @@
 
 Use shadcn/ui (New York / neutral, CSS-variable theming) and Tailwind CSS v4. Components are owned source in `src/components/ui`, added from the official registry using `npx shadcn@latest add <component>`. Configuration lives in `components.json`. Prefer these components over one-off primitives; use `cn` for class composition.
 
-## Brand
+## Visual hierarchy and typography
 
-- Default theme: warm-white canvas, charcoal ink and signal-orange accents. Dark mode is opt-in. Header/app/auth toggles persist an explicit preference locally; a pre-paint script applies only an explicit dark selection.
-- Light mode retains the warm-white canvas `#faf9f6`, charcoal ink `#20201f`, signal-orange mark `#ef5c2a`.
-- Primary interactive orange `#b93b13` is darker for legible white button text. Decorative orange is not the text/button token.
-- Geist Variable, self-hosted via Fontsource. Tight headline tracking, generous whitespace, restrained small labels.
-- Ascending three-bar mark, shared visual language for wordmark and favicon. No bitmap logo dependency.
-- Quiet borders, modest corners, sparse shadows. Dark olive-charcoal ownership panel contrasts the light product UI.
-- Icons: Lucide. Saved prompt rows use self-hosted engine marks from [Lobe Icons](https://github.com/lobehub/lobe-icons) with names available on hover and keyboard focus.
+The question is the heading of a run detail. Follow it with the workspace, engine, collection location, timestamp and status. Give the answer a readable column. Show brand observations from the run snapshot and the sources returned with that answer. Link a source to a specific passage only when the evidence supplies that association. Preserve the separate organic-results view when Google returns organic links without an AI Overview.
 
-## Product honesty and interaction
+Use self-hosted Geist Variable. Start with 16 px for answer text, 14 px for controls and rows, and 12–13 px for metadata. Allow long questions, brand names and URLs to wrap. Keep the engine identifiable when a question label is shortened. Use the warm-white background, charcoal text and burnt-orange interactive accent in light mode. Dark mode follows the reader’s explicit choice. Keep normal text at a contrast ratio of at least 4.5:1 in both themes, including cost assumptions, inactive tabs and form hints.
 
-The homepage describes the live open-source product and hosted service. The interactive dashboard is illustrative: label its metrics, trends, sources and prompts as sample data. Tabs work using the shadcn/Radix component. Sidebar labels are noninteractive preview decoration, not dead navigation buttons. No fake signup, auth, tracking execution, testimonials, customer logos or performance claims.
+Use the shared buttons, cards and tabs. Label form controls directly, associate explanatory text with its control, and make help accessible by keyboard and touch. Keep focus visible and use text for collection status. Keep related numbers and labels together when layouts stack.
 
-## Responsive and accessible
+## Public product evidence
 
-Stack landing sections on small screens, hide nonfunctional preview sidebar, retain all preview data tabs. Respect reduced motion; give focusable controls clear focus rings. Retain visible illustrative-data labels at every viewport.
+The landing page uses the same evidence presentation as an authenticated run. Label the example as illustrative at the point where the reader sees it. The question, engine, answer, brand observation and source should be legible before signup. Explain the separate provider account and collection charges alongside the hosted trial action. Use the installation’s actual hosting configuration when choosing calls to action.
+
+## Responsive navigation and workspace overview
+
+The compact app has a labeled section chooser and a separate workspace selector. Retain the current section and workspace after reload or sign-in. Make Product, Pricing and Compare directly accessible on the compact public site. At phone widths, keep all pricing comparison values accessible.
+
+For a workspace awaiting its first collection, put the next setup step ahead of analytics filters. Explain how brand assignment affects future snapshots and keep save-only actions available before credentials are connected. For a populated workspace, lead with a result and its scope. Distinguish an empty workspace from a search that returned no matches. Every schedule action must identify its engine variant and distinguish the workspace in organization-wide views.
 
 ## Bulk selection
 
