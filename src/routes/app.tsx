@@ -88,7 +88,15 @@ function HelpTip({ label, text }: { label: string; text: string }) {
     <HelpTooltip.Provider delayDuration={150}>
       <HelpTooltip.Root open={open} onOpenChange={setOpen}>
         <HelpTooltip.Trigger asChild>
-          <button type="button" className="help-tip" aria-label={"About " + label} onClick={() => setOpen(true)}>
+          <button
+            type="button"
+            className="help-tip"
+            aria-label={"About " + label}
+            onClick={event => {
+              event.preventDefault();
+              setOpen(true);
+            }}
+          >
             <CircleHelp size={16} aria-hidden="true" />
           </button>
         </HelpTooltip.Trigger>
