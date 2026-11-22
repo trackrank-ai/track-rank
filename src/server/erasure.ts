@@ -50,7 +50,7 @@ export async function eraseData(env: Env, data: {kind?:string; id?:string; confi
   if((await env.ANSWERS.list({prefix:id+'/',limit:1})).objects.length)throw new HttpError(409,'Answer objects remain; retry after draining work');
   await env.DB.batch([
     env.DB.prepare('DELETE FROM runs WHERE org_id=?').bind(id),
-    env.DB.prepare('DELETE FROM prompts WHERE org_id=?').bind(id),
+    env.DB.prepare('DELETE FROM prompt_engines WHERE org_id=?').bind(id),
     env.DB.prepare('DELETE FROM workspace_brands WHERE org_id=?').bind(id),
     env.DB.prepare('DELETE FROM workspaces WHERE org_id=?').bind(id),
     ...(billing?[env.DB.prepare('DELETE FROM billing_sync_locks WHERE customer_id=?').bind(billing.customer_id)]:[]),
