@@ -1480,7 +1480,7 @@ function App() {
                     })}
                     <BulkPageNavigation pages={promptPages} label="questions" />
                   </CardContent></Card>}
-                  {trackingView === "answers" && <WorkspaceRunHistory key={trackedSet.id}
+                  {trackingView === "answers" && <WorkspaceRunHistory key={trackedSet.id} lockSet
                     org={org} workspace={workspaceId} workspaceName={workspaceName} workspaceNames={workspaceNames}
                     runPrompt={search.runPrompt} prompts={[]} brands={scopeBrands} engines={engines} request={request}
                     refresh={prompts} canWrite={canWrite} scope={linkScope} filters={search} metric={search.metric ?? (search.outcome ? undefined : "eligible")}

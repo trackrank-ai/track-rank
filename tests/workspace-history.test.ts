@@ -631,7 +631,7 @@ test("tracking sets summarize distinct variants and filter schedules within thei
   const expected = {
     id, workspace_id: "source", name: "Tracked", member_count: 3, question_count: 2,
     engines: ["chatgpt", "gemini"], scheduled_count: 1, paused_count: 1, unscheduled_count: 1,
-    last_completed_at: 50, next_scheduled_at: 100,
+    has_runs: true, last_completed_at: 50, next_scheduled_at: 100,
   };
   assert.deepEqual(await (await call(`/prompt-sets/${id}?workspace=source`, undefined, "viewer")).json(), { set: expected });
   await assert.rejects(call(`/prompt-sets/${id}?workspace=target`), { status: 404 });
@@ -639,7 +639,7 @@ test("tracking sets summarize distinct variants and filter schedules within thei
   const { sets } = await (await call("/prompt-sets")).json() as { sets: unknown[] };
   assert.deepEqual(sets, [{
     id: empty, workspace_id: "source", name: "Empty", member_count: 0, question_count: 0, engines: [],
-    scheduled_count: 0, paused_count: 0, unscheduled_count: 0, last_completed_at: null, next_scheduled_at: null,
+    scheduled_count: 0, paused_count: 0, unscheduled_count: 0, has_runs: false, last_completed_at: null, next_scheduled_at: null,
   }, expected]);
   const filtered = await (await call(`/schedules?workspace=source&set=${id}&limit=1`, undefined, "viewer")).json() as any;
   assert.equal(filtered.total, 4);

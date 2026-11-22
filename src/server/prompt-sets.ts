@@ -60,6 +60,8 @@ export async function promptSetsRoute(req: Request, env: Env, org: string, path:
         sum(CASE WHEN sc.active=0 THEN 1 ELSE 0 END) AS paused_count,
         sum(CASE WHEN sc.active IS NULL THEN 1 ELSE 0 END) AS unscheduled_count,
         min(sc.next_scheduled_at) AS next_scheduled_at,
+        max(EXISTS(SELECT 1 FROM runs r
+          WHERE (r.org_id,r.prompt_id,r.workspace_id)=(m.org_id,m.id,m.workspace_id))) AS has_runs,
         max((SELECT max(r.updated_at) FROM runs r
           WHERE (r.org_id,r.prompt_id,r.workspace_id)=(m.org_id,m.id,m.workspace_id)
             AND r.status='succeeded')) AS last_completed_at
@@ -69,10 +71,10 @@ export async function promptSetsRoute(req: Request, env: Env, org: string, path:
     SELECT s.id,s.workspace_id,s.name,coalesce(t.member_count,0) AS member_count,
       coalesce(t.question_count,0) AS question_count,coalesce(t.engines,'[]') AS engines,
       coalesce(t.scheduled_count,0) AS scheduled_count,coalesce(t.paused_count,0) AS paused_count,
-      coalesce(t.unscheduled_count,0) AS unscheduled_count,t.next_scheduled_at,t.last_completed_at
+      coalesce(t.unscheduled_count,0) AS unscheduled_count,coalesce(t.has_runs,0) AS has_runs,t.next_scheduled_at,t.last_completed_at
     FROM selected_sets s LEFT JOIN statistics t ON t.set_id=s.id
     ORDER BY s.name COLLATE NOCASE,s.id`, org, ...(workspace ? [workspace] : []), ...(set ? [set] : []), org);
-    const summaries = sets.map(row => ({ ...row, engines: JSON.parse(String(row.engines)) as string[] }));
+    const summaries = sets.map(row => ({ ...row, has_runs: !!row.has_runs, engines: JSON.parse(String(row.engines)) as string[] }));
     return json(set ? { set: required(summaries[0], "Prompt set not found") } : { sets: summaries });
   }
   if (!set && req.method === "POST") {

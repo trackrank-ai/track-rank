@@ -41,7 +41,7 @@ export function RunStatus({ value }: { value: string }) {
   return <Badge variant="outline" className={"run-status status-" + value}>{value}</Badge>;
 }
 
-export function WorkspaceRunHistory({ org, workspace, workspaceName, workspaceNames, runPrompt, prompts, brands, engines, request, refresh, canWrite, scope, metric, trendMetric, evidenceDay, researchType, researchValue, filters, onChange, historyLink, backLink }: {
+export function WorkspaceRunHistory({ org, workspace, workspaceName, workspaceNames, runPrompt, prompts, brands, engines, request, refresh, canWrite, scope, metric, trendMetric, evidenceDay, researchType, researchValue, filters, onChange, historyLink, backLink, lockSet = false }: {
   org: string;
   workspace: string;
   workspaceName: string;
@@ -60,6 +60,7 @@ export function WorkspaceRunHistory({ org, workspace, workspaceName, workspaceNa
   researchType?: ResearchType;
   researchValue?: string;
   filters: Pick<AppSearch, "q" | "status" | "brand" | "outcome" | "run" | "reportQuestion" | "reportEngine">;
+  lockSet?: boolean;
   historyLink?: (patch: Partial<AppSearch>) => AppSearch;
   backLink?: AppSearch;
   onChange: (patch: Partial<AppSearch>) => void;
@@ -157,7 +158,7 @@ export function WorkspaceRunHistory({ org, workspace, workspaceName, workspaceNa
         {Object.entries({
           reportQuestion: filters.reportQuestion ? `Recorded question · ${engines[filters.reportEngine ?? ""] ?? "Recorded engine"}` : undefined,
           engine, q: keyword, status, outcome, brand, runPrompt, metric, researchValue,
-          set: scope.set, tags: scope.tags, location: scope.location, from: scope.from, to: scope.to, trackedBrand: scope.trackedBrand,
+          set: lockSet ? undefined : scope.set, tags: scope.tags, location: scope.location, from: scope.from, to: scope.to, trackedBrand: scope.trackedBrand,
           compareBrand: query.get("compare_brand"), evidenceDay,
         }).filter(([, value]) => value).map(([key, value]) => {
           const labels: Record<string, string> = { reportQuestion: "Question breakdown", q: "Search", runPrompt: "Prompt variant", trackedBrand: "Tracked brand", compareBrand: "Comparison brand", evidenceDay: "Evidence day", researchValue: "Research", set: "Prompt set" };

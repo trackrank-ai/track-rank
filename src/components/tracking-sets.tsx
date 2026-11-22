@@ -12,6 +12,7 @@ export type TrackingSet = PromptSet & {
   scheduled_count: number;
   paused_count: number;
   unscheduled_count: number;
+  has_runs: boolean;
   last_completed_at: number | null;
   next_scheduled_at: number | null;
 };
@@ -127,16 +128,16 @@ export function TrackingSetEmptyReport({ org, set, canWrite }: {
   canWrite: boolean;
 }) {
   const context = setContext(org, set);
-  if (set.scheduled_count && set.last_completed_at === null) return <div>
+  if (set.scheduled_count && !set.has_runs) return <div>
     <p>No recorded checks in this view yet. Enabled schedules collect at their next due time.</p>
     <Link className="small-link" to="/app" search={{ ...context, tab: "schedules", trackingView: "overview" }}>View schedules</Link>
   </div>;
   return <div>
-    <p>{set.last_completed_at !== null ? "No collections match these report filters."
+    <p>{set.has_runs ? "No collections match these report filters."
       : set.member_count ? "No recorded checks in this view yet."
       : "Add questions to start tracking this set."}</p>
     <Link className="small-link" to="/app" search={{ ...context, tab: "tracking", trackingView: "questions" }}>View questions</Link>
-    {canWrite && set.member_count > 0 && set.last_completed_at === null && <> · <Link className="small-link" to="/app"
+    {canWrite && set.member_count > 0 && !set.has_runs && <> · <Link className="small-link" to="/app"
       search={{ ...context, tab: "prompts", trackingView: "overview" }}>Review collection options</Link></>}
   </div>;
 }
