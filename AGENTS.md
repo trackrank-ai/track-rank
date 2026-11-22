@@ -96,6 +96,7 @@ npm run typecheck
 # Product principles
 
 - **Bulk by default.** Collection interfaces lead with selection and shared actions. Use the shared bulk selection control. Select the current page first, then offer the full matching count when there are more pages. Keep selections when moving between pages and apply the active organization, workspace and filters when expanding selection. Creating, editing, running, pausing and scheduling should work on batches; a single item is a batch of one, not the primary interaction model.
+- Group identical prompt wording within each workspace in the saved library. Keep per-engine variant IDs for schedules, runs and bulk actions. Apply library filters before grouping.
 - Start new monitoring from Prompts. Every unarchived prompt supports manual and scheduled collection. Only schedules carry an enabled state. The Schedules page manages existing schedules. Review exact variants before collection, skip existing matches by default, and keep save receipts and manual batches independent of library filters and changing prompt sets. Use a stable operation ID when saving and reuse the same receipt action on retry.
 - Schedule bulk edits send only changed fields. Updating the first local time retains the remaining time slots. Apply migration `0025` before deploying saved receipts and batch progress.
 - Use progressive disclosure. Keep common tasks simple. Put location/language overrides, execution details, repeated samples and extra daily time slots under Advanced, with visible defaults and estimated total runs.

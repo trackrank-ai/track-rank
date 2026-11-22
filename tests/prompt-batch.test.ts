@@ -47,7 +47,7 @@ test("saved prompt filters combine keyword, engine, schedule, and client across 
   const list = async (query: string) => (await api(
     new Request('https://example.test/api/v1/prompts?org=org&workspace=space&view=library&' + query),
     env,{waitUntil:()=>{}} as any,{userId:'owner',orgId:'org'},
-  )).json() as Promise<{prompts:{id:string; actively_scheduled:number}[];next_cursor:{before:number;before_id:string}|null}>;
+  )).json() as Promise<{prompts:{id:string; variants:{actively_scheduled:number}[]}[];next_cursor:{before:number;before_id:string}|null}>;
   const insert = sql.prepare("INSERT INTO prompts(id,org_id,workspace_id,brand_id,text,engine,created_at,updated_at) VALUES(?,'org','space',?,?,?,10,10)");
   for (let i = 0; i < 105; i++) insert.run("p"+String(i).padStart(3,"0"),null,"Test keyword "+i,"google");
   insert.run("explicit-other","other","Test keyword other","google");
@@ -64,8 +64,8 @@ test("saved prompt filters combine keyword, engine, schedule, and client across 
   assert.equal(next.prompts.length,6);
   assert.equal(new Set([...page.prompts,...next.prompts].map(prompt => prompt.id)).size,106);
   assert.equal(next.next_cursor,null);
-  assert.deepEqual((await list(query + "&schedule=active")).prompts.map(row => [row.id,row.actively_scheduled]), [["p000",1]]);
-  assert.deepEqual((await list(query + "&schedule=inactive")).prompts.map(row => row.actively_scheduled),Array(100).fill(0));
+  assert.deepEqual((await list(query + "&schedule=active")).prompts.map(row => [row.id,row.variants[0].actively_scheduled]), [["p000",1]]);
+  assert.deepEqual((await list(query + "&schedule=inactive")).prompts.map(row => row.variants[0].actively_scheduled),Array(100).fill(0));
 });
 
 test("preview and operation receipt identify exact combinations and separate paused monitoring", async () => {

@@ -44,7 +44,6 @@ import {
   Loader2,
   LogOut,
   MessageSquare,
-  Play,
   Plus,
   RefreshCw,
   Settings2,
@@ -390,13 +389,6 @@ function App() {
   const promptLibraryRevision = useMemo(() => ({ prompts, setRevision }), [prompts, setRevision]);
   const promptPages = useBulkPages(canLoadBulkPages && tab === "prompts" ? libraryPath : null, "prompts", readBulkPage, promptLibraryRevision);
   const savedPrompts = promptPages.current?.rows ?? [];
-  const promptGroups = new Map<string, Item[]>();
-  for (const prompt of savedPrompts) {
-    const key = JSON.stringify([prompt.workspace_id, prompt.text]);
-    const group = promptGroups.get(key);
-    if (group) group.push(prompt);
-    else promptGroups.set(key, [prompt]);
-  }
   const workspaceTags = promptPages.current?.tags ?? [];
   const tagOptions = search.tag && !workspaceTags.includes(search.tag) ? [search.tag, ...workspaceTags] : workspaceTags;
   const workspaceQuery = new URLSearchParams();
@@ -817,7 +809,6 @@ function App() {
     });
   }
   async function queuePromptBatch(ids: string[], samples: number) { await reviewCollection(ids, samples, "run"); }
-  async function runPrompt(p: Item) { await queuePromptBatch([p.id], 1); }
   async function updateSelectedSchedules(changes: object, ids = selectedScheduleIds) {
     for (let offset = 0; offset < ids.length; offset += SCHEDULES_PER_REQUEST) {
       if (activeOrg.current !== org) return false;
@@ -1831,6 +1822,7 @@ function App() {
                       )}
                       {(savedPrompts.length > 0 || promptSelection.size > 0) && canWrite && <div className="bulk-toolbar">
                         <BulkSelection rows={savedPrompts} selected={promptSelection} pages={promptPages} disabled={busy}
+                          members={group => group.variants} selectionLabel="Engine variants selected"
                           onChange={(rows, checked) => setPromptSelection(current => changeSelection(current, rows, checked))} />
                         <Button disabled={bulkBusy || !!pendingRun || !savedSelection.length || mixedWorkspaceSelection} onClick={() => queuePromptBatch(savedSelection, runSamples)}>Run selected — {selectedRunCount} runs</Button>
                         <Button variant="outline" disabled={bulkBusy || !savedSelection.length || mixedWorkspaceSelection}
@@ -1858,7 +1850,7 @@ function App() {
                             <p className="data-note">Schedules and future runs follow the prompts. Previously queued and collected runs stay in their original workspace.</p>
                           </details>
                         )}
-                        <details><summary>Advanced · sampling & bulk settings</summary><form className="app-inline-form" onSubmit={e=>submit(e,async f=>{await updateSelectedPrompts("/prompts/bulk-settings", { mode: f.get("bulk_mode") }, "Execution mode updated for selected prompts.");})}><FormField label="Execution mode for selected prompts" hint="Priority and live may cost more on future runs. This only changes saved settings."><select name="bulk_mode"><option value="standard">Standard queue</option><option value="priority">Priority queue</option><option value="live">Live</option></select></FormField><Button disabled={bulkBusy || !savedSelection.length}>Apply mode to selected</Button></form><FormField label="Samples per prompt" hint="Independent samples are queued for collection. Each sample is a separate provider charge and run."><input type="number" min={1} max={10} value={runSamples} onChange={e=>setRunSamples(Math.max(1,Math.min(10,Number(e.target.value)||1)))} /></FormField></details>
+                        <details><summary>Advanced · sampling & bulk settings</summary><form className="app-inline-form" onSubmit={e=>submit(e,async f=>{await updateSelectedPrompts("/prompts/bulk-settings", { mode: f.get("bulk_mode") }, "Execution mode updated for selected prompts.");})}><FormField label="Execution mode for selected prompts" hint="Priority and live may cost more on future runs. This only changes saved settings."><select name="bulk_mode"><option value="standard">Standard queue</option><option value="priority">Priority queue</option><option value="live">Live</option></select></FormField><Button disabled={bulkBusy || !savedSelection.length}>Apply mode to selected</Button></form><FormField label="Samples per engine variant" hint="Independent samples are queued for collection. Each sample is a separate provider charge and run."><input type="number" min={1} max={10} value={runSamples} onChange={e=>setRunSamples(Math.max(1,Math.min(10,Number(e.target.value)||1)))} /></FormField></details>
                       </div>}
                       {canWrite && savedSelection.length > 0 && (
                         <details className="advanced-settings">
@@ -1889,75 +1881,68 @@ function App() {
                       {!promptPages.current ? (!promptPages.error && <p role="status">Loading saved prompts…</p>) :
                         savedPrompts.length ? (
                         <div className="prompt-table">
-                          {[...promptGroups.entries()].map(([key, variants]) => <section key={key}>
-                            {variants.map((p) => (
-                            <div className="saved-prompt" data-selectable={canWrite} key={p.id}>
-                              {canWrite && <input type="checkbox" aria-label={`Select ${p.text} — ${engines[p.engine]}`} checked={promptSelection.has(p.id)} disabled={bulkBusy || promptPages.loading} onChange={e => setPromptSelection(current => changeSelection(current, [p], e.target.checked))} />}
+                          {savedPrompts.map(group => {
+                            const variants: Item[] = group.variants;
+                            const ids = variants.map(variant => variant.id);
+                            const selectedCount = ids.filter(id => promptSelection.has(id)).length;
+                            return <section className="saved-prompt" data-selectable={canWrite} key={group.id}>
+                              {canWrite && <input type="checkbox" aria-label={`Select ${group.text}`}
+                                ref={input => { if (input) input.indeterminate = selectedCount > 0 && selectedCount < variants.length; }}
+                                checked={selectedCount === variants.length} disabled={bulkBusy || promptPages.loading}
+                                onChange={event => setPromptSelection(current => changeSelection(current, variants, event.target.checked))} />}
                               <div>
-                                <div className="prompt-row-title">
-                                  <Link to="/app" search={{ ...sectionSearch("prompts"), prompt: p.id }}>
-                                    <strong>{p.text}</strong>
-                                  </Link>
-                                  <HelpTooltip.Provider delayDuration={150}>
-                                    <HelpTooltip.Root>
-                                      <HelpTooltip.Trigger asChild>
-                                        <span className="prompt-engine-icon" tabIndex={0} aria-label={engines[p.engine]} role="img">
-                                          <img src={`/engine-icons/${p.engine}.svg`} alt="" width={18} height={18} />
-                                        </span>
-                                      </HelpTooltip.Trigger>
-                                      <HelpTooltip.Portal>
-                                        <HelpTooltip.Content className="help-tip-content" sideOffset={6}>
-                                          {engines[p.engine]}<HelpTooltip.Arrow />
-                                        </HelpTooltip.Content>
-                                      </HelpTooltip.Portal>
-                                    </HelpTooltip.Root>
-                                  </HelpTooltip.Provider>
-                                </div>
+                                <div className="prompt-row-title"><strong>{group.text}</strong></div>
                                 <small>
-                                  {allWorkspaces && workspaceNames[p.workspace_id] && `${workspaceNames[p.workspace_id]} · `}
-                                   {p.location_name} ·{" "}
-                                  {p.language_code} · {p.mode}{" "}
-                                  {p.actively_scheduled ? "· Scheduled" : ""}
+                                  {allWorkspaces && workspaceNames[group.workspace_id] && `${workspaceNames[group.workspace_id]} · `}
+                                  {[...new Set(variants.map(variant => engines[variant.engine]))].join(" · ")}
                                 </small>
-                                {!!p.tags?.length && <div className="flex flex-wrap gap-1">
-                                  {(p.tags as string[]).map(tag => <Badge key={tag} variant="secondary">{tag}</Badge>)}
-                                </div>}
-                                <p className="data-note">{p.latest_collection ? `Last collection ${date(p.latest_collection.created_at)} · ${p.latest_collection.status === "succeeded"
-                                  ? p.latest_collection.has_answer ? "Eligible AI answer" : "Completed without an eligible AI answer" : p.latest_collection.status}` : "No collection in searchable history"}</p>
-                                {p.latest_collection && <Link className="small-link" to="/app" search={{ org, workspace: p.workspace_id, tab: "runs", run: p.latest_collection.id }}>
-                                  {p.latest_collection.has_answer ? "View latest answer" : p.latest_collection.has_organic ? "View organic evidence" : "View latest run"}
-                                </Link>}
-                                {p.latest_answer_id && p.latest_answer_id !== p.latest_collection?.id && <Link className="small-link" to="/app"
-                                  search={{ org, workspace: p.workspace_id, tab: "runs", run: p.latest_answer_id }}>View latest answer</Link>}
-                                {p.brand_period && <p className="data-note">Mentioned in {p.brand_period.mentions} of {p.brand_period.samples} eligible answers</p>}
+                                <details className="prompt-variants" open={search.brand ? true : undefined}>
+                                  <summary>Engine settings and results</summary>
+                                  {variants.map(p => <div className="prompt-variant" key={p.id}>
+                                    <div className="prompt-row-title">
+                                      <span className="prompt-engine-icon"><img src={`/engine-icons/${p.engine}.svg`} alt="" width={18} height={18} /></span>
+                                      <Link to="/app" search={{ ...sectionSearch("prompts"), workspace: p.workspace_id, prompt: p.id }}>
+                                        <strong>{engines[p.engine]}</strong>
+                                      </Link>
+                                    </div>
+                                    <small>
+                                      {p.location_name} ·{" "}
+                                      {p.language_code} · {p.mode}{" "}
+                                      {p.actively_scheduled ? "· Scheduled" : ""}
+                                    </small>
+                                    {!!p.tags?.length && <div className="flex flex-wrap gap-1">
+                                      {(p.tags as string[]).map(tag => <Badge key={tag} variant="secondary">{tag}</Badge>)}
+                                    </div>}
+                                    <p className="data-note">{p.latest_collection ? `Last collection ${date(p.latest_collection.created_at)} · ${p.latest_collection.status === "succeeded"
+                                      ? p.latest_collection.has_answer ? "Eligible AI answer" : "Completed without an eligible AI answer" : p.latest_collection.status}` : "No collection in searchable history"}</p>
+                                    {p.latest_collection && <Link className="small-link" to="/app" search={{ org, workspace: p.workspace_id, tab: "runs", run: p.latest_collection.id }}>
+                                      {p.latest_collection.has_answer ? "View latest answer" : p.latest_collection.has_organic ? "View organic evidence" : "View latest run"}
+                                    </Link>}
+                                    {p.latest_answer_id && p.latest_answer_id !== p.latest_collection?.id && <Link className="small-link" to="/app"
+                                      search={{ org, workspace: p.workspace_id, tab: "runs", run: p.latest_answer_id }}>View latest answer</Link>}
+                                    {p.brand_period && <p className="data-note">Mentioned in {p.brand_period.mentions} of {p.brand_period.samples} eligible answers</p>}
+                                    {canWrite && <div className="bulk-selection">
+                                      {variants.length > 1 && <label className="check-field">
+                                        <input type="checkbox" checked={promptSelection.has(p.id)} disabled={bulkBusy || promptPages.loading}
+                                          aria-label={`Select ${engines[p.engine]} for ${group.text} (${p.location_name}, ${p.language_code})`}
+                                          onChange={event => setPromptSelection(current => changeSelection(current, [p], event.target.checked))} />
+                                        Select variant
+                                      </label>}
+                                      <Button variant="outline" size="sm" onClick={() => editSavedPrompt(p)}>Edit</Button>
+                                      <Button variant="outline" size="sm" disabled={busy || !!pendingRun}
+                                        onClick={() => queuePromptBatch([p.id], 1)}>Run {engines[p.engine]}</Button>
+                                      <Button variant="outline" size="sm" disabled={busy}
+                                        onClick={() => removePrompts([p.id])}>Delete</Button>
+                                    </div>}
+                                  </div>)}
+                                </details>
                               </div>
                               <div>
-                                {canWrite && (
-                                  <>
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      onClick={() => editSavedPrompt(p)}
-                                    >
-                                      Edit
-                                    </Button>
-                                    <Button
-                                      size="sm"
-                                      disabled={
-                                        busy ||
-                                        !!pendingRun
-                                      }
-                                      onClick={() => runPrompt(p)}
-                                    >
-                                      <Play size={12} /> Run
-                                    </Button>
-                                    <Button variant="outline" size="sm" disabled={busy} onClick={() => removePrompts([p.id])}>Delete</Button>
-                                  </>
-                                )}
+                                {canWrite && <Button size="sm" disabled={busy || !!pendingRun}
+                                  onClick={() => queuePromptBatch(ids, 1)}>Run {variants.length === 1 ? engines[variants[0].engine] : `all ${variants.length} variants`}</Button>}
                               </div>
-                            </div>
-                          ))}
-                          </section>)}
+                            </section>;
+                          })}
                         </div>
                       ) : filteredPrompts ? (
                         <Empty title="No matching prompts" description="Change the filters or search another keyword." />

@@ -199,7 +199,7 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
   server.registerTool(
     "list_prompts",
     {
-      description: "List saved prompts and available tags. The first page includes the matching total. Use selection for compact ID pages and next_cursor to continue.",
+      description: "List saved questions with their matching engine variants grouped within each workspace. The first page includes the matching total. Use selection for compact ID pages and next_cursor to continue.",
       inputSchema: {
         workspace_id: z.string().min(1).max(100).optional(),
         tag: promptTag.optional(),

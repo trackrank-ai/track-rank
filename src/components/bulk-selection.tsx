@@ -21,7 +21,7 @@ export function useBulkPages(path: string | null, field: string, read: ReadPage,
   const [loading, setLoading] = useState(false);
   const [selecting, setSelecting] = useState(false);
   const [error, setError] = useState("");
-  const [allMatching, setAllMatching] = useState<{ path: string; ids: string[] } | null>(null);
+  const [allMatching, setAllMatching] = useState<{ path: string; rows: Row[] } | null>(null);
   const active = useRef<AbortController | null>(null);
 
   async function load(scope: string, signal: AbortSignal, history: (Cursor | null)[], previous?: Page) {
@@ -82,7 +82,7 @@ export function useBulkPages(path: string | null, field: string, read: ReadPage,
         cursor = data.next_cursor;
       } while (cursor);
       onSelect([...rows.values()]);
-      setAllMatching({ path: current.path, ids: [...rows.keys()] });
+      setAllMatching({ path: current.path, rows: [...rows.values()] });
       setPage(previous => previous === current ? { ...previous, total: rows.size } : previous);
     } catch (error) {
       if (!signal.aborted) setError(error instanceof Error ? error.message : "Unable to select all matching records.");
@@ -91,8 +91,8 @@ export function useBulkPages(path: string | null, field: string, read: ReadPage,
     }
   }
 
-  const allIds = allMatching?.path === path && allMatching.ids.length === current?.total ? allMatching.ids : null;
-  return { current, loading, selecting, error, next, previous, selectAll, allIds };
+  const allRows = allMatching?.path === path && allMatching.rows.length === current?.total ? allMatching.rows : null;
+  return { current, loading, selecting, error, next, previous, selectAll, allRows };
 }
 
 type Pages = ReturnType<typeof useBulkPages>;
@@ -108,17 +108,21 @@ export function changeSelection(selection: Selection, rows: Row[], checked: bool
 }
 
 export function BulkSelection({
-  rows, selected, onChange, pages, disabled,
+  rows, selected, onChange, pages, disabled, members, selectionLabel = "Selected",
 }: {
   rows: Row[];
   selected: Selection;
   onChange: (rows: Row[], checked: boolean) => void;
   pages?: Pages;
   disabled?: boolean;
+  members?: (row: Row) => Row[];
+  selectionLabel?: string;
 }) {
-  const count = rows.filter(row => selected.has(row.id)).length;
-  const wholePage = rows.length > 0 && count === rows.length;
-  const allMatching = pages?.allIds?.every(id => selected.has(id));
+  const pageMembers = members ? rows.flatMap(members) : rows;
+  const count = pageMembers.filter(row => selected.has(row.id)).length;
+  const wholePage = pageMembers.length > 0 && count === pageMembers.length;
+  const allRows = pages?.allRows;
+  const allMatching = allRows && (members ? allRows.flatMap(members) : allRows).every(row => selected.has(row.id));
   const checkbox = useRef<HTMLInputElement>(null);
   useEffect(() => {
     if (checkbox.current) checkbox.current.indeterminate = count > 0 && !wholePage;
@@ -129,14 +133,14 @@ export function BulkSelection({
       <label className="check-field">
         <input ref={checkbox} type="checkbox" checked={wholePage}
           disabled={!rows.length || disabled || pages?.loading || pages?.selecting}
-          onChange={event => onChange(rows, event.target.checked)} />
+          onChange={event => onChange(pageMembers, event.target.checked)} />
         Select all on page
       </label>
-      <span role="status">Selected: {selected.size.toLocaleString()}</span>
+      <span role="status">{selectionLabel}: {selected.size.toLocaleString()}</span>
       {wholePage && pages?.current && pages.current.total > PAGE_SIZE && !allMatching && (
         <Button type="button" variant="outline" size="sm"
           disabled={disabled || pages.loading || pages.selecting}
-          onClick={() => void pages.selectAll(matches => onChange(matches, true))}>
+          onClick={() => void pages.selectAll(matches => onChange(members ? matches.flatMap(members) : matches, true))}>
           {pages.selecting ? "Selecting all…" : `Select all: ${pages.current.total.toLocaleString()}`}
         </Button>
       )}
