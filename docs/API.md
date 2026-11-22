@@ -68,7 +68,7 @@ Manual and scheduled runs share the organization's monthly allowance.
 
 Manual collections draw from the remaining monthly allowance. The response includes `accepted`, `requested`, and `complete`. Use `include_runs: false` to omit run details from the response. HTTP 202 indicates complete admission and HTTP 207 indicates partial admission. A queued run can be dispatched even if the client disconnects.
 
-Each bulk run or schedule request has a 64 KiB JSON body budget. For large selections, split IDs into multiple requests. For manual runs, use a distinct stable `batch_key` for each page and retry that page with the same prompt IDs and repetitions. TrackRank's UI handles these requests automatically.
+Each bulk run or schedule request has a 64 KiB JSON body budget. A review, run, or schedule create request accepts up to 1,500 prompt IDs within the body budget. Manual admission processes up to 500 run samples per D1 batch; Workflow launches are paged separately. Retry a manual batch with its original key, prompt IDs and repetitions.
 
 Provider-specific deletion preserves the other provider. Credential saves and provider-specific deletions return saved-status flags and the OpenRouter model identifier. TrackRank stores secrets encrypted and provider account controls handle revocation.
 
@@ -84,7 +84,7 @@ Create a brand with `workspace_id` to track it in that workspace immediately. Ne
 
 Run history sorts by creation timestamp and run ID, newest first. To get the next page, pass both `next_before` as `before` and `next_before_id` as `before_id`, with the same workspace filter. The MCP `list_runs` tool accepts the same cursor fields. Both response fields are null at the end. Provide both cursor parameters together.
 
-Run requests replay the original admission without consuming more quota. If the original run or a recorded batch sample has been removed, retrying its idempotency key returns HTTP 410.
+Run requests replay the original admission without consuming more quota. Single-run keys reserve the `bulk:` and `schedule:` prefixes for internal use. Bulk admission accepts an optional `expected_workspace_id` from readiness to detect a move after review and an optional `receipt_id` to attach the batch to that save receipt. If the original run or a recorded batch sample has been removed, retrying its idempotency key returns HTTP 410.
 
 ### Prompt
 
@@ -186,3 +186,23 @@ Analytics, research, run history and export share `workspace`, `set`, `tags` (co
 `tracked_brand` selects the brand for daily trends. Brand totals count successful samples with an AI answer and that brand in the recorded run configuration. Mention and citation counts use the recorded match outcomes. Prompt coverage counts current selected prompts with at least one eligible answer in scope. Its denominator is the current set/tag selection across the workspace. Recorded engine, location and date narrow the evidence for coverage. History and export accept `metric=eligible|coverage|brand|mention|citation` to retrieve the contributing runs. `brand`, `mention`, and `citation` also require `tracked_brand`. The existing history `brand_id` matches eligible runs that mentioned or cited a brand. Research item filters continue to use `research_type` and `research_value` on run history.
 
 MCP mirrors these endpoints with `list_prompt_sets`, `create_prompt_set`, `rename_prompt_set`, `delete_prompt_set`, `update_prompt_set_members`, `get_overview`, `list_collection_locations`, `get_research_summary`, `list_runs` and `export_runs`. MCP uses `workspace_id` for workspace, `set` for the set filter, `set_id` for mutations and a string array for `tags`. Confirm with the user before deleting a set.
+
+## Prompt review, receipts and collection batches
+
+| Method | Path | MCP | Behavior |
+|---|---|---|---|
+| POST | `/prompts/bulk-preview` | `preview_prompts` | Uses the bulk-save schema and reports exact per-engine matches and monitoring state. Requires write scope. |
+| POST | `/prompts/bulk-submit` | `submit_prompt_batch` | Saves reviewed prompts and optionally starts checks or schedules for the confirmed new combinations. |
+| POST | `/prompts/bulk` | `save_prompts` | Returns every submitted combination in order with `id`, `outcome`, prompt `enabled` and `monitoring`. Pass a UUID `operation_id` for a durable receipt and stable replay. |
+| GET | `/prompts/receipts/:id` | `get_prompt_receipt` | Reads the stored save result and any recorded run and schedule action. |
+| POST | `/prompts/receipts/:id` | `start_prompt_receipt` | Accepts exact new `prompt_ids` from the receipt and `run_samples`, a `schedule`, or both. Retry the same payload to resume unfinished work. |
+| POST | `/collection/readiness` | `review_collection` | Accepts `prompt_ids` and optional `repetitions`. Returns workspace, tracked brands, execution settings, monitoring, permissions, provider connection and remaining monthly checks. Requires read scope. |
+| GET | `/runs/batches/:batch_key` | `get_run_batch` | Returns stored run IDs, requested count and the current run outcomes. Direct run and raw endpoints provide authorized evidence. |
+
+Preview combinations report `new` or `reused`; save reports `created`, `reused` or `updated`. Existing matches keep their settings and tags. A schedule can be enabled on a paused prompt; the prompt must also be enabled to collect. Readiness and receipt operations validate organization scope independently.
+
+For a combined submission send `prompts` with the save fields and UUID `operation_id`, plus optional `action` with `approved` entries (`question` is a zero-based index into the deduplicated texts and `engine` is the confirmed variant), and `run_samples` and/or `schedule`. The server acts only on newly created IDs that were approved. Retry the entire original payload if the response is interrupted. A receipt action requires write scope and adds run scope for immediate checks. If both actions are requested, TrackRank completes manual admission before starting monitoring. Each step has its own recorded outcome. Quota or readiness failure leaves saved prompts and returns `error` with the recorded outcomes. A run-only action creates no schedules and a paused schedule action admits no runs. A new enabled schedule starts at the next future slot. Confirm provider spend before submitting immediate checks or enabling monitoring.
+
+Schedule creation accepts `only_unscheduled: true` to skip prompts that have an existing schedule. Bulk schedule edits apply only supplied fields. Use `first_time` to update the first local time and keep other slots, or `times` to replace the entire list. Use the stored schedule IDs to resume paused monitoring explicitly.
+
+Run history and CSV accept `outcome=pending|failed|uncertain|organic|no_answer|eligible`. Organic-only results are included in `no_answer` and excluded from eligible answer metrics. Overview reports outcome counts, plus whether searchable runs exist in the workspace without report filters. The prompt library accepts `tracked_brand` and optional `from` / `to` dates for mention fractions and returns the latest collection in the searchable window. Only eligible runs with that brand in their snapshot contribute to the fraction.

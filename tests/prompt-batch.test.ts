@@ -1,8 +1,14 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';import {inspectPromptInput,parsePromptInput} from '../src/lib/prompt-input';import {savePromptBatch} from '../src/server/prompt-batch';import {fixture} from './helpers/billing-fixture';
+test("a single line preserves commas and counts repeated nonblank questions", () => {
+  const question = "For a small agency, which reporting tools work best?";
+  assert.deepEqual(inspectPromptInput(`  ${question} \r\n\n${question}`), {
+    prompts: [question], repeated: 1, error: "",
+  });
+});
 const base={workspace_id:'space',texts:['Best cleaners?','Affordable cleaners?'],engines:['chatgpt','gemini','google']};
 function setup(){const f=fixture();f.sql.exec("INSERT INTO workspaces(id,org_id,name,created_at) VALUES('space','org','Space',0)");return f;}
 test('paste supports lines or quoted commas; lines preserve natural punctuation and duplicate prompts collapse',()=>{
- assert.deepEqual(parsePromptInput('Best cleaners?\nCleaners, near Seattle?\r\nBest cleaners?'),['Best cleaners?','Cleaners, near Seattle?']);assert.deepEqual(parsePromptInput('Best cleaners?, "Cleaners, near Seattle?"'),['Best cleaners?','Cleaners, near Seattle?']);assert.deepEqual(parsePromptInput('Cleaners, near Seattle?','lines'),['Cleaners, near Seattle?']);assert.throws(()=>parsePromptInput('"Missing close, quote'),/Close the quoted/);
+ assert.deepEqual(parsePromptInput('Best cleaners?\nCleaners, near Seattle?\r\nBest cleaners?'),['Best cleaners?','Cleaners, near Seattle?']);assert.deepEqual(parsePromptInput('Best cleaners?, "Cleaners, near Seattle?"', "commas"),['Best cleaners?','Cleaners, near Seattle?']);assert.deepEqual(parsePromptInput('Cleaners, near Seattle?','lines'),['Cleaners, near Seattle?']);assert.throws(()=>parsePromptInput('"Missing close, quote', "commas"),/Close the quoted/);
 });
 test('batch atomically saves engine variants, reuses exact matches, and rejects cross-tenant edits',async()=>{
  const {env,sql}=setup();const first=await savePromptBatch(env,'org',base);assert.equal(first.saved_combinations,6);assert.equal(sql.prepare('SELECT count(*) AS n FROM prompts').get()?.n,6);await savePromptBatch(env,'org',base);assert.equal(sql.prepare('SELECT count(*) AS n FROM prompts').get()?.n,6);await assert.rejects(savePromptBatch(env,'another',base),/Workspace not found/);
@@ -18,13 +24,16 @@ test("the preview counts oversized pastes and a maximum-sized save passes the ac
   const texts = Array.from({length:500}, (_, i) => ("Question " + i + " " + "é".repeat(700)).slice(0,700));
   assert.equal(inspectPromptInput([...texts, "One more prompt"].join("\n")).prompts.length,501);
   const { api } = await import('../src/server/api');
-  const payload = JSON.stringify({...base,texts,engines:['chatgpt']});
+  const payload = JSON.stringify({...base,texts,engines:['chatgpt'],operation_id:crypto.randomUUID()});
   assert.ok(Buffer.byteLength(payload) > 32_768);
   const response = await api(new Request('https://example.test/api/v1/prompts/bulk?org=org',{
     method:'POST',body:payload,headers:{'Content-Type':'application/json'},
   }),env,{waitUntil:()=>{}} as any,{userId:'owner',orgId:'org'});
   assert.equal(response.status,201);
-  assert.equal((await response.json() as {saved_combinations:number}).saved_combinations,500);
+  const receipt = await response.json() as {saved_combinations:number; prompts:{id:string;text:string}[]};
+  assert.equal(receipt.saved_combinations,500);
+  assert.deepEqual(receipt.prompts.map(row => row.text),texts);
+  assert.equal(new Set(receipt.prompts.map(row => row.id)).size,500);
   assert.equal(sql.prepare('SELECT count(*) AS n FROM prompts').get()?.n,500);
 });
 
@@ -57,4 +66,90 @@ test("saved prompt filters combine keyword, engine, schedule, and client across 
   assert.equal(next.next_cursor,null);
   assert.deepEqual((await list(query + "&schedule=active")).prompts.map(row => [row.id,row.actively_scheduled]), [["p000",1]]);
   assert.deepEqual((await list(query + "&schedule=inactive")).prompts.map(row => row.actively_scheduled),Array(100).fill(0));
+});
+
+test("preview and operation receipt identify exact combinations and separate paused monitoring", async () => {
+  const { env, sql } = setup();
+  const { previewPromptBatch, getPromptReceipt } = await import("../src/server/prompt-batch");
+  const question = "For a small agency, which reporting tools work best?";
+  const input = { workspace_id: "space", texts: [question, question], engines: ["chatgpt", "gemini"] };
+  const first = await savePromptBatch(env, "org", { ...input, engines: ["chatgpt"], enabled: false, tags: ["preserve"] });
+  const existing = first.prompts[0].id;
+  sql.prepare(`INSERT INTO schedules(id,org_id,prompt_id,preset,days,times_json,timezone,enabled,created_at)
+    VALUES('schedule','org',?,'weekly','[1]','["09:00"]','UTC',0,0)`).run(existing);
+  const preview = await previewPromptBatch(env, "org", input);
+  assert.deepEqual(preview.prompts.map(row => [row.engine, row.outcome, row.enabled, row.monitoring]),
+    [["chatgpt", "reused", 0, "paused"], ["gemini", "new", null, "none"]]);
+  const operation_id = crypto.randomUUID();
+  const saved = await savePromptBatch(env, "org", { ...input, operation_id });
+  assert.deepEqual(saved.prompts.map(row => row.outcome), ["reused", "created"]);
+  assert.equal(saved.questions, 1);
+  assert.equal(saved.prompts[0].id, existing);
+  await savePromptBatch(env, "org", { ...input, texts: ["A different question"] });
+  assert.deepEqual(await getPromptReceipt(env, "org", operation_id), saved);
+  assert.deepEqual(await savePromptBatch(env, "org", { ...input, operation_id }), saved);
+  await assert.rejects(savePromptBatch(env, "org", { ...input, operation_id, enabled: false }), { status: 409 });
+  await assert.rejects(getPromptReceipt(env, "other", operation_id), { status: 404 });
+  assert.equal(sql.prepare("SELECT tags FROM prompts WHERE id=?").get(existing)?.tags, '["preserve"]');
+});
+
+test("REST and MCP share receipt actions, exact batch status and readiness", async () => {
+  const { env, sql } = setup();
+  const { api } = await import("../src/server/api");
+  const { mcp } = await import("../src/server/mcp");
+  const { seal, hashToken } = await import("../src/server/crypto");
+  const ctx = { waitUntil: () => {} } as unknown as import("../src/server/types").Ctx;
+  const call = async (path: string, input?: object) => {
+    const response = await api(new Request("https://example.test/api/v1" + path + "?org=org", {
+      method: input ? "POST" : "GET",
+      headers: { "Content-Type": "application/json" },
+      body: input ? JSON.stringify(input) : undefined,
+    }), env, ctx, { userId: "alice", orgId: "org" });
+    return response.json() as Promise<any>;
+  };
+  const token = "trk_monitoring_fixture";
+  sql.prepare(`INSERT INTO api_keys(id,org_id,user_id,name,prefix,token_hash,scopes,expires_at,created_at)
+    VALUES('agent','org','alice','Agent','trk',?,'["read","write","run"]',?,0)`).run(await hashToken(token), Date.now() + 60_000);
+  async function tool(name: string, args: object) {
+    const response = await mcp(new Request("https://example.test/mcp", {
+      method: "POST", headers: { Authorization: "Bearer " + token, "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }),
+    }), env, ctx);
+    const { result } = await response.json() as any;
+    assert.equal(result.isError, false, result.content[0].text);
+    return JSON.parse(result.content[0].text);
+  }
+  const payload = { ...base, texts: ["A question, with a comma?"], engines: ["chatgpt", "google"] };
+  const preview = await tool("preview_prompts", payload);
+  assert.equal(preview.prompts.filter((row: any) => row.outcome === "new").length, 2);
+  const operation_id = crypto.randomUUID();
+  const receipt = await call("/prompts/bulk", { ...payload, operation_id });
+  const prompt_ids = receipt.prompts.map((row: any) => row.id);
+  const readiness = await tool("review_collection", { prompt_ids });
+  assert.equal(readiness.provider_connected, false);
+  assert.deepEqual(readiness.brands, []);
+  assert.equal(readiness.requested, 2);
+  const schedule = { preset: "weekly", days: [1], times: ["09:00"], timezone: "America/Los_Angeles", enabled: true };
+  const action = { prompt_ids, run_samples: 1, schedule };
+  const blocked = await tool("start_prompt_receipt", { operation_id, action });
+  assert.match(blocked.error, /DataForSEO/);
+  assert.equal(blocked.schedule, null);
+  assert.equal(sql.prepare("SELECT count(*) AS n FROM runs").get()?.n, 0);
+  assert.equal(sql.prepare("SELECT count(*) AS n FROM schedules").get()?.n, 0);
+  env.CREDENTIALS_KEY = Buffer.alloc(32, 4).toString("base64");
+  env.RUN_WORKFLOW = { createBatch: async ({instances}: any) => ({created: instances, errors: []}) } as any;
+  sql.prepare("INSERT INTO credentials VALUES(?,?,1,0)").run("org", await seal(env, "org", { login: "test", password: "fixture" }));
+  const started = await call("/prompts/receipts/" + operation_id, action);
+  const replay = await tool("start_prompt_receipt", { operation_id, action });
+  assert.deepEqual(replay, started);
+  assert.equal(replay.run.accepted, 2);
+  assert.equal(replay.schedule.schedules.length, 2);
+  assert.ok(replay.schedule.schedules.every((row: any) => row.next_due_at > Date.now()));
+  const batch = await tool("get_run_batch", { batch_key: operation_id });
+  assert.deepEqual(new Set(batch.runs.map((row: any) => row.prompt_id)), new Set(prompt_ids));
+  sql.prepare("UPDATE runs SET status='uncertain',error='Provider acknowledgment missing' WHERE id=?").run(batch.runs[0].id);
+  sql.prepare("UPDATE runs SET status='succeeded',has_answer=0,organic_results='[{}]' WHERE id=?").run(batch.runs[1].id);
+  const loaded = await call("/runs/batches/" + operation_id);
+  assert.deepEqual(loaded.runs.map((run: any) => run.status), ["uncertain", "succeeded"]);
+  assert.equal(sql.prepare("SELECT count(*) AS n FROM schedules").get()?.n, 2);
 });

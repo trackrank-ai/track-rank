@@ -1,12 +1,12 @@
 import { all, HttpError, now, type Env, type Row } from "./types";
 import { collectRun, credentials } from "./provider";
 import { launchRuns, recoverQueuedWorkflows, WORKFLOW_BATCH_SIZE } from "./dispatch";
-import { localSlot, nextScheduleSlot } from "./schedule-slots";
+import { localSlot, nextScheduleSlot } from "../lib/schedule-slots";
 import { organizationPlan } from "./plans";
 import { trackedWorkspaceBrands } from "./workspace-brands";
 import { prepareRunAdmission, runUsagePeriods } from "./run-admission";
 
-export { localSlot } from "./schedule-slots";
+export { localSlot } from "../lib/schedule-slots";
 
 function slotSettings(row: Row) {
   return { timezone: String(row.timezone), days: JSON.parse(String(row.days)) as number[], times: JSON.parse(String(row.times_json)) as string[] };

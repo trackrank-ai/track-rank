@@ -32,7 +32,7 @@ confirmed. No invented registrations, head-office address or product tax code.
    Keep the Worker in maintenance through migrations `0016` to `0018` and the
    matching deployment. These migrations remove schema used by older Workers.
    Apply pending migrations, including `0019` for durable collection dispatch and
-   `0020` for prompt tags and `0024` for prompt sets and server-side Overview analytics, before deploying the Worker.
+   `0020` for prompt tags, `0024` for prompt sets and server-side Overview analytics, and `0025` for prompt receipts and manual collection batches, before deploying the Worker.
 4. Obtain live restricted credentials via the deployment's secret store; confirm
    Stripe account charges/payouts eligibility and required business details.
 5. Create live Product/Price (USD 10 monthly, tax-exclusive) and portal (invoices,

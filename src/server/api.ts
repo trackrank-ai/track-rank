@@ -1,10 +1,11 @@
+import { applyReceiptAction, readReceiptAction, receiptActionSchema, submitPromptBatch, submitPromptBatchSchema } from "./receipt-actions";
 import { promptSetsRoute } from "./prompt-sets";
 import { analytics, collectionLocations, researchSummary } from "./analytics";
 import { bulkPromptTagsSchema, decodePrompt, promptTags, updatePromptTags } from "./prompt-tags";
 import { body } from "./request-body";
-import { bulkPromptIdsSchema, movePromptsSchema, bulkRunSchema, bulkScheduleSchema, bulkToggleSchema, updateBulkSchedules, bulkScheduleUpdateSchema, selectedRows, createBulkRuns, createBulkSchedules, MAX_BULK_SELECTION_REQUEST_BYTES } from "./bulk";
+import { bulkPromptIdsSchema, movePromptsSchema, bulkRunSchema, bulkScheduleSchema, bulkToggleSchema, updateBulkSchedules, bulkScheduleUpdateSchema, selectedRows, createBulkRuns, createBulkSchedules, bulkReadinessSchema, collectionReadiness, readRunBatch, MAX_BULK_SELECTION_REQUEST_BYTES } from "./bulk";
 import { assertProviderOptions, providerOptions } from "./provider-options";
-import { MAX_PROMPT_BATCH_BYTES, promptBatchSchema, savePromptBatch } from "./prompt-batch";
+import { MAX_PROMPT_BATCH_BYTES, promptBatchSchema, getPromptReceipt, previewPromptBatch, savePromptBatch } from "./prompt-batch";
 import { listSavedPrompts, listPageLimit } from "./prompt-library";
 import { searchableHistoryWhere } from "./run-history";
 import { requireWorkspaceBrand } from "./workspace-brands";
@@ -155,7 +156,7 @@ export async function api(
     return json({ org_id: i.org_id });
   }
   const scope =
-    method === "GET"
+    (method === "GET" || path === "/collection/readiness")
       ? "read"
       : path.includes("/run") || path.includes("/analyze")
         ? "run"
@@ -349,6 +350,27 @@ export async function api(
       )).map(decodePrompt),
     });
   }
+  const receiptMatch = path.match(/^\/prompts\/receipts\/([\w-]+)$/);
+  if (receiptMatch && method === "GET") {
+    const receipt = await getPromptReceipt(env, org, receiptMatch[1]);
+    const [action, batches] = await Promise.all([
+      readReceiptAction(env, org, receiptMatch[1]),
+      all(env, "SELECT batch_key,workspace_id,requested FROM run_batches WHERE org_id=? AND receipt_id=? ORDER BY created_at DESC,batch_key", org, receiptMatch[1]),
+    ]);
+    return json({ ...receipt, action, batches });
+  }
+  if (receiptMatch && method === "POST") {
+    const input = await body(req, receiptActionSchema, MAX_BULK_SELECTION_REQUEST_BYTES);
+    if (input.run_samples) await tenant(env, p, org, "run");
+    return json(await applyReceiptAction(env, org, receiptMatch[1], input, ids => ctx.waitUntil(launchCollectionRuns(env, ids))));
+  }
+  if (path === "/prompts/bulk-submit" && method === "POST") {
+    const input = await body(req, submitPromptBatchSchema, MAX_PROMPT_BATCH_BYTES + MAX_BULK_SELECTION_REQUEST_BYTES);
+    if (input.action?.run_samples) await tenant(env, p, org, "run");
+    return json(await submitPromptBatch(env, org, input, ids => ctx.waitUntil(launchCollectionRuns(env, ids))), 201);
+  }
+  if (path === "/prompts/bulk-preview" && method === "POST")
+    return json(await previewPromptBatch(env, org, await body(req, promptBatchSchema, MAX_PROMPT_BATCH_BYTES)));
   if (path === "/prompts/bulk" && method === "POST")
     return json(await savePromptBatch(env, org, await body(req, promptBatchSchema, MAX_PROMPT_BATCH_BYTES)), 201);
   if (path === "/prompts/bulk" && method === "DELETE") {
@@ -445,6 +467,8 @@ export async function api(
     const ik = req.headers.get("Idempotency-Key");
     if (ik && (ik.length > 128 || ik.length < 8))
       throw new HttpError(400, "Idempotency-Key must have 8–128 characters");
+    if (ik?.startsWith("bulk:") || ik?.startsWith("schedule:"))
+      throw new HttpError(400, "Choose an idempotency key outside the reserved collection prefixes");
     const run = await createRun(env, org, match[1], ik || uuid());
     ctx.waitUntil(launchRuns(env, [String(run.id)]));
     return json({ run: decodeRun(run) }, 202);
@@ -471,6 +495,13 @@ export async function api(
       ],
     });
   }
+  if (path === "/collection/readiness" && method === "POST") {
+    const readiness = await collectionReadiness(env, org, await body(req, bulkReadinessSchema, MAX_BULK_SELECTION_REQUEST_BYTES));
+    const allowed = (scope: string) => t.role !== "viewer" && (!t.scopes || t.scopes.includes(scope));
+    return json({ ...readiness, can_run: allowed("run"), can_schedule: allowed("write") });
+  }
+  const runBatchMatch = path.match(/^\/runs\/batches\/([A-Za-z0-9_-]{8,100})$/);
+  if (runBatchMatch && method === "GET") return json(await readRunBatch(env, org, runBatchMatch[1]));
   if (path === "/runs/bulk" && method === "POST") {
     const input = await body(req, bulkRunSchema, MAX_BULK_SELECTION_REQUEST_BYTES);
     const { dispatchIds, ...result } = await createBulkRuns(env, org, input);
@@ -479,10 +510,12 @@ export async function api(
     return json(result, result.complete?202:207);
   }
   if (path === "/schedules/bulk" && method === "POST") {
-    return json(await createBulkSchedules(env, org, await body(req, bulkScheduleSchema, MAX_BULK_SELECTION_REQUEST_BYTES)), 201);
+    const input = await body(req, bulkScheduleSchema, MAX_BULK_SELECTION_REQUEST_BYTES);
+    return json(await createBulkSchedules(env, org, input), 201);
   }
   if (path === "/schedules/bulk" && method === "PATCH") {
-    return json(await updateBulkSchedules(env, org, await body(req, bulkScheduleUpdateSchema, MAX_BULK_SELECTION_REQUEST_BYTES)));
+    const input = await body(req, bulkScheduleUpdateSchema, MAX_BULK_SELECTION_REQUEST_BYTES);
+    return json(await updateBulkSchedules(env, org, input));
   }
   if (path === "/runs" && method === "GET") {
     const timestamp = u.searchParams.get("before");
@@ -575,8 +608,8 @@ export async function api(
        WHERE s.org_id=? AND p.archived_at IS NULL${workspace ? " AND p.workspace_id=?" : ""}`;
     const scope = workspace ? [org, workspace] : [org];
     const columns = selection
-      ? "s.id,s.created_at,s.preset,s.days,s.times_json,s.timezone,s.repetitions"
-      : "s.*,p.workspace_id,p.text AS prompt_text";
+      ? "s.id,s.created_at,s.preset,s.days,s.times_json,s.timezone,s.repetitions,s.enabled,p.enabled AS prompt_enabled"
+      : "s.*,p.workspace_id,p.text AS prompt_text,p.enabled AS prompt_enabled";
     const [rows, count] = await Promise.all([
       all(env,
         `SELECT ${columns} ${source}${before === undefined ? "" : " AND (s.created_at,s.id)<(?,?)"}

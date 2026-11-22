@@ -5,6 +5,9 @@ const appTabs = ["overview", "prompts", "research", "runs", "brands", "schedules
 export type AppTab = typeof appTabs[number];
 export type ResearchType = "domain" | "page" | "query";
 
+export const runStatuses = ["queued", "submitting", "submitted", "succeeded", "failed", "uncertain"] as const;
+export const runOutcomes = ["pending", "failed", "uncertain", "organic", "no_answer", "eligible"] as const;
+
 export type AppSearch = AnalyticsScope & {
   metric?: AnswerMetric;
   org?: string;
@@ -13,7 +16,14 @@ export type AppSearch = AnalyticsScope & {
   prompt?: string;
   tag?: string;
   run?: string;
+  evidence?: "answer" | "citations" | "queries" | "organic" | "analysis";
+  batch?: string;
+  receipt?: string;
   runPrompt?: string;
+  q?: string;
+  status?: typeof runStatuses[number];
+  outcome?: typeof runOutcomes[number];
+  brand?: string;
   researchType?: ResearchType;
   researchValue?: string;
   trial?: "start";
@@ -33,15 +43,24 @@ export function parseAppSearch(search: Record<string, unknown>): AppSearch {
   const scoped = !tab || tab === "overview" || tab === "runs" || tab === "research";
   const metric = (["eligible", "coverage", "brand", "mention", "citation"] as const).find(value => value === search.metric);
   return {
-    ...(scoped ? analyticsScope(search) : { set: tab === "prompts" ? resourceId(search.set) : undefined }),
+    ...(scoped ? analyticsScope(search) : tab === "prompts"
+      ? { set: resourceId(search.set), from: analyticsScope(search).from, to: analyticsScope(search).to } : {}),
     ...(tab === "runs" && metric ? { metric } : {}),
     org: resourceId(search.org),
     workspace: resourceId(search.workspace),
     tab,
     prompt: tab === "prompts" ? resourceId(search.prompt) : undefined,
     tag: tab === "prompts" && validPromptTag(tag) ? tag : undefined,
+    batch: tab === "runs" ? resourceId(search.batch) : undefined,
+    receipt: tab === "prompts" || tab === "runs" ? resourceId(search.receipt) : undefined,
     run: tab === "runs" ? resourceId(search.run) : undefined,
+    evidence: tab === "runs" && resourceId(search.run)
+      ? (["answer", "citations", "queries", "organic", "analysis"] as const).find(value => value === search.evidence) : undefined,
     runPrompt: tab === "runs" ? resourceId(search.runPrompt) : undefined,
+    q: tab === "runs" && typeof search.q === "string" && search.q.length <= 200 ? search.q : undefined,
+    status: tab === "runs" ? runStatuses.find(value => value === search.status) : undefined,
+    outcome: tab === "runs" ? runOutcomes.find(value => value === search.outcome) : undefined,
+    brand: tab === "runs" || tab === "prompts" ? resourceId(search.brand) : undefined,
     researchType: (tab === "research" || tab === "runs") && researchValue ? researchType : undefined,
     researchValue: (tab === "research" || tab === "runs") && researchType && researchValue ? researchValue : undefined,
     trial: search.trial === "start" ? "start" : undefined,

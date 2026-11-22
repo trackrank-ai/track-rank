@@ -1,7 +1,10 @@
+import { brandOutcome, brandSnapshot, brandSnapshotId, eligibleAnswer } from "./run-history";
+import { organizationPlan } from "./plans";
+import { defaultPeriod, DAY_MS, validDay } from "../lib/analytics-filters";
 import { promptSetPredicate, requirePromptSet, setId } from "./prompt-sets";
 import { decodePrompt, promptTag } from "./prompt-tags";
 import { z } from "zod";
-import { all, one, HttpError, type Env, type Row } from "./types";
+import { all, one, now, HttpError, type Env, type Row } from "./types";
 
 export const listPageLimit = z.number().int().min(1);
 const libraryFilters = z.object({
@@ -9,6 +12,9 @@ const libraryFilters = z.object({
   q: z.string().trim().max(200).default(""),
   engine: z.enum(["chatgpt", "gemini", "google"]).optional(),
   schedule: z.enum(["active", "inactive"]).optional(),
+  tracked_brand: setId.optional(),
+  from: z.string().refine(validDay).optional(),
+  to: z.string().refine(validDay).optional(),
   brand: z.string().min(1).max(100).optional(),
   tag: promptTag.optional(),
   set: setId.optional(),
@@ -22,6 +28,7 @@ export async function listSavedPrompts(env: Env, org: string, params: URLSearchP
   const parsed = libraryFilters.safeParse(Object.fromEntries(params));
   if (!parsed.success) throw new HttpError(400, "Invalid saved prompt filters or cursor");
   const filters = parsed.data;
+  if (filters.from && filters.to && filters.from > filters.to) throw new HttpError(400, "Choose a valid date range");
   const conditions = ["p.org_id=?", "p.archived_at IS NULL"];
   const values: unknown[] = [org];
   if (filters.workspace) {
@@ -64,14 +71,29 @@ export async function listSavedPrompts(env: Env, org: string, params: URLSearchP
     values.push(filters.before, filters.before_id);
   }
   const pageSize = filters.selection ? 1000 : filters.limit ?? 100;
+  const historyDays = filters.selection ? undefined : (await organizationPlan(env, org)).limits.searchable_history_days;
+  const historyFloor = historyDays === undefined ? 0 : now() - historyDays * DAY_MS;
+  const period = defaultPeriod(now());
+  const start = Math.max(historyFloor, Date.parse(filters.from ?? period.from));
+  const end = Date.parse(filters.to ?? period.to) + DAY_MS;
+  const runScope = "runs.org_id=p.org_id AND runs.prompt_id=p.id AND runs.workspace_id=p.workspace_id";
   const columns = filters.selection
     ? "p.id, p.workspace_id, p.created_at"
-    : `p.*, (${activeSchedule}) AS actively_scheduled`;
+    : `p.*, (${activeSchedule}) AS actively_scheduled,
+       (SELECT json_object('id',id,'status',status,'has_answer',has_answer,'has_organic',json_array_length(organic_results)>0,'created_at',created_at)
+        FROM runs WHERE ${runScope} AND created_at>=? ORDER BY created_at DESC,id DESC LIMIT 1) AS latest_collection,
+       (SELECT id FROM runs WHERE ${runScope} AND ${eligibleAnswer} AND created_at>=?
+         ORDER BY created_at DESC,id DESC LIMIT 1) AS latest_answer_id${filters.tracked_brand ? `,
+       (SELECT json_object('samples',count(*),'mentions',coalesce(sum(${brandOutcome("?", "mentioned")}),0))
+        FROM runs WHERE ${runScope} AND ${eligibleAnswer} AND created_at>=? AND created_at<?
+        AND EXISTS (SELECT 1 FROM ${brandSnapshot} AS snapshot WHERE ${brandSnapshotId}=?)) AS brand_period` : ""}`;
+  const historyParams = filters.selection ? [] : [historyFloor, historyFloor, ...(filters.tracked_brand
+    ? [filters.tracked_brand, start, end, filters.tracked_brand] : [])];
   const [rows, tags, count] = await Promise.all([
     all<Row>(env,
       `SELECT ${columns} FROM prompts p
        WHERE ${conditions.join(" AND ")} ORDER BY p.created_at DESC,p.id DESC LIMIT ?`,
-      ...values, pageSize + 1,
+      ...historyParams, ...values, pageSize + 1,
     ),
     filters.selection ? [] : all<{ tag: string }>(env,
       `SELECT DISTINCT t.value AS tag FROM prompts p, json_each(p.tags) t
@@ -83,7 +105,11 @@ export async function listSavedPrompts(env: Env, org: string, params: URLSearchP
   return {
     prompts: filters.selection
       ? rows.slice(0, pageSize).map(({ id, workspace_id }) => ({ id, workspace_id }))
-      : rows.slice(0, pageSize).map(decodePrompt),
+      : rows.slice(0, pageSize).map(row => ({
+        ...decodePrompt(row),
+        latest_collection: row.latest_collection ? JSON.parse(String(row.latest_collection)) : null,
+        brand_period: row.brand_period ? JSON.parse(String(row.brand_period)) : null,
+      })),
     ...(count ? { total: count.total } : {}),
     tags: tags.map(row => row.tag),
     next_cursor: last ? { before: last.created_at, before_id: last.id } : null,

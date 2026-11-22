@@ -1,10 +1,14 @@
+import { RunBatch } from "@/components/run-batch";
+import { CollectionDetails, CollectionReview, type Readiness } from "@/components/collection-review";
+import { defaultMonitoringTiming, MonitoringEditor, monitoringProjection } from "@/components/monitoring-timing";
+import { ScheduleBulkEditor } from "@/components/schedule-bulk-editor";
 import { Overview, OverviewFilters, useReport } from "@/components/overview";
 import { PromptSets, type PromptSet } from "@/components/prompt-sets";
 import { analyticsQuery, analyticsScope, defaultPeriod, type AnalyticsScope } from "@/lib/analytics-filters";
 import { BulkPageNavigation, BulkSelection, changeSelection, useBulkPages } from "@/components/bulk-selection";
 import { MAX_PROMPT_TAGS, MAX_PROMPT_TAG_LENGTH, splitPromptTags } from "@/lib/prompt-tags";
 import { formatBillingPrice } from "@/lib/billing-price";
-import { RUNS_PER_REQUEST, SCHEDULES_PER_REQUEST } from "@/lib/collection-limits";
+import { MAX_COLLECTION_PROMPTS, RUNS_PER_REQUEST, SCHEDULES_PER_REQUEST } from "@/lib/collection-limits";
 import { readPendingCollection, savePendingCollection } from "@/lib/pending-collection";
 import { inspectPromptInput, MAX_PROMPT_COMBINATIONS } from "@/lib/prompt-input";
 import { appLoginPath, parseAppSearch, type AppTab as Tab } from "@/lib/app-location";
@@ -153,6 +157,8 @@ type PendingRunBatch = {
   batch_key: string;
   accepted?: number;
   nextPrompt?: number;
+  workspace?: string;
+  receipt?: string;
 };
 
 async function loadPendingRun(scope: string): Promise<PendingRunBatch | null> {
@@ -173,18 +179,12 @@ function App() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const [promptSelection, setPromptSelection] = useState(new Map<string, Item>());
-  const [schedulePromptSelection, setSchedulePromptSelection] = useState(new Map<string, Item>());
   const [scheduleSelection, setScheduleSelection] = useState(new Map<string, Item>());
-  const [pickerSearch, setPickerSearch] = useState("");
-  const [pickerEngine, setPickerEngine] = useState("");
-  const selectedPromptIds = [...schedulePromptSelection.keys()];
   const selectedScheduleIds = [...scheduleSelection.keys()];
   const [runSamples,setRunSamples]=useState(1);
-  const [scheduleSamples,setScheduleSamples]=useState(1);
-  const [scheduleTimes,setScheduleTimes]=useState<string[]>(["09:00"]);
-  const [scheduleFrequency,setScheduleFrequency]=useState("daily");
-  const [scheduleDays,setScheduleDays]=useState<number[]>([1]);
-  const [scheduleTimezone,setScheduleTimezone]=useState(()=>Intl.DateTimeFormat().resolvedOptions().timeZone||"UTC");
+  const [timing, setTiming] = useState(defaultMonitoringTiming);
+  const [review, setReview] = useState<{ type: "run" | "schedule"; data: Readiness; repetitions: number; key: string; receiptId?: string } | null>(null);
+  const [draftReview, setDraftReview] = useState<{ payload: string; data: Item; key: string } | null>(null);
   const [editingScheduleSelection,setEditingScheduleSelection]=useState(false);
   const [promptEngineChoices, setPromptEngineChoices] = useState<string[]>(["chatgpt"]);
   const [promptLocation, setPromptLocation] = useState("United States");
@@ -194,7 +194,7 @@ function App() {
   const [billingMemberSelection, setBillingMemberSelection] = useState(new Map<string, Item>());
   const [providerChoices, setProviderChoices] = useState<Item | null>(null);
   const [providerChoicesLoading, setProviderChoicesLoading] = useState(false);
-  const [promptSeparator, setPromptSeparator] = useState("auto");
+  const [promptSeparator, setPromptSeparator] = useState("lines");
   const [promptSearch, setPromptSearch] = useState("");
   const [promptEngineFilter, setPromptEngineFilter] = useState("");
   const [promptScheduleFilter, setPromptScheduleFilter] = useState("");
@@ -256,13 +256,16 @@ function App() {
   if (promptBrandFilter) libraryQuery.set("brand", promptBrandFilter);
   if (search.tag) libraryQuery.set("tag", search.tag);
   if (search.set) libraryQuery.set("set", search.set);
+  if (search.brand) libraryQuery.set("tracked_brand", search.brand);
+  if (search.from) libraryQuery.set("from", search.from);
+  if (search.to) libraryQuery.set("to", search.to);
   const libraryPath = "/prompts?" + libraryQuery;
   const savedSelection = [...promptSelection.keys()];
   const mixedWorkspaceSelection = new Set([...promptSelection.values()].map(prompt => prompt.workspace_id)).size > 1;
   const selectedRunCount = savedSelection.length * runSamples;
   const filteredPrompts = !!(promptSearch.trim() || promptEngineFilter || promptScheduleFilter || promptBrandFilter || search.tag || search.set);
   const promptInput = useMemo(() => editPrompt
-    ? { prompts: promptText.trim() ? [promptText.trim()] : [], error: "" }
+    ? { prompts: promptText.trim() ? [promptText.trim()] : [], repeated: 0, error: "" }
     : inspectPromptInput(promptText, promptSeparator), [editPrompt, promptText, promptSeparator]);
   const promptCombinations = promptInput.prompts.length * promptEngineChoices.length;
   const tooManyPromptCombinations = promptCombinations > MAX_PROMPT_COMBINATIONS;
@@ -287,7 +290,7 @@ function App() {
     ...((nextTab === "overview" || nextTab === "research" || nextTab === "runs") && (reportTab || isScopedHistory)
       ? reportTab ? reportScope : linkScope : {}),
     org: org || undefined, workspace, tab: nextTab,
-    ...(nextTab === "prompts" && tab === "prompts" ? { tag: search.tag, set: search.set } : {}),
+    ...(nextTab === "prompts" && tab === "prompts" ? { tag: search.tag, set: search.set, brand: search.brand, from: search.from, to: search.to } : {}),
     ...(nextTab === "runs" && tab === "runs" ? { metric: search.metric, researchType: search.researchType, researchValue: search.researchValue } : {}),
   });
   function filterByTag(tag: string) {
@@ -311,6 +314,18 @@ function App() {
   const batchInFlight = useRef(false);
   const batchScope = org && session ? `trackrank:pending-run:${session.user.id}:${org}` : "";
   const pendingRun = pendingBatch?.scope === batchScope ? pendingBatch.batch : null;
+  const [pendingPromptSubmit, setPendingPromptSubmit] = useState<{ scope: string; payload: Item } | null>(null);
+  const promptSubmitScope = org && session ? `trackrank:pending-prompts:${session.user.id}:${org}` : "";
+  const promptSubmitRetry = pendingPromptSubmit?.scope === promptSubmitScope ? pendingPromptSubmit.payload : null;
+  const promptSubmitInFlight = useRef(false);
+  useEffect(() => {
+    if (!promptSubmitScope) return;
+    let active = true;
+    readPendingCollection<Item>(promptSubmitScope).then(payload => {
+      if (active) setPendingPromptSubmit(payload ? { scope: promptSubmitScope, payload } : null);
+    }).catch(() => {});
+    return () => { active = false; };
+  }, [promptSubmitScope]);
   const activeOrg = useRef(org);
   const activeWorkspace = useRef(workspaceKey);
   activeWorkspace.current = workspaceKey;
@@ -374,21 +389,21 @@ function App() {
   const promptLibraryRevision = useMemo(() => ({ prompts, setRevision }), [prompts, setRevision]);
   const promptPages = useBulkPages(canLoadBulkPages && tab === "prompts" ? libraryPath : null, "prompts", readBulkPage, promptLibraryRevision);
   const savedPrompts = promptPages.current?.rows ?? [];
+  const promptGroups = new Map<string, Item[]>();
+  for (const prompt of savedPrompts) {
+    const key = JSON.stringify([prompt.workspace_id, prompt.text]);
+    const group = promptGroups.get(key);
+    if (group) group.push(prompt);
+    else promptGroups.set(key, [prompt]);
+  }
   const workspaceTags = promptPages.current?.tags ?? [];
   const tagOptions = search.tag && !workspaceTags.includes(search.tag) ? [search.tag, ...workspaceTags] : workspaceTags;
   const workspaceQuery = new URLSearchParams();
   if (workspaceId) workspaceQuery.set("workspace", workspaceId);
   const schedulePages = useBulkPages(canLoadBulkPages && tab === "schedules" ? "/schedules?" + workspaceQuery : null,
     "schedules", readBulkPage, prompts);
-  const pickerQuery = new URLSearchParams(workspaceQuery);
-  pickerQuery.set("view", "library");
-  if (pickerSearch.trim()) pickerQuery.set("q", pickerSearch.trim());
-  if (pickerEngine) pickerQuery.set("engine", pickerEngine);
-  const pickerPages = useBulkPages(canLoadBulkPages && canWrite && tab === "schedules" && !editingScheduleSelection
-    ? "/prompts?" + pickerQuery : null, "prompts", readBulkPage, prompts);
   const visibleSchedules = schedulePages.current?.rows ?? [];
-  const visiblePickerPrompts = pickerPages.current?.rows ?? [];
-  const bulkBusy = busy || promptPages.selecting || schedulePages.selecting || pickerPages.selecting;
+  const bulkBusy = busy || promptPages.selecting || schedulePages.selecting;
   const billingSelectableMembers: Item[] = billingMembers.filter(member => member.role !== "owner")
     .map(member => ({ ...member, id: member.user_id }));
   const billingMemberIds = [...billingMemberSelection.keys()];
@@ -528,11 +543,10 @@ function App() {
     return () => { canceled = true; };
   }, [org, workspaceReady, unavailableWorkspace, search.prompt, search.run, search.workspace, request, navigate, promptDetailVersion]);
   useEffect(() => {
-    setSchedulePromptSelection(new Map());
+    setReview(null);
+    setDraftReview(null);
     setScheduleSelection(new Map());
     setEditingScheduleSelection(false);
-    setPickerSearch("");
-    setPickerEngine("");
   }, [org, workspace]);
   useEffect(() => {
     setPromptEngineChoices([editPrompt?.engine || "chatgpt"]);
@@ -705,13 +719,23 @@ function App() {
   }
   const visiblePrompts = scoped?.prompts ?? prompts.filter(p => allWorkspaces || p.workspace_id === workspace);
   const schedulesSelected = selectedScheduleIds.length > 0;
-  const schedulePromptCount = editingScheduleSelection ? selectedScheduleIds.length : selectedPromptIds.length;
-  const scheduleTimeCount = new Set(scheduleTimes).size;
   const setResult = useReport<{ sets: PromptSet[] }>(
     workspaceReady && !unavailableWorkspace && (reportTab || tab === "prompts")
       ? "/prompt-sets?" + analyticsQuery({}, workspace) : "", request, promptLibraryRevision,
   );
   const promptSets = setResult?.data?.sets ?? [];
+  const receiptResult = useReport<Item>(workspaceReady && search.receipt && tab === "prompts"
+    ? "/prompts/receipts/" + search.receipt : "", request, prompts);
+  const receipt = receiptResult?.data;
+  const receiptNewIds: string[] = receipt?.prompts.filter((row: Item) => row.outcome === "created").map((row: Item) => row.id) ?? [];
+  const previewNew = draftReview?.data.prompts.filter((row: Item) => row.outcome === "new").length ?? 0;
+  const draftProjection = monitoringProjection(timing, previewNew);
+  const draftAvailable = typeof settings.plan?.limits?.runs_per_month === "number" && typeof settings.monthly_usage?.runs === "number"
+    ? Math.max(0, settings.plan.limits.runs_per_month - settings.monthly_usage.runs) : undefined;
+  const draftRunError = !settings.dataforseo_configured ? "Connect DataForSEO to run now or start monitoring."
+    : draftReview && !JSON.parse(draftReview.payload).enabled ? "Enable the new prompts to run or start monitoring."
+    : draftAvailable !== undefined && previewNew * timing.repetitions > draftAvailable ? "The requested checks exceed your remaining monthly allowance." : "";
+
   const research = useReport<{ answers: number; items: { kind: string; value: string; title: string; count: number }[] }>(
     workspaceReady && !unavailableWorkspace && tab === "research" && !search.researchValue
       ? "/research?" + analyticsQuery(reportScope, workspace) : "", request, prompts,
@@ -744,7 +768,7 @@ function App() {
         if (saved) batch = saved;
         await savePendingRun(batch);
         const { prompt_ids, repetitions, batch_key } = batch;
-        const pageSize = Math.floor(RUNS_PER_REQUEST / repetitions);
+        const pageSize = batch.workspace ? MAX_COLLECTION_PROMPTS : Math.floor(RUNS_PER_REQUEST / repetitions);
         const requested = prompt_ids.length * repetitions;
         for (let offset = batch.nextPrompt ?? 0; offset < prompt_ids.length; offset += pageSize) {
           if (activeOrg.current !== org) return;
@@ -753,6 +777,8 @@ function App() {
             repetitions,
             batch_key: offset ? `${batch_key}-${offset}` : batch_key,
             include_runs: false,
+            ...(batch.workspace ? { expected_workspace_id: batch.workspace } : {}),
+            ...(batch.receipt ? { receipt_id: batch.receipt } : {}),
           }, org, true);
           const accepted = offset * repetitions + result.accepted;
           await savePendingRun(accepted === requested ? null : {
@@ -763,11 +789,15 @@ function App() {
           if (!result.complete) {
             setError(result.error);
             await load();
+            if (batch.workspace) void navigate({ search: { org, workspace: batch.workspace, tab: "runs", batch: batch_key, receipt: batch.receipt } });
             return;
           }
         }
         await load();
-        if (activeOrg.current === org) setTab("runs");
+        if (activeOrg.current === org) {
+          if (batch.workspace) void navigate({ search: { org, workspace: batch.workspace, tab: "runs", batch: batch_key, receipt: batch.receipt } });
+          else setTab("runs");
+        }
       };
       await action(async () => {
         if (!navigator.locks) return submitBatch();
@@ -780,67 +810,99 @@ function App() {
       batchInFlight.current = false;
     }
   }
-  async function queuePromptBatch(ids: string[], samples: number) {
-    if (!ids.length || !batchScope || batchInFlight.current) return;
-    const allowance = settings.plan?.limits?.runs_per_month;
-    const used = settings.monthly_usage?.runs;
-    if (typeof allowance === "number" && typeof used === "number" && ids.length * samples > allowance - used) {
-      setError(`This collection needs ${ids.length * samples} runs. You have ${Math.max(0, allowance - used)} runs left in this month's allowance.`);
-      return;
-    }
-    try {
-      const saved = await loadPendingRun(batchScope);
-      if (saved) {
-        setPendingBatch({ scope: batchScope, batch: saved });
-        setError("Resolve the pending batch before starting another.");
-        return;
-      }
-    } catch {
-      setError("Enable browser storage before queueing runs so an interrupted batch can be retried safely.");
-      return;
-    }
-    if (activeOrg.current !== org || batchInFlight.current) return;
-    if (!confirm(`Queue ${ids.length * samples} independent provider runs (${ids.length} saved prompts × ${samples} samples)? Each engine variant and sample consumes its own run and DataForSEO charges.`)) return;
-    await submitRunBatch({ prompt_ids: ids, repetitions: samples, batch_key: crypto.randomUUID() });
+  async function reviewCollection(ids: string[], repetitions: number, type: "run" | "schedule", receiptId?: string) {
+    if (!ids.length) return;
+    await action(async () => {
+      if (ids.length > MAX_COLLECTION_PROMPTS) throw new Error(`Select at most ${MAX_COLLECTION_PROMPTS.toLocaleString()} combinations per collection batch.`);
+      const data = await request("/collection/readiness", "POST", { prompt_ids: ids, repetitions }) as Readiness;
+      if (activeOrg.current === org) setReview({ type, data, repetitions, key: crypto.randomUUID(), receiptId });
+    });
   }
-  async function runPrompt(p: Item) { await queuePromptBatch([p.id],1); }
-  async function updateSelectedSchedules(changes: object) {
-    for (let offset = 0; offset < selectedScheduleIds.length; offset += SCHEDULES_PER_REQUEST) {
+  async function queuePromptBatch(ids: string[], samples: number) { await reviewCollection(ids, samples, "run"); }
+  async function runPrompt(p: Item) { await queuePromptBatch([p.id], 1); }
+  async function updateSelectedSchedules(changes: object, ids = selectedScheduleIds) {
+    for (let offset = 0; offset < ids.length; offset += SCHEDULES_PER_REQUEST) {
       if (activeOrg.current !== org) return false;
       await request("/schedules/bulk", "PATCH", {
-        ids: selectedScheduleIds.slice(offset, offset + SCHEDULES_PER_REQUEST), ...changes,
+        ids: ids.slice(offset, offset + SCHEDULES_PER_REQUEST), ...changes,
       }, org, true);
     }
     return activeOrg.current === org;
   }
-  async function createSelectedSchedules(details: object) {
-    const storageKey = `schedule:${batchScope}`;
-    const payload = JSON.stringify({ org, prompt_ids: selectedPromptIds, ...details });
-    const previous = await readPendingCollection<{ payload: string; batchId: string }>(storageKey);
-    const batch_id = previous?.payload === payload ? previous.batchId : crypto.randomUUID();
-    await savePendingCollection(storageKey, { payload, batchId: batch_id });
-    const scheduleIds: string[] = [];
-    const savedSettings = {
-      preset: scheduleFrequency, days: JSON.stringify(scheduleDays), times_json: JSON.stringify(scheduleTimes),
-      timezone: scheduleTimezone, repetitions: scheduleSamples,
-    };
-    const createdSchedules = new Map<string, Item>();
-    for (let offset = 0; offset < selectedPromptIds.length; offset += SCHEDULES_PER_REQUEST) {
-      if (activeOrg.current !== org) return;
-      const result = await request("/schedules/bulk", "POST", {
-        prompt_ids: selectedPromptIds.slice(offset, offset + SCHEDULES_PER_REQUEST), batch_id, ...details,
-      }, org, true);
-      scheduleIds.push(...result.schedule_ids);
-      if (activeOrg.current !== org) return;
-      if (activeWorkspace.current === workspaceKey) {
-        for (const id of result.schedule_ids) createdSchedules.set(id, { id, ...savedSettings });
-        setScheduleSelection(new Map(createdSchedules));
-      }
-      setNotice(`${scheduleIds.length} of ${selectedPromptIds.length} prompts scheduled and paused.`);
-    }
-    await savePendingCollection(storageKey, null);
-    setNotice(`Paused batch created for ${scheduleIds.length} prompts. It will use ${scheduleIds.length * scheduleSamples * scheduleTimeCount} runs per scheduled day. Enable selected schedules when ready.`);
+  async function createSelectedSchedules(ids: string[], key: string, enabled: boolean) {
+    return request("/schedules/bulk", "POST", {
+      ...timing, name: timing.name || "Scheduled prompts", prompt_ids: ids, batch_id: key,
+      only_unscheduled: true, enabled,
+    }, org, true);
   }
+
+  async function confirmCollection(enabled: boolean, ids: string[]) {
+    if (!review || !ids.length || busy) return;
+    if (review.type === "run") {
+      setReview(null);
+      await submitRunBatch({ prompt_ids: ids, repetitions: review.repetitions, batch_key: review.key, workspace: review.data.workspace.id,
+        receipt: review.receiptId });
+      return;
+    }
+    await action(async () => {
+      if (review.receiptId && receipt?.id === review.receiptId && !receipt.action && ids.every(id => receiptNewIds.includes(id))) {
+        await submitReceiptAction(receipt.id, receipt.workspace.id, { prompt_ids: ids, schedule: { ...timing, enabled } });
+        setReview(null);
+        await load();
+        return;
+      }
+      const result = await createSelectedSchedules(ids, review.key, enabled);
+      setReview(null);
+      setNotice(`${result.schedules.length} schedules ${enabled ? "started" : "saved paused"}. 0 checks queued now.`);
+      await load();
+    });
+  }
+  async function submitReceiptAction(id: string, workspace: string, payload: Item) {
+    const result = await request("/prompts/receipts/" + id, "POST", payload, org, true);
+    if (activeOrg.current !== org) return;
+    if (result.error) setError(result.error);
+    if (result.run?.accepted) {
+      void navigate({ search: { org, workspace, tab: "runs", batch: id, receipt: id } });
+    } else {
+      void navigate({ search: { org, workspace, tab: "prompts", receipt: id } });
+    }
+  }
+
+  async function submitReviewedPrompts(payload: Item) {
+    if (!promptSubmitScope || promptSubmitInFlight.current) return;
+    promptSubmitInFlight.current = true;
+    try {
+      const submitDraft = async () => {
+        const existing = await readPendingCollection<Item>(promptSubmitScope);
+        if (existing && JSON.stringify(existing) !== JSON.stringify(payload))
+          throw new Error("Resolve the interrupted prompt submission first.");
+        await savePendingCollection(promptSubmitScope, payload);
+        setPendingPromptSubmit({ scope: promptSubmitScope, payload });
+        const result = await request("/prompts/bulk-submit", "POST", payload, org, true);
+        await savePendingCollection(promptSubmitScope, null);
+        if (activeOrg.current !== org) return;
+        setPendingPromptSubmit(null);
+        setPromptText("");
+        setPromptTagInput("");
+        setDraftReview(null);
+        if (result.result?.error) setError(result.result.error);
+        const targetWorkspace = result.workspace.id;
+        void navigate({ search: result.result?.run?.accepted
+          ? { org, workspace: targetWorkspace, tab: "runs", batch: result.id, receipt: result.id }
+          : { org, workspace: targetWorkspace, tab: "prompts", receipt: result.id,
+              ...(workspaceId === targetWorkspace ? { tag: search.tag, set: search.set } : {}) } });
+        await load();
+      };
+      if (navigator.locks) await navigator.locks.request(promptSubmitScope, {ifAvailable: true}, lock => {
+        if (!lock) throw new Error("This prompt submission is running in another tab.");
+        return submitDraft();
+      });
+      else await submitDraft();
+    } finally {
+      promptSubmitInFlight.current = false;
+    }
+  }
+
   if (initializing)
     return (
       <main className="app-loading">
@@ -1295,6 +1357,16 @@ function App() {
                   {!workspaces.length && <p className="data-note">No active workspaces.</p>}
                 </CardContent></Card>
               )}
+              {review && <CollectionReview data={review.data} type={review.type} org={org} engines={engines}
+                timing={timing} changeTiming={setTiming} busy={busy} confirm={confirmCollection}
+                refresh={() => reviewCollection(review.data.combinations.map(row => row.id), review.repetitions, review.type, review.receiptId)}
+                resume={ids => action(async () => {
+                  if (!await updateSelectedSchedules({ enabled: true }, ids)) return;
+                  setReview(null);
+                  setNotice(`${ids.length} schedules resumed. 0 checks queued now.`);
+                  await load();
+                })}
+                close={() => setReview(null)} />}
               {tab === "prompts" && (
                 <>
                   {search.prompt && (
@@ -1331,6 +1403,63 @@ function App() {
                       </CardContent>
                     </Card>
                   )}
+                  {promptSubmitRetry && canWrite && <Card><CardContent className="form-stack">
+                    <h2>Interrupted prompt submission</h2>
+                    <p>Retry the original questions and collection choices using the same operation ID.</p>
+                    <div className="form-actions">
+                      <Button disabled={busy} onClick={() => action(() => submitReviewedPrompts(promptSubmitRetry))}>Retry prompt submission</Button>
+                      <Link to="/app" search={{ org, workspace: promptSubmitRetry.prompts.workspace_id, tab: "prompts", receipt: promptSubmitRetry.prompts.operation_id }}>Check whether the prompts were saved</Link>
+                      <Button variant="ghost" disabled={busy} onClick={() => {
+                        if (!confirm("Discard this retry? Any checks already admitted will continue.")) return;
+                        void action(async () => {
+                          await savePendingCollection(promptSubmitScope, null);
+                          setPendingPromptSubmit(null);
+                        });
+                      }}>Discard retry</Button>
+                    </div>
+                  </CardContent></Card>}
+                  {search.receipt && <Card><CardContent className="form-stack">
+                    {!receipt && <p role={receiptResult?.error ? "alert" : "status"}>{receiptResult?.error || "Loading prompt receipt…"}</p>}
+                    {receipt && <>
+                      <h2>{receipt.questions} {receipt.questions === 1 ? "question" : "questions"} saved in {receipt.workspace.name}</h2>
+                      <CopyValue absolute label="Copy receipt link" value={Route.fullPath + "?" + new URLSearchParams({
+                        org, workspace: receipt.workspace.id, tab: "prompts", receipt: receipt.id,
+                      })} />
+                      <p>{receiptNewIds.length} new engine combinations · {receipt.saved_combinations - receiptNewIds.length} already saved</p>
+                      <p>{receipt.action?.run?.accepted ?? 0} checks queued · {receipt.action?.schedule?.schedules?.length ?? 0} schedules
+                        {receipt.action?.schedule ? receipt.action.schedule.enabled ? " active" : " paused" : ""}</p>
+                      {receipt.action?.schedule?.schedules.some((row: Item) => row.next_due_at) &&
+                        <p>Next scheduled check {new Date(Math.min(...receipt.action.schedule.schedules.filter((row: Item) => row.next_due_at)
+                          .map((row: Item) => row.next_due_at))).toLocaleString(undefined, { timeZone: receipt.action.selection.schedule.timezone, timeZoneName: "short" })}</p>}
+                      <div className="form-actions">
+                        {canWrite && receiptNewIds.length > 0 && <>
+                          <Button size="sm" disabled={bulkBusy || !!pendingRun} onClick={() => reviewCollection(receiptNewIds, 1, "run", receipt.id)}>Run {receiptNewIds.length} new combinations</Button>
+                          <Button size="sm" variant="outline" disabled={bulkBusy} onClick={() => reviewCollection(receiptNewIds, 1, "schedule", receipt.id)}>Schedule {receiptNewIds.length} new combinations</Button>
+                        </>}
+                        {canWrite && !receiptNewIds.length && <Button size="sm" variant="outline" disabled={bulkBusy || !!pendingRun}
+                          onClick={() => reviewCollection(receipt.prompts.map((row: Item) => row.id).filter(Boolean), 1, "run", receipt.id)}>Review running existing prompts</Button>}
+                        {canWrite && !receiptNewIds.length && <Button size="sm" variant="outline" disabled={bulkBusy}
+                          onClick={() => reviewCollection(receipt.prompts.map((row: Item) => row.id).filter(Boolean), 1, "schedule")}>Review scheduling existing prompts</Button>}
+                        {receipt.batches?.map((batch: Item) => <Link key={batch.batch_key} to="/app"
+                          search={{ org, workspace: batch.workspace_id, tab: "runs", batch: batch.batch_key, receipt: receipt.id }}>
+                          View collection batch · {batch.requested} checks
+                        </Link>)}
+                        {receipt.action && ((receipt.action.selection.run_samples && !receipt.action.run?.complete)
+                          || (receipt.action.selection.schedule && !receipt.action.schedule)) &&
+                          <Button disabled={busy} variant="outline" onClick={() => action(async () => {
+                            await submitReceiptAction(receipt.id, receipt.workspace.id, receipt.action.selection);
+                            await load();
+                          })}>Retry unfinished action</Button>}
+                        <a href="#prompt-library">View in library</a>
+                        <Link to="/app" search={{ org, workspace: receipt.workspace.id, tab: "schedules" }}>Manage schedules</Link>
+                      </div>
+                      <details><summary>View saved combinations</summary>
+                        <ul>{receipt.prompts.map((row: Item) => <li key={row.id}><Link to="/app"
+                          search={{ org, workspace: receipt.workspace.id, tab: "prompts", prompt: row.id, receipt: receipt.id }}>
+                          {row.text} · {engines[row.engine]}</Link></li>)}</ul>
+                      </details>
+                    </>}
+                  </CardContent></Card>}
                   {pendingRun && canWrite && (
                     <Card>
                       <CardContent>
@@ -1368,48 +1497,76 @@ function App() {
                       {canWrite ? (
                         <form
                           className="form-stack"
-                          onSubmit={(e) =>
-                            submit(e, async (f) => {
+                          onChange={e => {
+                            const target = e.target as HTMLElement;
+                            const name = target.getAttribute("name");
+                            if (name && !name.startsWith("monitoring-weekday-")) setDraftReview(null);
+                          }}
+                          onSubmit={e => {
+                            const intent = (e.nativeEvent as SubmitEvent).submitter?.getAttribute("value");
+                            e.preventDefault();
+                            const form = e.currentTarget;
+                            const f = new FormData(form);
+                            void action(async () => {
                               const { prompts: texts, error: inputError } = promptInput;
                               if (inputError) throw new Error(inputError);
                               const selected = f.getAll("engines").map(String);
                               const ordered = editPrompt && selected.includes(editPrompt.engine) ? [editPrompt.engine, ...selected.filter(e => e !== editPrompt.engine)] : selected;
-                              if (!texts.length || !ordered.length) throw new Error("Enter prompts and select at least one engine.");
-                              if (!savingWorkspace) throw new Error("Choose a workspace.");
-                              if (texts.length * ordered.length > MAX_PROMPT_COMBINATIONS)
-                                throw new Error(`Save at most ${MAX_PROMPT_COMBINATIONS} prompt/engine combinations per batch.`);
-                              const result = await request("/prompts/bulk", "POST", {
+                              if (!texts.length || !ordered.length || !savingWorkspace || tooManyPromptCombinations)
+                                throw new Error("Choose a workspace, valid prompts and engines within the batch limit.");
+                              const payload = {
                                 workspace_id: savingWorkspace, brand_id: f.get("brand_id") || null,
                                 texts, engines: ordered, tags: splitPromptTags(f.get("tags")), ...(editPrompt ? { source_id: editPrompt.id } : {}),
                                 mode: f.get("mode"), location_name: f.get("location_name"), language_code: f.get("language_code"), enabled: f.get("enabled") === "on",
+                              };
+                              const serialized = JSON.stringify(payload);
+                              if (!editPrompt && (intent === "review" || draftReview?.payload !== serialized)) {
+                                const preview = await request("/prompts/bulk-preview", "POST", payload);
+                                setDraftReview({ payload: serialized, data: preview, key: crypto.randomUUID() });
+                                return;
+                              }
+                              if (editPrompt) {
+                                await request("/prompts/bulk", "POST", { ...payload, operation_id: crypto.randomUUID() });
+                                setPromptText("");
+                                setPromptTagInput("");
+                                setEditPrompt(null);
+                                form.reset();
+                                setNotice("Prompt changes saved.");
+                                await load();
+                                return;
+                              }
+                              const approved = draftReview!.data.prompts.filter((row: Item) => row.outcome === "new")
+                                .map((row: Item) => ({ question: texts.indexOf(row.text), engine: row.engine }));
+                              const run = intent === "run" || intent === "both";
+                              const schedule = intent === "paused" || intent === "monitor" || intent === "both";
+                              await submitReviewedPrompts({
+                                prompts: { ...payload, operation_id: draftReview!.key },
+                                ...(approved.length && (run || schedule) ? { action: {
+                                  approved,
+                                  ...(run ? { run_samples: timing.repetitions } : {}),
+                                  ...(schedule ? { schedule: { ...timing, name: timing.name || "Scheduled prompts", enabled: intent !== "paused" } } : {}),
+                                } } : {}),
                               });
-                              setPromptText("");
-                              setPromptTagInput("");
-                              setEditPrompt(null);
-                              setNotice(
-                                `${result.saved_combinations} prompt/engine combinations saved (existing matches reused). No provider requests were made.`,
-                              );
-                              await load();
-                            })
-                          }
+                            });
+                          }}
                           key={editPrompt?.id || "new"}
                         >
                           {allWorkspaces && !editPrompt && (
                             <FormField label="Save prompts to workspace">
-                              <select value={promptWorkspace} onChange={e => setPromptWorkspace(e.target.value)} required>
+                              <select value={promptWorkspace} onChange={e => { setDraftReview(null); setPromptWorkspace(e.target.value); }} required>
                                 <option value="">Choose a workspace</option>
                                 {workspaces.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
                               </select>
                             </FormField>
                           )}
-                          <FormField label={editPrompt ? "Prompt" : "Prompts — paste your list"} hint={editPrompt ? "Edit this prompt. Select extra engines below to add variants without deleting other saved prompts." : "Paste one prompt per line or separate prompts with commas. Auto uses lines when present, preserving commas inside each line. For a single prompt containing commas, choose One per line."}>
+                          <FormField label={editPrompt ? "Prompt" : "Prompts — paste your list"} hint={editPrompt ? "Edit this prompt. Select extra engines below to add variants without deleting other saved prompts." : "Paste one question per line. Choose Comma-separated to import CSV-style input."}>
                             <textarea
                               name="text"
                               required
                               minLength={3}
                               maxLength={editPrompt ? 700 : undefined}
                               value={promptText}
-                              onChange={(e) => setPromptText(e.target.value)}
+                              onChange={(e) => { setDraftReview(null); setPromptText(e.target.value); }}
                               placeholder="Who are the best house cleaning services in Seattle?"
                               rows={3}
                             />
@@ -1422,8 +1579,17 @@ function App() {
                           <p className="data-note" role="status">
                             {promptInput.prompts.length} {promptInput.prompts.length === 1 ? "prompt" : "prompts"} detected
                             {" × "}{promptEngineChoices.length} {promptEngineChoices.length === 1 ? "engine" : "engines"}
-                            {" = "}{promptCombinations} combinations. Up to {MAX_PROMPT_COMBINATIONS} per batch.
+                            {" = "}{promptCombinations} combinations. {promptInput.repeated} repeated input {promptInput.repeated === 1 ? "line" : "lines"}. Up to {MAX_PROMPT_COMBINATIONS} per batch.
                           </p>
+                          {!editPrompt && promptInput.prompts.length > 0 && (
+                            <div aria-label="Parsed questions">
+                              <ol>{promptInput.prompts.slice(0, 5).map(text => <li key={text}>{text}</li>)}</ol>
+                              {promptInput.prompts.length > 5 && <details>
+                                <summary>Show all {promptInput.prompts.length} questions</summary>
+                                <ol>{promptInput.prompts.map(text => <li key={text}>{text}</li>)}</ol>
+                              </details>}
+                            </div>
+                          )}
                           {promptInput.error && <p className="form-error">{promptInput.error}</p>}
                           {tooManyPromptCombinations && (
                             <p className="form-error">
@@ -1435,7 +1601,7 @@ function App() {
                             <fieldset className="form-stack prompt-engines"><legend>Engines <HelpTip label="engines" text="Select one or more engines. Each prompt/engine pair is saved separately and consumes its own run when executed. Saving never runs a collection." /></legend>
                               {Object.entries(engines).map(([value,label]) => <label className="check-field" key={value}><input type="checkbox" name="engines" value={value} checked={promptEngineChoices.includes(value)} onChange={e => setPromptEngineChoices(current => e.target.checked ? [...current,value] : current.filter(x => x !== value))} /> {label}</label>)}
                             </fieldset>
-                            {!editPrompt && <FormField label="Paste format"><select value={promptSeparator} onChange={e => setPromptSeparator(e.target.value)}><option value="auto">Auto — lines first, otherwise commas</option><option value="lines">One per line — keep commas in prompts</option><option value="commas">Comma-separated — quote prompts containing commas</option></select></FormField>}
+                            {!editPrompt && <FormField label="Paste format"><select value={promptSeparator} onChange={e => setPromptSeparator(e.target.value)}><option value="lines">One per line — keep commas in prompts</option><option value="commas">Comma-separated — quote prompts containing commas</option></select></FormField>}
                             <details className="advanced-settings"><summary>Advanced settings · location, language & execution</summary><div className="form-grid">
                             <FormField
                               label="Queue / execution"
@@ -1490,12 +1656,43 @@ function App() {
                               Allow manual & scheduled runs <HelpTip label="allow runs" text="When checked, this prompt can be run manually or by an enabled schedule. Unchecking pauses future runs without deleting the prompt or its history. This does not start a run or create a schedule." />
                             </label>
                           </div>
+                          {draftReview && !editPrompt && <section className="form-stack">
+                            <h3>Review combinations</h3>
+                            <p>{previewNew} new · {draftReview.data.prompts.length - previewNew} already saved</p>
+                            <details open={draftReview.data.prompts.length <= 10}>
+                              <summary>Engine-by-engine matches</summary>
+                              <ul>{draftReview.data.prompts.map((row: Item) => (
+                                <li key={JSON.stringify([row.text, row.engine])}>{row.text} · {engines[row.engine]} · {row.outcome === "new"
+                                  ? "New" : `Already saved · ${row.monitoring === "none" ? "No schedule" : row.monitoring === "paused" ? "Paused schedule" : "Active schedule"}${row.enabled ? "" : " · Prompt paused"}`}</li>
+                              ))}</ul>
+                            </details>
+                            <CollectionDetails org={org} workspaceId={savingWorkspace} workspace={draftReview.data.workspace.name}
+                              brands={promptBrands.map(brand => brand.name)}
+                              locales={promptEngineChoices.map(engine => `${engines[engine]} · ${promptLocation} · ${promptLanguage}`)}
+                              provider={!!settings.dataforseo_configured} available={draftAvailable} />
+                            {JSON.parse(draftReview.payload).brand_id && <p>Associated prompt brand {promptBrands.find(brand => brand.id === JSON.parse(draftReview.payload).brand_id)?.name}.</p>}
+                            <Button type="button" variant="outline" disabled={busy} onClick={() => action(load)}>Refresh workspace and provider setup</Button>
+                            <MonitoringEditor timing={timing} change={setTiming} count={previewNew} />
+                            <p>{previewNew * timing.repetitions} checks now if you run. Saving prompts or saving paused schedules queues 0 checks.</p>
+                            {draftRunError && <p role="status">{draftRunError}</p>}
+                            <div className="form-actions">
+                              <Button value="save" variant="outline" disabled={busy}>Save prompts</Button>
+                              <Button value="paused" variant="outline" disabled={busy || !previewNew || !draftProjection.valid}>Save with paused {timing.preset === "weekly" ? "weekly " : ""}schedule</Button>
+                              <Button value="both" disabled={busy || !previewNew || !draftProjection.valid || !!draftRunError}>Run now &amp; start {timing.preset === "weekly" ? "weekly " : ""}monitoring</Button>
+                            </div>
+                            <details><summary>Other collection options</summary>
+                              <div className="form-actions">
+                                <Button value="run" variant="outline" disabled={busy || !previewNew || !!draftRunError}>Run once</Button>
+                                <Button value="monitor" variant="outline" disabled={busy || !previewNew || !draftProjection.valid || !settings.dataforseo_configured || !JSON.parse(draftReview.payload).enabled}>Start monitoring only</Button>
+                              </div>
+                            </details>
+                          </section>}
                           <div className="form-actions">
-                            <Button disabled={busy || providerChoicesLoading || !providerChoices || !!providerChoices.error ||
+                            {(editPrompt || !draftReview) && <Button value={editPrompt ? "edit" : "review"} disabled={busy || providerChoicesLoading || !providerChoices || !!providerChoices.error ||
                               !savingWorkspace || !promptEngineChoices.length || !promptInput.prompts.length || !!promptInput.error || tooManyPromptCombinations}>
                               <Plus size={14} />
-                              {editPrompt ? "Save prompt settings" : "Save prompts for selected engines"}
-                            </Button>
+                              {editPrompt ? "Save changes" : "Review prompts"}
+                            </Button>}
                             {editPrompt && (
                               <Button
                                 type="button"
@@ -1559,10 +1756,16 @@ function App() {
                       <button
                         key={i}
                         className="idea-option"
+                        disabled={!!editPrompt || (promptSeparator === "commas" && !!promptInput.error)}
                         onClick={() => {
-                          setPromptText(i);
-                          setEditPrompt(null);
-                          setPromptTagInput("");
+                          setPromptText(current => {
+                            if (promptSeparator === "commas") {
+                              const entry = '"' + i.replaceAll('"', '""') + '"';
+                              return current ? `${current},\n${entry}` : entry;
+                            }
+                            return current ? `${current.replace(/[\r\n]+$/, "")}\n${i}` : i;
+                          });
+                          setDraftReview(null);
                         }}
                       >
                         {i}
@@ -1570,7 +1773,7 @@ function App() {
                       </button>
                     ))}
                   </details>
-                  <Card>
+                  <Card id="prompt-library">
                     <CardContent>
                       <div className="panel-title">
                         <h2>Saved prompts</h2>
@@ -1606,6 +1809,20 @@ function App() {
                           </select>
                         </FormField>
                       </div>
+                      {!!scopeBrands.length && <form className="form-grid prompt-filters" onSubmit={event => {
+                        event.preventDefault();
+                        const values = new FormData(event.currentTarget);
+                        void navigate({ search: { ...sectionSearch("prompts"), brand: String(values.get("tracked_brand") || "") || undefined,
+                          from: String(values.get("from") || "") || undefined, to: String(values.get("to") || "") || undefined } });
+                      }}>
+                        <FormField label="Mention metrics brand"><select name="tracked_brand" defaultValue={search.brand ?? ""}>
+                          <option value="">Choose a brand</option>
+                          {scopeBrands.map(brand => <option key={brand.id} value={brand.id}>{brand.name}</option>)}
+                        </select></FormField>
+                        <FormField label="From (UTC)"><input name="from" type="date" defaultValue={search.from ?? defaultPeriod().from} /></FormField>
+                        <FormField label="To (UTC)"><input name="to" type="date" defaultValue={search.to ?? defaultPeriod().to} /></FormField>
+                        <Button variant="outline">Show mention fractions</Button>
+                      </form>}
                       {promptPages.current && (
                         <p className="data-note" role="status">
                           {promptPages.current.total.toLocaleString()} {filteredPrompts ? "matching prompts" : "saved prompts"}
@@ -1615,11 +1832,8 @@ function App() {
                         <BulkSelection rows={savedPrompts} selected={promptSelection} pages={promptPages} disabled={busy}
                           onChange={(rows, checked) => setPromptSelection(current => changeSelection(current, rows, checked))} />
                         <Button disabled={bulkBusy || !!pendingRun || !savedSelection.length || mixedWorkspaceSelection} onClick={() => queuePromptBatch(savedSelection, runSamples)}>Run selected — {selectedRunCount} runs</Button>
-                        <Button variant="outline" disabled={bulkBusy || !savedSelection.length} onClick={() => {
-                          setSchedulePromptSelection(new Map(promptSelection));
-                          setEditingScheduleSelection(false);
-                          setTab("schedules");
-                        }}>Schedule selected</Button>
+                        <Button variant="outline" disabled={bulkBusy || !savedSelection.length || mixedWorkspaceSelection}
+                          onClick={() => reviewCollection(savedSelection, 1, "schedule")}>Schedule selected</Button>
                         <Button variant="outline" disabled={bulkBusy || !savedSelection.length} onClick={() => action(() =>
                           updateSelectedPrompts("/prompts/bulk-settings", { enabled: true }, "Selected prompts enabled."))}>Enable selected</Button>
                         <Button variant="outline" disabled={bulkBusy || !savedSelection.length} onClick={() => action(() =>
@@ -1675,23 +1889,33 @@ function App() {
                       {!promptPages.current ? (!promptPages.error && <p role="status">Loading saved prompts…</p>) :
                         savedPrompts.length ? (
                         <div className="prompt-table">
-                          {savedPrompts.map((p) => (
+                          {[...promptGroups.entries()].map(([key, variants]) => <section key={key}>
+                            <h3>{variants[0].text}</h3>
+                            {variants.map((p) => (
                             <div className="saved-prompt" key={p.id}>
                               {canWrite && <input type="checkbox" aria-label={`Select ${p.text} — ${engines[p.engine]}`} checked={promptSelection.has(p.id)} disabled={bulkBusy || promptPages.loading} onChange={e => setPromptSelection(current => changeSelection(current, [p], e.target.checked))} />}
                               <div>
                                 <Link to="/app" search={{ ...sectionSearch("prompts"), prompt: p.id }}>
-                                  <strong>{p.text}</strong>
+                                  <strong>{engines[p.engine]}</strong>
                                 </Link>
                                 <small>
                                   {allWorkspaces && workspaceNames[p.workspace_id] && `${workspaceNames[p.workspace_id]} · `}
-                                  {engines[p.engine]} · {p.location_name} ·{" "}
+                                   {p.location_name} ·{" "}
                                   {p.language_code} · {p.mode}{" "}
                                   {!p.enabled ? "· Paused" : p.actively_scheduled ? "· Scheduled" : ""}
                                 </small>
                                 {!!p.tags?.length && <div className="flex flex-wrap gap-1">
                                   {(p.tags as string[]).map(tag => <Badge key={tag} variant="secondary">{tag}</Badge>)}
                                 </div>}
-                                <code>{p.id}</code>
+                                <p className="data-note">{p.latest_collection ? `Last collection ${date(p.latest_collection.created_at)} · ${p.latest_collection.status === "succeeded"
+                                  ? p.latest_collection.has_answer ? "Eligible AI answer" : "Completed without an eligible AI answer" : p.latest_collection.status}` : "No collection in searchable history"}</p>
+                                {p.latest_collection && <Link className="small-link" to="/app" search={{ org, workspace: p.workspace_id, tab: "runs", run: p.latest_collection.id }}>
+                                  {p.latest_collection.has_answer ? "View latest answer" : p.latest_collection.has_organic ? "View organic evidence" : "View latest run"}
+                                </Link>}
+                                {p.latest_answer_id && p.latest_answer_id !== p.latest_collection?.id && <Link className="small-link" to="/app"
+                                  search={{ org, workspace: p.workspace_id, tab: "runs", run: p.latest_answer_id }}>View latest answer</Link>}
+                                {p.brand_period && <p className="data-note">Mentioned in {p.brand_period.mentions} of {p.brand_period.samples} eligible answers</p>}
+                                <CopyValue label="Copy ID" value={p.id} />
                               </div>
                               <div>
                                 {canWrite && (
@@ -1707,9 +1931,7 @@ function App() {
                                       size="sm"
                                       disabled={
                                         busy ||
-                                        !!pendingRun ||
-                                        !p.enabled ||
-                                        !settings.dataforseo_configured
+                                        !!pendingRun
                                       }
                                       onClick={() => runPrompt(p)}
                                     >
@@ -1721,6 +1943,7 @@ function App() {
                               </div>
                             </div>
                           ))}
+                          </section>)}
                         </div>
                       ) : filteredPrompts ? (
                         <Empty title="No matching prompts" description="Change the filters or search another keyword." />
@@ -1877,7 +2100,7 @@ function App() {
                   {search.run && !selectedRun && (
                     <Card><CardContent>
                       {detailError ? <p role="alert">{detailError}</p> : <p role="status">Loading run…</p>}
-                      <Link to="/app" search={{ ...sectionSearch("runs"), runPrompt: search.runPrompt }}>Close run</Link>
+                      <Link to="/app" search={{ ...sectionSearch("runs"), runPrompt: search.runPrompt, batch: search.batch, receipt: search.receipt }}>Close run</Link>
                     </CardContent></Card>
                   )}
                   {selectedRun && (
@@ -1894,15 +2117,19 @@ function App() {
                             </p>
                           </div>
                           <Button variant="ghost" size="sm" asChild>
-                            <Link to="/app" search={{ ...sectionSearch("runs"), runPrompt: search.runPrompt }}>Close run</Link>
+                            <Link to="/app" search={{ ...sectionSearch("runs"), runPrompt: search.runPrompt, batch: search.batch, receipt: search.receipt }}>Close run</Link>
                           </Button>
                         </div>
-                        {selectedRun.error && (
-                          <p className="form-error">{selectedRun.error}</p>
+                        {(selectedRun.error || selectedRun.status === "failed") && (
+                          <p className="form-error">{selectedRun.error || "Collection failed. No provider explanation was recorded."}</p>
                         )}
+                        {selectedRun.status === "uncertain" && <p className="data-note">Inspect the original task in DataForSEO before initiating another collection. {selectedRun.task_id && `Task ID ${selectedRun.task_id}.`}</p>}
+                        {selectedRun.status === "succeeded" && !selectedRun.has_answer && <p className="data-note">This collection produced no eligible AI answer. {selectedRun.config?.engine === "google" && "Open Organic results to inspect the recorded Google links."}</p>}
                         <div className="run-actions">
                           <CopyValue value={Route.fullPath + "?" + new URLSearchParams({
                             org, workspace: selectedRun.workspace_id, tab: "runs", run: selectedRun.id,
+                            ...(search.batch ? { batch: search.batch } : {}), ...(search.receipt ? { receipt: search.receipt } : {}),
+                            ...(search.evidence ? { evidence: search.evidence } : {}),
                           })} label="Copy run link" absolute />
                           {selectedRun.status === "submitted" && canWrite && (
                             <Button
@@ -1971,14 +2198,16 @@ function App() {
                             </>
                           )}
                         </div>
-                        <Tabs defaultValue="answer">
+                        <Tabs key={selectedRun.id} value={search.evidence ?? (!selectedRun.has_answer && selectedRun.organic_results?.length ? "organic" : "answer")}
+                          onValueChange={value => void navigate({ search: { ...search, org, workspace: selectedRun.workspace_id,
+                            tab: "runs", run: selectedRun.id, evidence: value as typeof search.evidence }, replace: true })}>
                           <TabsList>
                             <TabsTrigger value="answer">Answer</TabsTrigger>
                             <TabsTrigger value="citations">
                               Citations
                             </TabsTrigger>
                             <TabsTrigger value="queries">Queries</TabsTrigger>
-                            <TabsTrigger value="organic">SERP</TabsTrigger>
+                            <TabsTrigger value="organic">Organic results</TabsTrigger>
                             <TabsTrigger value="analysis">Analysis</TabsTrigger>
                           </TabsList>
                           <TabsContent value="answer">
@@ -2072,8 +2301,13 @@ function App() {
                       </CardContent>
                     </Card>
                   )}
-                  <WorkspaceRunHistory
-                    key={JSON.stringify([org, workspace, linkScope, search.metric])}
+                  {search.batch && <CopyValue absolute label="Copy collection batch link" value={Route.fullPath + "?" + new URLSearchParams({
+                    org, workspace, tab: "runs", batch: search.batch, ...(search.receipt ? { receipt: search.receipt } : {}),
+                  })} />}
+                  {search.batch && <RunBatch key={search.batch} org={org} workspace={workspace} batch={search.batch}
+                    receipt={search.receipt} request={request} engines={engines} />}
+                  {!search.batch && <WorkspaceRunHistory
+                    key={JSON.stringify([org, workspace])}
                     org={org}
                     workspace={workspaceId}
                     workspaceName={workspaceName}
@@ -2088,10 +2322,11 @@ function App() {
                     metric={search.metric}
                     researchType={search.researchType}
                     researchValue={search.researchValue}
-                    onPromptChange={promptId => {
-                      void navigate({ search: { ...sectionSearch("runs"), runPrompt: promptId || undefined } });
+                    filters={search}
+                    onChange={patch => {
+                      void navigate({ search: { ...search, org, workspace, tab: "runs", ...patch }, replace: "q" in patch });
                     }}
-                  />
+                  />}
                 </>
               )}
               {tab === "brands" && (
@@ -2277,86 +2512,31 @@ function App() {
               )}
               {tab === "schedules" && (
                 <>
+                  {editingScheduleSelection && !!selectedScheduleIds.length && <Card><CardContent>
+                    <h2>Edit selected schedules</h2>
+                    <ScheduleBulkEditor key={selectedScheduleIds.join(",")}
+                      rows={[...scheduleSelection.values()] as React.ComponentProps<typeof ScheduleBulkEditor>["rows"]} busy={bulkBusy}
+                      save={patch => action(async () => {
+                        if (!await updateSelectedSchedules(patch)) return;
+                        setEditingScheduleSelection(false);
+                        setScheduleSelection(new Map());
+                        await load();
+                        setNotice("Schedule settings updated.");
+                      })}
+                      cancel={() => setEditingScheduleSelection(false)} />
+                  </CardContent></Card>}
                   <Card>
                     <CardContent>
                       <div className="panel-title">
-                        <h2>{editingScheduleSelection ? `Edit ${selectedScheduleIds.length} selected schedules` : "Schedule a batch of prompts"}</h2>
-                        <Badge variant="outline">Batch scheduling</Badge>
+                        <h2>{allWorkspaces ? "Schedules across workspaces" : "Workspace schedules"}</h2>
+                        {canWrite && <Button variant="outline" asChild><Link to="/app" search={{ org, workspace, tab: "prompts" }}>Schedule prompts</Link></Button>}
                       </div>
-                      {canWrite ? (
-                        <form className="form-stack" onSubmit={e=>submit(e,async f=>{
-                          const data={preset:scheduleFrequency,days:scheduleDays,times:scheduleTimes,timezone:scheduleTimezone,repetitions:scheduleSamples};
-                          if (editingScheduleSelection) {
-                            if (!await updateSelectedSchedules(data)) return;
-                            setNotice("Selected schedules updated. Timing edits apply to future slots, not past times.");
-                            setEditingScheduleSelection(false);
-                          } else {
-                            await createSelectedSchedules({ name:f.get("batch_name")||"Scheduled prompts", ...data, enabled:false });
-                          }
-                          await load();
-                        })}>
-                          {!editingScheduleSelection && <>
-                            <fieldset className="batch-picker">
-                              <legend>Select prompts</legend>
-                              <div className="form-grid">
-                                <FormField label="Filter prompts">
-                                  <input type="search" maxLength={200} value={pickerSearch} onChange={e => setPickerSearch(e.target.value)} />
-                                </FormField>
-                                <FormField label="Engine">
-                                  <select value={pickerEngine} onChange={e => setPickerEngine(e.target.value)}>
-                                    <option value="">All engines</option>
-                                    {Object.entries(engines).map(([id, name]) => <option key={id} value={id}>{name}</option>)}
-                                  </select>
-                                </FormField>
-                              </div>
-                              <BulkSelection rows={visiblePickerPrompts} selected={schedulePromptSelection} pages={pickerPages} disabled={busy}
-                                onChange={(rows, checked) => setSchedulePromptSelection(current => changeSelection(current, rows, checked))} />
-                              {pickerPages.error && <p role="alert">{pickerPages.error}</p>}
-                              <div className="batch-picker-list">
-                                {visiblePickerPrompts.map(p => <label className="check-field" key={p.id}>
-                                  <input type="checkbox" checked={schedulePromptSelection.has(p.id)} disabled={bulkBusy || pickerPages.loading}
-                                    onChange={e => setSchedulePromptSelection(current => changeSelection(current, [p], e.target.checked))} />
-                                  <span>{p.text}<small>{engines[p.engine]}{!p.enabled && " · prompt paused"}</small></span>
-                                </label>)}
-                              </div>
-                              {!pickerPages.error && !visiblePickerPrompts.length && <p className="data-note" role="status">
-                                {pickerPages.current ? "No matching prompts." : "Loading prompts…"}
-                              </p>}
-                              <BulkPageNavigation pages={pickerPages} label="Schedule prompt pages" />
-                            </fieldset>
-                            <Link to="/app" search={{ org, workspace, tab: "prompts" }}>Browse all prompts</Link>
-                            <FormField label="Batch name (optional)"><input name="batch_name" maxLength={100} placeholder="Daily brand checks" /></FormField>
-                          </>}
-                          <div className="form-grid">
-                            <FormField label="Frequency"><select value={scheduleFrequency} onChange={e=>setScheduleFrequency(e.target.value)}><option value="daily">Every day</option><option value="weekly">Once a week</option><option value="mwf">Monday, Wednesday, Friday</option><option value="custom">Custom weekdays</option></select></FormField>
-                            <FormField label="Local time"><input type="time" required value={scheduleTimes[0]} onChange={e=>setScheduleTimes(current=>[e.target.value,...current.slice(1)])} /></FormField>
-                            <FormField label="Timezone"><select value={scheduleTimezone} onChange={e=>setScheduleTimezone(e.target.value)}>{[...new Set([scheduleTimezone,"UTC",...Intl.supportedValuesOf("timeZone")])].sort().map(tz=><option key={tz} value={tz}>{tz}</option>)}</select></FormField>
-                          </div>
-                          {["weekly","custom"].includes(scheduleFrequency) && <fieldset><legend>Weekdays</legend>{["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map((day,index)=><label className="check-field" key={day}><input type="checkbox" checked={scheduleDays.includes(index)} onChange={e=>setScheduleDays(current=>scheduleFrequency==='weekly'?[index]:e.target.checked?[...current,index]:current.filter(d=>d!==index))} />{day}</label>)}</fieldset>}
-                          <details className="advanced-settings"><summary>Advanced · repeated samples & extra daily times</summary>
-                            <FormField label="Samples per prompt per time slot" hint="For example: 4 saved prompts × 5 samples = 20 independent provider runs each time. Samples are queued and submitted according to the provider rate limit."><input type="number" min={1} max={10} value={scheduleSamples} onChange={e=>setScheduleSamples(Math.max(1,Math.min(10,Number(e.target.value)||1)))} /></FormField>
-                            {scheduleTimes.slice(1).map((time,index)=><div className="app-inline-form" key={index}><input type="time" required aria-label={`Additional daily time ${index+1}`} value={time} onChange={e=>setScheduleTimes(current=>current.map((value,i)=>i===index+1?e.target.value:value))} /><Button type="button" variant="ghost" onClick={()=>setScheduleTimes(current=>current.filter((_,i)=>i!==index+1))}>Remove time</Button></div>)}
-                            <Button type="button" variant="outline" disabled={scheduleTimes.length>=8} onClick={()=>setScheduleTimes(current=>[...current,"17:00"])}>Add another daily time</Button>
-                          </details>
-                          <p aria-live="polite">{schedulePromptCount} prompts × {scheduleSamples} samples × {scheduleTimeCount} times = <strong>{schedulePromptCount * scheduleSamples * scheduleTimeCount} runs per scheduled day</strong>.</p>
-                          <p className="data-note">Each sample/engine variant consumes its own run and provider charges. The monthly allowance applies. Runs are submitted according to the provider rate limit. Same-day slots can catch up after a delay. Saving a batch does not run it.</p>
-                          <Button disabled={bulkBusy || !schedulePromptCount || !scheduleDays.length}>{editingScheduleSelection?"Save settings for selected schedules":"Create paused batch schedule"}</Button>
-                          {editingScheduleSelection && <Button type="button" variant="ghost" onClick={()=>setEditingScheduleSelection(false)}>Cancel bulk edit</Button>}
-                        </form>
-                      ) : (
-                        <p className="data-note">Viewer access is read-only.</p>
-                      )}
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardContent>
-                      <h2>{allWorkspaces ? "Schedules across workspaces" : "Workspace schedules"}</h2>
                       {canWrite && <div className="bulk-toolbar">
                         <BulkSelection rows={visibleSchedules} selected={scheduleSelection} pages={schedulePages} disabled={busy}
                           onChange={(rows, checked) => setScheduleSelection(current => changeSelection(current, rows, checked))} />
                         <Button disabled={bulkBusy || !schedulesSelected} onClick={()=>{if(!confirm("Enable these selected schedules? Each scheduled sample uses provider credits and your run allowance."))return;action(async()=>{if (!await updateSelectedSchedules({ enabled:true })) return;await load();setNotice("Selected schedules enabled.");});}}>Enable selected</Button>
                         <Button variant="outline" disabled={bulkBusy || !schedulesSelected} onClick={()=>action(async()=>{if (!await updateSelectedSchedules({ enabled:false })) return;await load();setNotice("Selected schedules paused.");})}>Pause selected</Button>
-                        <Button variant="outline" disabled={bulkBusy || !schedulesSelected} onClick={()=>{const first=visibleSchedules.find(row=>scheduleSelection.has(row.id))??scheduleSelection.values().next().value;if(!first)return;setScheduleFrequency(first.preset);setScheduleDays(JSON.parse(first.days));setScheduleTimes(JSON.parse(first.times_json));setScheduleTimezone(first.timezone);setScheduleSamples(first.repetitions);setEditingScheduleSelection(true);window.scrollTo({top:0,behavior:"smooth"});}}>Edit selected settings</Button>
+                        <Button variant="outline" disabled={bulkBusy || !schedulesSelected} onClick={()=>{setEditingScheduleSelection(true);window.scrollTo({top:0,behavior:"smooth"});}}>Edit selected settings</Button>
                       </div>}
                       {visibleSchedules.map((s) => (
                           <div className="schedule-row" key={s.id}>
@@ -2366,7 +2546,7 @@ function App() {
                                 {s.prompt_text || s.prompt_id}
                               </strong>
                               <small>
-                                {allWorkspaces && workspaceNames[s.workspace_id] && `${workspaceNames[s.workspace_id]} · `}{s.batch_name ? s.batch_name + " · " : ""}{s.preset} · {JSON.parse(s.times_json).join(", ")} · {s.repetitions} sample(s) · {s.timezone} ·
+                                {allWorkspaces && workspaceNames[s.workspace_id] && `${workspaceNames[s.workspace_id]} · `}{s.batch_name ? s.batch_name + " · " : ""}{s.preset} · {s.next_due_at ? `Next ${new Date(s.next_due_at).toLocaleString(undefined, {timeZone: s.timezone, timeZoneName: "short"})} · ` : ""}{JSON.parse(s.times_json).join(", ")} · {s.repetitions} sample(s) · {s.timezone} ·
                                 days {JSON.parse(s.days).join(", ")}
                               </small>
                             </div>

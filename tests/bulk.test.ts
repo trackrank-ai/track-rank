@@ -407,3 +407,19 @@ test('MCP run_prompts shares REST admission and launches the submitted batch', a
   await Promise.all(pending);
   assert.equal(started,101);
 });
+
+test("changing only first time preserves mixed schedule settings and remaining time slots", async () => {
+  const { env, sql } = await setup();
+  const daily = await createBulkSchedules(env, "org", { prompt_ids: ["p1"], preset: "daily", days: [0],
+    times: ["09:00", "17:00"], timezone: "America/Los_Angeles", repetitions: 3, enabled: true });
+  const weekly = await createBulkSchedules(env, "org", { prompt_ids: ["p2"], preset: "weekly", days: [5],
+    times: ["06:00"], timezone: "UTC", repetitions: 2 });
+  const ids = [...daily.schedule_ids, ...weekly.schedule_ids];
+  const rows = () => sql.prepare("SELECT preset,days,timezone,times_json,repetitions,enabled,last_slot FROM schedules ORDER BY prompt_id").all();
+  const previous = rows();
+  await updateBulkSchedules(env, "org", { ids, first_time: "10:30" });
+  assert.deepEqual(rows().map(row => ({ ...row })), [
+    { ...previous[0], times_json: '["10:30","17:00"]' },
+    { ...previous[1], times_json: '["10:30"]' },
+  ]);
+});

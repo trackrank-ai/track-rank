@@ -1,5 +1,5 @@
 import { analyticsQuery, type AnalyticsScope, type AnswerMetric } from "@/lib/analytics-filters";
-import type { ResearchType } from "@/lib/app-location";
+import type { AppSearch, ResearchType } from "@/lib/app-location";
 import { Link } from "@tanstack/react-router";
 import { ArrowUpRight, Download } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -24,7 +24,7 @@ export function RunStatus({ value }: { value: string }) {
   return <Badge variant="outline" className={"run-status status-" + value}>{value}</Badge>;
 }
 
-export function WorkspaceRunHistory({ org, workspace, workspaceName, workspaceNames, runPrompt, prompts, brands, engines, request, refresh, scope, metric, researchType, researchValue, onPromptChange }: {
+export function WorkspaceRunHistory({ org, workspace, workspaceName, workspaceNames, runPrompt, prompts, brands, engines, request, refresh, scope, metric, researchType, researchValue, filters, onChange }: {
   org: string;
   workspace: string;
   workspaceName: string;
@@ -39,12 +39,11 @@ export function WorkspaceRunHistory({ org, workspace, workspaceName, workspaceNa
   metric?: AnswerMetric;
   researchType?: ResearchType;
   researchValue?: string;
-  onPromptChange: (id: string) => void;
+  filters: Pick<AppSearch, "q" | "status" | "brand" | "outcome">;
+  onChange: (patch: Partial<AppSearch>) => void;
 }) {
-  const [keyword, setKeyword] = useState("");
-  const [engine, setEngine] = useState(scope.engine ?? "");
-  const [status, setStatus] = useState("");
-  const [brand, setBrand] = useState("");
+  const { q: keyword = "", status = "", brand = "", outcome } = filters;
+  const engine = scope.engine ?? "";
   const [page, setPage] = useState<RunPage | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const query = analyticsQuery(scope, workspace);
@@ -56,6 +55,7 @@ export function WorkspaceRunHistory({ org, workspace, workspaceName, workspaceNa
   if (keyword.trim()) query.set("q", keyword.trim());
   if (engine) query.set("engine", engine);
   if (status) query.set("status", status);
+  if (outcome) query.set("outcome", outcome);
   if (brand) query.set("brand_id", brand);
   if (runPrompt) query.set("prompt_id", runPrompt);
   const path = "/runs?" + query;
@@ -107,37 +107,47 @@ export function WorkspaceRunHistory({ org, workspace, workspaceName, workspaceNa
           <Download size={14} /> Export CSV
         </a>
       </div>
-      {Object.values(scope).some(Boolean) && <p className="app-inline-form">
-        <Link to="/app" search={{ ...scope, org, workspace: workspace || "all", tab: researchType ? "research" : "overview", researchType, researchValue }}>
-          {researchType ? "Back to research" : "Back to Overview"}
-        </Link>
-        <Link to="/app" search={{ org, workspace: workspace || "all", tab: "runs" }}>Clear Overview filters</Link>
-      </p>}
+      {(Object.values(scope).some(Boolean) || keyword || status || brand || outcome || runPrompt || metric || researchType) && <div className="app-inline-form" aria-label="Active filters">
+        {Object.entries({
+          engine, q: keyword, status, outcome, brand, runPrompt, metric, researchValue,
+          set: scope.set, tags: scope.tags, location: scope.location, from: scope.from, to: scope.to, trackedBrand: scope.trackedBrand,
+        }).filter(([, value]) => value).map(([key, value]) => {
+          const labels: Record<string, string> = { q: "Search", runPrompt: "Prompt", trackedBrand: "Tracked brand", researchValue: "Research", set: "Prompt set" };
+          const displayed = key === "engine" ? engines[value!] : key === "brand" || key === "trackedBrand"
+            ? brands.find(item => item.id === value)?.name ?? value : key === "runPrompt" ? promptOptions.get(value!) : value;
+          return <Button type="button" variant="outline" size="sm" key={key}
+            onClick={() => onChange({ [key]: undefined, ...(key === "researchValue" ? { researchType: undefined } : {}),
+              ...(key === "trackedBrand" && metric && ["brand", "mention", "citation"].includes(metric) ? { metric: undefined } : {}) })}>
+            {labels[key] ?? key} · {displayed} ×
+          </Button>;
+        })}
+        <Link to="/app" search={{ org, workspace: workspace || "all", tab: "runs" }}>Clear filters</Link>
+      </div>}
       <div className="form-grid prompt-filters">
         <label className="app-field"><span>Search run history</span>
-          <input type="search" value={keyword} onChange={e => setKeyword(e.target.value)} maxLength={200}
+          <input type="search" value={keyword} onChange={e => onChange({ q: e.target.value || undefined })} maxLength={200}
             placeholder="Search prompt text or answers" />
         </label>
         <label className="app-field"><span>Engine</span>
-          <select value={engine} onChange={e => setEngine(e.target.value)}>
+          <select value={engine} onChange={e => onChange({ engine: (e.target.value || undefined) as AppSearch["engine"] })}>
             <option value="">All engines</option>
             {Object.entries(engines).map(([id, name]) => <option key={id} value={id}>{name}</option>)}
           </select>
         </label>
         <label className="app-field"><span>Prompt</span>
-          <select value={runPrompt ?? ""} onChange={e => onPromptChange(e.target.value)}>
+          <select value={runPrompt ?? ""} onChange={e => onChange({ runPrompt: e.target.value || undefined })}>
             <option value="">All prompts</option>
             {[...promptOptions].map(([id, text]) => <option key={id} value={id}>{text.length > 95 ? text.slice(0, 94) + "…" : text}</option>)}
           </select>
         </label>
         <label className="app-field"><span>Brand mentioned or cited</span>
-          <select value={brand} onChange={e => setBrand(e.target.value)}>
+          <select value={brand} onChange={e => onChange({ brand: e.target.value || undefined })}>
             <option value="">Any brand</option>
             {brands.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
           </select>
         </label>
         <label className="app-field"><span>Run status</span>
-          <select value={status} onChange={e => setStatus(e.target.value)}>
+          <select value={status} onChange={e => onChange({ status: (e.target.value || undefined) as AppSearch["status"] })}>
             <option value="">All statuses</option>
             {statuses.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
           </select>
