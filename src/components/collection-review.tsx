@@ -73,7 +73,7 @@ export function CollectionReview({ data, type, org, engines, timing, changeTimin
           </div>}
           {!data.can_schedule && <p role="status">Your access is read-only for schedules.</p>}
           {!!eligibilityErrors.length && <p role="status">{eligibilityErrors.join(". ")}</p>}
-          <MonitoringEditor timing={timing} change={changeTiming} count={unscheduled.length} />
+          <MonitoringEditor expanded timing={timing} change={changeTiming} count={unscheduled.length} />
           <p>0 checks now</p>
           <div className="form-actions">
             <Button disabled={busy || !data.can_schedule || !data.provider_connected || !unscheduled.length || !projection.valid}

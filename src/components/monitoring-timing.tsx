@@ -33,26 +33,26 @@ export function monitoringProjection(timing: MonitoringTiming, count: number) {
   };
 }
 
-export function MonitoringEditor({ timing, change, count }: {
-  timing: MonitoringTiming; change: (value: MonitoringTiming) => void; count: number;
+export function MonitoringEditor({ timing, change, count, expanded = false }: {
+  timing: MonitoringTiming; change: (value: MonitoringTiming) => void; count: number; expanded?: boolean;
 }) {
   const weekdayGroup = useId();
   const repetitionsHintId = `${weekdayGroup}-samples`;
   const projection = monitoringProjection(timing, count);
   const setTime = (index: number, value: string) => change({ ...timing, times: timing.times.map((time, i) => i === index ? value : time) });
   return <div className="form-stack">
-    <details className="advanced-settings">
+    <details className="advanced-settings" open={expanded || undefined}>
       <summary className="break-words">Schedule timing · {presets[timing.preset]}{timing.preset === "weekly" && timing.days.length ? ` on ${weekdays[timing.days[0]]}` : ""}
         {timing.times[0] ? ` at ${timing.times[0]}` : ""} · {timing.timezone}
         {timing.times.length > 1 && ` · ${timing.times.length} time slots`}
         {projection.repetitions !== undefined && projection.repetitions > 1 && ` · ${projection.repetitions} samples per slot`}</summary>
       <div className="form-stack">
         <div className="form-grid">
-          <label className="app-field"><span>Cadence</span><select value={timing.preset} onChange={e => change({ ...timing, preset: e.target.value as SchedulePreset, days: [timing.days[0] ?? 1] })}>
+          <label className="app-field"><span id={`${weekdayGroup}-cadence`}>Cadence</span><select aria-labelledby={`${weekdayGroup}-cadence`} value={timing.preset} onChange={e => change({ ...timing, preset: e.target.value as SchedulePreset, days: [timing.days[0] ?? 1] })}>
             {Object.entries(presets).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
           </select></label>
           <label className="app-field"><span>Local time</span><input type="time" value={timing.times[0]} onChange={e => setTime(0, e.target.value)} /></label>
-          <label className="app-field"><span>Timezone</span><select value={timing.timezone} onChange={e => change({ ...timing, timezone: e.target.value })}>
+          <label className="app-field"><span id={`${weekdayGroup}-timezone`}>Timezone</span><select aria-labelledby={`${weekdayGroup}-timezone`} value={timing.timezone} onChange={e => change({ ...timing, timezone: e.target.value })}>
             {[...new Set([timing.timezone, "UTC", ...Intl.supportedValuesOf("timeZone")])].sort().map(zone => <option key={zone}>{zone}</option>)}
           </select></label>
         </div>

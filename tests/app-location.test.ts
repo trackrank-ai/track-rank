@@ -63,3 +63,12 @@ test("question detail and its filters survive the sign-in return", () => {
     assert.deepEqual(Object.fromEntries(result), Object.fromEntries(search));
   }
 });
+
+test("schedule selection and recurring setup restore the chosen workspace after sign-in", () => {
+  for (const view of ["promptView=schedule&promptEngine=gemini", "promptView=create&setupIntent=schedule"]) {
+    const query = "org=team&workspace=client&tab=prompts&" + view;
+    const login = new URL(appLoginPath("?" + query, ""), "https://trackrank.invalid");
+    const restored = new URL(login.searchParams.get("next")!, login).searchParams;
+    assert.deepEqual(Object.fromEntries(restored), Object.fromEntries(new URLSearchParams(query)));
+  }
+});

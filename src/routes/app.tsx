@@ -273,6 +273,8 @@ function App() {
   const orgReady = !!org && loadedOrg === org;
   const canSubscribe = billing.can_manage_billing && (!billing.status || ["none", "canceled", "incomplete_expired"].includes(billing.status));
   const workspaceReady = orgReady && !billingBlocksWorkspace(billing.access_status);
+  const isAdmin = workspaceReady && ["owner", "admin"].includes(settings.role),
+    canWrite = workspaceReady && ["owner", "admin", "member"].includes(settings.role);
   const settingsSection = search.settingsSection ?? (tab === "team" ? "team" : billingBlocksWorkspace(billing.access_status) ? "billing" : "providers");
   const teamSettings = settingsTab && settingsSection === "team";
   const researchGroup = search.researchGroup ?? search.researchType ?? "domain";
@@ -290,6 +292,7 @@ function App() {
   const { q: promptSearch = "", promptEngine: promptEngineFilter, promptSchedule: promptScheduleFilter,
     promptBrand: promptBrandFilter } = search;
   const showingQuestion = tab === "prompts" && !!search.question;
+  const selectingForSchedule = tab === "prompts" && search.promptView === "schedule" && !showingQuestion && canWrite;
   const creatingPrompts = tab === "prompts" && search.promptView === "create" && !showingQuestion;
   const libraryQuery = new URLSearchParams({ view: "library" });
   if (workspaceId) libraryQuery.set("workspace", workspaceId);
@@ -335,7 +338,7 @@ function App() {
     ...((nextTab === "overview" || nextTab === "research" || nextTab === "runs") && (reportTab || isScopedHistory)
       ? reportTab ? reportScope : linkScope : {}),
     org: org || undefined, workspace, tab: nextTab,
-    ...(nextTab === "prompts" && tab === "prompts" ? { tag: search.tag, set: search.set, brand: search.brand, from: search.from, to: search.to,
+    ...(nextTab === "prompts" && tab === "prompts" ? { promptView: selectingForSchedule ? "schedule" as const : undefined, tag: search.tag, set: search.set, brand: search.brand, from: search.from, to: search.to,
       q: search.q, promptEngine: search.promptEngine, promptSchedule: search.promptSchedule, promptBrand: search.promptBrand } : {}),
     ...(nextTab === "research" && tab === "research" ? { researchGroup } : {}),
     ...((nextTab === "overview" || nextTab === "runs") ? { trendMetric: search.trendMetric } : {}),
@@ -363,13 +366,13 @@ function App() {
     void navigate({ search: { ...sectionSearch("prompts"), set: set || undefined } });
   }
   function setTab(nextTab: Tab) {
-    if (nextTab !== tab || search.prompt || search.question || search.promptView || search.run) void navigate({ search: sectionSearch(nextTab) });
+    if (nextTab !== tab || search.prompt || search.question || search.promptView || search.run) void navigate({ search: { ...sectionSearch(nextTab), promptView: undefined } });
   }
   function setOrg(next: string, replace = false) {
     void navigate({ search: settingsTab ? { ...settingsSearch(settingsSection), org: next, workspace: undefined } : { org: next, tab }, replace, hash: "" });
   }
   function setWorkspace(next: string) {
-    void navigate({ search: { org, workspace: next, tab, ...(tab === "research" ? { ...reportScope, set: undefined, researchGroup } : {}), ...(settingsTab ? { settingsSection } : {}) } });
+    void navigate({ search: { org, workspace: next, tab, ...(selectingForSchedule ? { promptView: "schedule" as const } : {}), ...(tab === "research" ? { ...reportScope, set: undefined, researchGroup } : {}), ...(settingsTab ? { settingsSection } : {}) } });
   }
   const batchInFlight = useRef(false);
   const batchScope = org && session ? `trackrank:pending-run:${session.user.id}:${org}` : "";
@@ -399,8 +402,6 @@ function App() {
     }).catch(() => { if (!canceled) setPendingBatch(null); });
     return () => { canceled = true; };
   }, [batchScope]);
-  const isAdmin = workspaceReady && ["owner", "admin"].includes(settings.role),
-    canWrite = workspaceReady && ["owner", "admin", "member"].includes(settings.role);
   const request = useCallback(
     async (
       path: string,
@@ -460,7 +461,7 @@ function App() {
   const billingSelectableMembers: Item[] = billingMembers.filter(member => member.role !== "owner")
     .map(member => ({ ...member, id: member.user_id }));
   const billingMemberIds = [...billingMemberSelection.keys()];
-  useEffect(() => { setPromptSelection(new Map()); }, [org, libraryPath]);
+  useEffect(() => { setPromptSelection(new Map()); }, [org, libraryPath, selectingForSchedule]);
   const reloadOrgs = useCallback(async () => {
     const r = await fetch("/api/v1/organizations");
     const d = (await r.json()) as Item;
@@ -887,7 +888,7 @@ function App() {
     await action(async () => {
       if (ids.length > MAX_COLLECTION_PROMPTS) throw new Error(`Select at most ${MAX_COLLECTION_PROMPTS.toLocaleString()} combinations per collection batch.`);
       const data = await request("/collection/readiness", "POST", { prompt_ids: ids, repetitions }) as Readiness;
-      if (activeOrg.current === org) setReview({ type, data, repetitions, key: crypto.randomUUID(), receiptId });
+      if (activeOrg.current === org && activeWorkspace.current === workspaceKey) setReview({ type, data, repetitions, key: crypto.randomUUID(), receiptId });
     });
   }
   async function queuePromptBatch(ids: string[], samples: number) { await reviewCollection(ids, samples, "run"); }
@@ -926,6 +927,7 @@ function App() {
       const result = await createSelectedSchedules(ids, review.key, enabled, draftSampleCount);
       setReview(null);
       setNotice(`${result.schedules.length} schedules ${enabled ? "started" : "saved paused"}. 0 checks queued now.`);
+      if (selectingForSchedule) void navigate({ search: { org, workspace: review.data.workspace.id, tab: "schedules" } });
       await load();
     });
   }
@@ -1087,7 +1089,7 @@ function App() {
             <Link
               key={id}
               to="/app"
-              search={sectionSearch(id)}
+              search={{ ...sectionSearch(id), promptView: undefined }}
               className={(id === "settings" ? settingsTab : tab === id) ? "active" : ""}
               onClick={() => setError("")}
               aria-current={(id === "settings" ? settingsTab : tab === id) ? "page" : undefined}
@@ -1372,11 +1374,12 @@ function App() {
                   <h1>{paneName}</h1>
                   {tab === "prompts" && <p>{workspaceName}</p>}
                 </div>
-                {tab === "prompts" && !creatingPrompts && canWrite && <Button asChild>
+                {tab === "prompts" && !creatingPrompts && !selectingForSchedule && canWrite && <Button asChild>
                   <Link to="/app" search={{ ...sectionSearch("prompts"), promptView: "create" }}>
                     <Plus size={16} aria-hidden /> Create prompts
                   </Link>
                 </Button>}
+                {selectingForSchedule && <Link className="small-link" to="/app" search={{org, workspace, tab: "schedules"}}>Back to schedules</Link>}
                 {creatingPrompts && <Link className="small-link" to="/app" search={sectionSearch("prompts")}>Back to prompts</Link>}
               </div>}
               {(reportTab || tab === "prompts") && setResult?.error && <p role="alert">{setResult.error}</p>}
@@ -1449,6 +1452,7 @@ function App() {
                   if (!await updateSelectedSchedules({ enabled: true }, ids)) return;
                   setReview(null);
                   setNotice(`${ids.length} schedules resumed. 0 checks queued now.`);
+                  if (selectingForSchedule) void navigate({ search: { org, workspace: review.data.workspace.id, tab: "schedules" } });
                   await load();
                 })}
                 close={() => setReview(null)} />}
@@ -1891,7 +1895,7 @@ function App() {
                   {!showingQuestion && !creatingPrompts && !search.prompt && <Card id="prompt-library">
                     <CardContent>
                       <div className="panel-title">
-                        <h2>Question library</h2>
+                        <h2>{selectingForSchedule ? "Choose questions to schedule" : "Question library"}</h2>
                       </div>
                       <div className="form-grid prompt-filters">
                         <FormField label="Search saved prompts">
@@ -1929,7 +1933,7 @@ function App() {
                           </FormField>
                         </div>
                       </details>
-                      {!!scopeBrands.length && <details className="advanced-settings">
+                      {!selectingForSchedule && !!scopeBrands.length && <details className="advanced-settings">
                         <summary>{selectedMetricBrand ? `Mention rate · ${selectedMetricBrand.name}` : "Choose a brand for mention rates"}</summary>
                         <form key={JSON.stringify([search.brand, search.from, search.to])} className="form-grid prompt-filters" onSubmit={event => {
                           event.preventDefault();
@@ -1956,7 +1960,8 @@ function App() {
                           <BulkSelection rows={savedPrompts} selected={promptSelection} pages={promptPages} disabled={busy}
                             members={group => group.variants} selectionLabel="Engine variants selected"
                             onChange={(rows, checked) => setPromptSelection(current => changeSelection(current, rows, checked))} />
-                          {savedSelection.length > 0 && <div className="form-actions">
+                          {selectingForSchedule ? <Button disabled={bulkBusy || mixedWorkspaceSelection || !savedSelection.length}
+                            onClick={() => reviewCollection(savedSelection, 1, "schedule")}>Continue to timing</Button> : savedSelection.length > 0 && <div className="form-actions">
                             <Button disabled={bulkBusy || !!pendingRun || mixedWorkspaceSelection || runSampleCount === undefined}
                               onClick={() => { if (runSampleCount !== undefined) void queuePromptBatch(savedSelection, runSampleCount); }}>
                               Run selected{selectedRunCount !== null && ` — ${selectedRunCount} runs`}
@@ -1966,7 +1971,7 @@ function App() {
                           </div>}
                         </div>
                       )}
-                      {canWrite && savedSelection.length > 0 && (
+                      {!selectingForSchedule && canWrite && savedSelection.length > 0 && (
                         <>
                           <details className="advanced-settings">
                             <summary>Advanced settings</summary>
@@ -2027,10 +2032,10 @@ function App() {
                           </details>
                         </>
                       )}
-                      <PromptSets key={workspaceKey} org={org} workspace={workspace} workspaceNames={workspaceNames}
+                      {!selectingForSchedule && <PromptSets key={workspaceKey} org={org} workspace={workspace} workspaceNames={workspaceNames}
                         sets={promptSets} activeSet={search.set} selection={promptSelection} canWrite={canWrite}
-                        request={request} onFilter={filterBySet} onChange={() => setSetRevision(value => value + 1)} />
-                      {mixedWorkspaceSelection && <p className="data-note">Select prompts from one workspace to run them together.</p>}
+                        request={request} onFilter={filterBySet} onChange={() => setSetRevision(value => value + 1)} />}
+                      {mixedWorkspaceSelection && <p className="data-note">Choose questions from one workspace for this collection.</p>}
                       {promptPages.error && <p role="alert">{promptPages.error}</p>}
                       {!promptPages.current ? (!promptPages.error && <p role="status">Loading saved prompts…</p>) :
                         savedPrompts.length ? (
@@ -2059,12 +2064,12 @@ function App() {
                                   ? `${new Intl.NumberFormat(undefined, { style: "percent", maximumFractionDigits: 1 }).format(mentions / samples)} mentioned (${mentions} of ${samples} ${samples === 1 ? "answer" : "answers"})`
                                   : "No eligible answers tracking this brand"}</small>}
                               </div>
-                              <div className="question-row-actions">
+                              {!selectingForSchedule && <div className="question-row-actions">
                                 <Link className="small-link" to="/app" search={{ ...questionLink, questionView: "answers" }}
                                   aria-label={`View answers for ${group.text}`}>View answers</Link>
                                 <Link className="small-link" to="/app" search={{ ...questionLink, questionView: "settings" }}
                                   aria-label={`Engine settings for ${group.text}`}>Engine settings</Link>
-                              </div>
+                              </div>}
                             </section>;
                           })}
                         </div>
@@ -2073,8 +2078,8 @@ function App() {
                       ) : (
                         <Empty
                           title="No saved questions"
-                          description={canWrite ? "Create prompts to choose questions and engines for your first collection." : "Saved questions will appear here."}
-                        />
+                          description={canWrite ? "Add questions and select the engines you want to track." : "Saved questions will appear here."}
+                        >{selectingForSchedule && canWrite && <Button asChild><Link to="/app" search={{ org, workspace, tab: "prompts", promptView: "create", setupIntent: "schedule" }}>Create questions to schedule</Link></Button>}</Empty>
                       )}
                       <BulkPageNavigation pages={promptPages} label="Prompt pages" />
                     </CardContent>
@@ -2555,9 +2560,9 @@ function App() {
                     <CardContent>
                       <div className="panel-title">
                         <h2>{allWorkspaces ? "Schedules across workspaces" : "Workspace schedules"}</h2>
-                        {canWrite && <Button variant="outline" asChild><Link to="/app" search={{ org, workspace, tab: "prompts" }}>Schedule prompts</Link></Button>}
+                        {canWrite && visibleSchedules.length > 0 && <Button variant="outline" asChild><Link to="/app" search={{ org, workspace, tab: "prompts", promptView: "schedule" }}>Choose questions to schedule</Link></Button>}
                       </div>
-                      {canWrite && <div className="bulk-toolbar">
+                      {canWrite && visibleSchedules.length > 0 && <div className="bulk-toolbar">
                         <BulkSelection rows={visibleSchedules} selected={scheduleSelection} pages={schedulePages} disabled={busy}
                           onChange={(rows, checked) => setScheduleSelection(current => changeSelection(current, rows, checked))} />
                         <Button disabled={bulkBusy || !schedulesSelected} onClick={()=>{if(!confirm("Enable these selected schedules? Each scheduled sample uses provider credits and your run allowance."))return;action(async()=>{if (!await updateSelectedSchedules({ enabled:true })) return;await load();setNotice("Selected schedules enabled.");});}}>Enable selected</Button>
@@ -2643,9 +2648,12 @@ function App() {
                         );
                       })}
                       {schedulePages.error && <p role="alert">{schedulePages.error}</p>}
-                      {!schedulePages.error && !visibleSchedules.length && <p className="data-note" role="status">
-                        {schedulePages.current ? "No schedules in this view." : "Loading schedules…"}
-                      </p>}
+                      {!schedulePages.error && !visibleSchedules.length && (schedulePages.current
+                        ? <Empty title="No schedules yet" description={canWrite
+                          ? "Choose saved questions, then set how often to check them."
+                          : "Scheduled checks will appear here when your team adds them."}>
+                          {canWrite && <Button asChild><Link to="/app" search={{ org, workspace, tab: "prompts", promptView: "schedule" }}>Choose questions to schedule</Link></Button>}
+                        </Empty> : <p role="status">Loading schedules…</p>)}
                       <BulkPageNavigation pages={schedulePages} label="Schedule pages" />
                     </CardContent>
                   </Card>
