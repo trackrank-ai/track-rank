@@ -1605,6 +1605,7 @@ input[type="checkbox"] {
   margin-left: -6px;
 }
 .org-switcher {
+  min-width: 0;
   display: flex;
   flex-direction: column;
   margin-top: 32px;
@@ -1616,6 +1617,9 @@ input[type="checkbox"] {
   color: var(--text-9c8d7a, #9c8d7a);
 }
 .org-switcher select {
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
   font-size: 11px;
   font-weight: 500;
   color: var(--text-5c4c39, #5c4c39);
