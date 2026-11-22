@@ -47,7 +47,8 @@ The Impeccable source scan returned one warning for Geist. The project explicitl
 - Browser checks confirmed that a sample field could be cleared and retyped as 5, valid bounds were accepted, invalid values were blocked, and bulk actions retained the selected variants.
 - The gap between an expanded engine variant’s settings and its Run and Delete actions increased from 0 to 12 px at widths from 320 to 1440 px. At 768 px, the engine settings editor widened from 277 to 434 px and the Research toolbar fit within the viewport.
 - All ten authenticated sections fit without horizontal page overflow at 320, 390, 760, 768, 1024 and 1440 px. The measured text pairs updated in the shell, Prompts, Schedules, Research and Settings reached at least 5.27:1 in light and 7.16:1 in dark. Mobile disclosure and sign-in legal targets measured at least 44 px on the tested coarse-pointer device emulation.
-- Home and Pricing fit at default and doubled root text sizes at 320, 390, 768, 800, 1024 and 1440 px. The public calculator field borders reached at least 6.8:1 in light and 9.5:1 in dark.
+- Local self-host Home and Pricing fit at default and doubled root text sizes at 320, 390, 768, 800, 1024 and 1440 px. The public calculator field borders reached at least 6.8:1 in light and 9.5:1 in dark.
+- Verification on the hosted site uncovered an additional case absent from the local fixture. With all three paid plans visible, the cards widened the 320 px homepage to 406 px at doubled root text size. Include populated hosted offers whenever checking public reflow.
 - The score above describes the baseline. Remaining work includes reducing mobile navigation height and profiling the authenticated startup sequence on a throttled connection.
 
 ## Recommended actions
