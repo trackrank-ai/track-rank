@@ -28,6 +28,8 @@ Use `form-stack` for related fields, `form-grid` for independent columns, `app-i
 
 Keep the selection count, Run and Schedule visible together. Open **Manage selection** for moving, tagging or deleting the selected variants. Keep sampling and engine settings under Advanced. Show active report filters and schedule timing in their disclosure summaries.
 
+Group variant settings and their actions on separate rows with a visible gap. Let the settings use the full row at narrow widths. Numeric fields should tolerate clearing and retyping, show their valid range, and enable the affected action when the draft is valid.
+
 ## Bulk selection
 
 Use the shared bulk selection control for lists with bulk actions. Show the selected count, support a mixed checkbox state, and let users clear the selection. Offer the full matching count only after the current page is selected and additional pages exist. Keep selections across page navigation. Expanding the selection reads matches in the active organization, workspace and filters. It never performs a bulk write.

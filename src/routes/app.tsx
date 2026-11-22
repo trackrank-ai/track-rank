@@ -1,3 +1,4 @@
+import { parseSampleCount, sampleCountError } from "@/lib/schedule-settings";
 import "@/components/app-evidence.css";
 import { EvidenceReport, EvidenceSources } from "@/components/evidence-report";
 import "./app-workspace.css";
@@ -220,7 +221,7 @@ function App() {
   const [promptSelection, setPromptSelection] = useState(new Map<string, Item>());
   const [scheduleSelection, setScheduleSelection] = useState(new Map<string, Item>());
   const selectedScheduleIds = [...scheduleSelection.keys()];
-  const [runSamples,setRunSamples]=useState(1);
+  const [runSamples, setRunSamples] = useState("1");
   const [timing, setTiming] = useState(defaultMonitoringTiming);
   const [review, setReview] = useState<{ type: "run" | "schedule"; data: Readiness; repetitions: number; key: string; receiptId?: string } | null>(null);
   const [draftReview, setDraftReview] = useState<{ payload: string; data: Item; key: string } | null>(null);
@@ -301,7 +302,8 @@ function App() {
   const savedSelection = [...promptSelection.keys()];
   const selectedEngines = [...new Set([...promptSelection.values()].map(prompt => prompt.engine))].sort().join(",");
   const mixedWorkspaceSelection = new Set([...promptSelection.values()].map(prompt => prompt.workspace_id)).size > 1;
-  const selectedRunCount = savedSelection.length * runSamples;
+  const runSampleCount = parseSampleCount(runSamples);
+  const selectedRunCount = runSampleCount === undefined ? null : savedSelection.length * runSampleCount;
   const promptFilterCount = [promptEngineFilter, promptScheduleFilter, promptBrandFilter, search.tag].filter(Boolean).length;
   const filteredPrompts = !!(promptSearch.trim() || promptEngineFilter || promptScheduleFilter || promptBrandFilter || search.tag || search.set);
   const promptInput = useMemo(() => inspectPromptInput(promptText, promptSeparator), [promptText, promptSeparator]);
@@ -761,8 +763,9 @@ function App() {
   const draftProjection = monitoringProjection(timing, previewNew);
   const draftAvailable = typeof settings.plan?.limits?.runs_per_month === "number" && typeof settings.monthly_usage?.runs === "number"
     ? Math.max(0, settings.plan.limits.runs_per_month - settings.monthly_usage.runs) : undefined;
-  const draftRunError = !settings.dataforseo_configured ? "Connect DataForSEO to run now or start monitoring."
-    : draftAvailable !== undefined && previewNew * timing.repetitions > draftAvailable ? "The requested checks exceed your remaining monthly allowance." : "";
+  const draftSampleCount = draftProjection.repetitions;
+  const draftRunError = draftSampleCount === undefined ? sampleCountError : !settings.dataforseo_configured ? "Connect DataForSEO to run now or start monitoring."
+    : draftAvailable !== undefined && previewNew * draftSampleCount > draftAvailable ? "The requested checks exceed your remaining monthly allowance." : "";
 
   const research = useReport<{ answers: number; items: { kind: string; value: string; title: string; count: number }[] }>(
     workspaceReady && !unavailableWorkspace && tab === "research" && !search.researchValue
@@ -856,9 +859,9 @@ function App() {
     }
     return activeOrg.current === org;
   }
-  async function createSelectedSchedules(ids: string[], key: string, enabled: boolean) {
+  async function createSelectedSchedules(ids: string[], key: string, enabled: boolean, repetitions: number) {
     return request("/schedules/bulk", "POST", {
-      ...timing, name: timing.name || "Scheduled prompts", prompt_ids: ids, batch_id: key,
+      ...timing, repetitions, name: timing.name || "Scheduled prompts", prompt_ids: ids, batch_id: key,
       only_unscheduled: true, enabled,
     }, org, true);
   }
@@ -871,14 +874,15 @@ function App() {
         receipt: review.receiptId });
       return;
     }
+    if (!draftProjection.valid || draftSampleCount === undefined) return;
     await action(async () => {
       if (review.receiptId && receipt?.id === review.receiptId && !receipt.action && ids.every(id => receiptNewIds.includes(id))) {
-        await submitReceiptAction(receipt.id, receipt.workspace.id, { prompt_ids: ids, schedule: { ...timing, enabled } });
+        await submitReceiptAction(receipt.id, receipt.workspace.id, { prompt_ids: ids, schedule: { ...timing, repetitions: draftSampleCount, enabled } });
         setReview(null);
         await load();
         return;
       }
-      const result = await createSelectedSchedules(ids, review.key, enabled);
+      const result = await createSelectedSchedules(ids, review.key, enabled, draftSampleCount);
       setReview(null);
       setNotice(`${result.schedules.length} schedules ${enabled ? "started" : "saved paused"}. 0 checks queued now.`);
       await load();
@@ -1558,12 +1562,14 @@ function App() {
                                 .map((row: Item) => ({ question: texts.indexOf(row.text), engine: row.engine }));
                               const run = intent === "run" || intent === "both";
                               const schedule = intent === "paused" || intent === "monitor" || intent === "both";
+                              if (run && draftRunError) throw new Error(draftRunError);
+                              if (schedule && !draftProjection.valid) throw new Error("Enter valid schedule timing.");
                               await submitReviewedPrompts({
                                 prompts: { ...payload, operation_id: draftReview!.key },
                                 ...(approved.length && (run || schedule) ? { action: {
                                   approved,
-                                  ...(run ? { run_samples: timing.repetitions } : {}),
-                                  ...(schedule ? { schedule: { ...timing, name: timing.name || "Scheduled prompts", enabled: intent !== "paused" } } : {}),
+                                  ...(run ? { run_samples: draftSampleCount } : {}),
+                                  ...(schedule ? { schedule: { ...timing, repetitions: draftSampleCount, name: timing.name || "Scheduled prompts", enabled: intent !== "paused" } } : {}),
                                 } } : {}),
                               });
                             });
@@ -1686,7 +1692,7 @@ function App() {
                             {JSON.parse(draftReview.payload).brand_id && <p>Associated prompt brand {promptBrands.find(brand => brand.id === JSON.parse(draftReview.payload).brand_id)?.name}.</p>}
                             <Button type="button" variant="outline" disabled={busy} onClick={() => action(load)}>Refresh workspace and provider setup</Button>
                             <MonitoringEditor timing={timing} change={setTiming} count={previewNew} />
-                            <p>{previewNew * timing.repetitions} checks now if you run. Saving prompts or saving paused schedules queues 0 checks.</p>
+                            <p>{draftSampleCount !== undefined && `${previewNew * draftSampleCount} checks now if you run. `}Saving prompts or saving paused schedules queues 0 checks.</p>
                             {draftRunError && <p role="status">{draftRunError}</p>}
                             <div className="form-actions">
                               <Button value="save" variant="outline" disabled={busy}>Save prompts</Button>
@@ -1840,7 +1846,10 @@ function App() {
                             members={group => group.variants} selectionLabel="Engine variants selected"
                             onChange={(rows, checked) => setPromptSelection(current => changeSelection(current, rows, checked))} />
                           {savedSelection.length > 0 && <div className="form-actions">
-                            <Button disabled={bulkBusy || !!pendingRun || mixedWorkspaceSelection} onClick={() => queuePromptBatch(savedSelection, runSamples)}>Run selected — {selectedRunCount} runs</Button>
+                            <Button disabled={bulkBusy || !!pendingRun || mixedWorkspaceSelection || runSampleCount === undefined}
+                              onClick={() => { if (runSampleCount !== undefined) void queuePromptBatch(savedSelection, runSampleCount); }}>
+                              Run selected{selectedRunCount !== null && ` — ${selectedRunCount} runs`}
+                            </Button>
                             <Button variant="outline" disabled={bulkBusy || mixedWorkspaceSelection}
                               onClick={() => reviewCollection(savedSelection, 1, "schedule")}>Schedule selected</Button>
                           </div>}
@@ -1851,9 +1860,9 @@ function App() {
                           <details className="advanced-settings">
                             <summary>Advanced settings</summary>
                             <div className="form-stack">
-                              <FormField label="Samples per engine variant" hint="Independent samples are queued for collection. Each sample is a separate provider charge and run.">
+                              <FormField label="Samples per engine variant" hint={runSampleCount === undefined ? sampleCountError : "Independent samples are queued for collection. Each sample is a separate provider charge and run."}>
                                 <input type="number" min={1} max={10} value={runSamples} disabled={bulkBusy}
-                                  onChange={e => setRunSamples(Math.max(1, Math.min(10, Number(e.target.value) || 1)))} />
+                                  aria-invalid={runSampleCount === undefined} onChange={e => setRunSamples(e.target.value)} />
                               </FormField>
                               <PromptSettingsEditor key={workspaceKey + selectedEngines}
                                 engines={selectedEngines} busy={bulkBusy} request={request}
@@ -1930,51 +1939,49 @@ function App() {
                                   {allWorkspaces && workspaceNames[group.workspace_id] && `${workspaceNames[group.workspace_id]} · `}
                                   {[...new Set(variants.map(variant => engines[variant.engine]))].join(" · ")}
                                 </small>
-                                <details className="prompt-variants" open={search.brand ? true : undefined}>
-                                  <summary>Engine settings and results</summary>
-                                  {variants.map(p => <div className="prompt-variant" key={p.id}>
-                                    <div className="prompt-row-title">
-                                      <span className="prompt-engine-icon"><img src={`/engine-icons/${p.engine}.svg`} alt="" width={18} height={18} /></span>
-                                      <Link to="/app" search={{ ...sectionSearch("prompts"), workspace: p.workspace_id, prompt: p.id }}>
-                                        <strong>{engines[p.engine]}</strong>
-                                      </Link>
-                                    </div>
-                                    <small>
-                                      {p.location_name} ·{" "}
-                                      {p.language_code} · {p.mode}{" "}
-                                      {p.actively_scheduled ? "· Scheduled" : ""}
-                                    </small>
-                                    {!!p.tags?.length && <div className="flex flex-wrap gap-1">
-                                      {(p.tags as string[]).map(tag => <Badge key={tag} variant="secondary">{tag}</Badge>)}
-                                    </div>}
-                                    <p className="data-note">{p.latest_collection ? `Last collection ${date(p.latest_collection.created_at)} · ${p.latest_collection.status === "succeeded"
-                                      ? p.latest_collection.has_answer ? "Eligible AI answer" : "Completed without an eligible AI answer" : p.latest_collection.status}` : "No collection in searchable history"}</p>
-                                    {p.latest_collection && <Link className="small-link" to="/app" search={{ org, workspace: p.workspace_id, tab: "runs", run: p.latest_collection.id }}>
-                                      {p.latest_collection.has_answer ? "View latest answer" : p.latest_collection.has_organic ? "View organic evidence" : "View latest run"}
-                                    </Link>}
-                                    {p.latest_answer_id && p.latest_answer_id !== p.latest_collection?.id && <Link className="small-link" to="/app"
-                                      search={{ org, workspace: p.workspace_id, tab: "runs", run: p.latest_answer_id }}>View latest answer</Link>}
-                                    {p.brand_period && <p className="data-note">Mentioned in {p.brand_period.mentions} of {p.brand_period.samples} eligible answers</p>}
-                                    {canWrite && renderPromptSettings(p)}
-                                    {canWrite && <div className="bulk-selection">
-                                      {variants.length > 1 && <label className="check-field">
-                                        <input type="checkbox" checked={promptSelection.has(p.id)} disabled={bulkBusy || promptPages.loading}
-                                          aria-label={`Select ${engines[p.engine]} for ${group.text} (${p.location_name}, ${p.language_code})`}
-                                          onChange={event => setPromptSelection(current => changeSelection(current, [p], event.target.checked))} />
-                                        Select variant
-                                      </label>}
-                                      <Button variant="outline" size="sm" disabled={busy || !!pendingRun}
-                                        onClick={() => queuePromptBatch([p.id], 1)}>Run {engines[p.engine]}</Button>
-                                      <Button variant="outline" size="sm" disabled={busy}
-                                        onClick={() => removePrompts([p.id])}>Delete</Button>
-                                    </div>}
-                                  </div>)}
-                                </details>
                               </div>
-                              <div>
-                                {canWrite && <Button size="sm" disabled={busy || !!pendingRun}
-                                  onClick={() => queuePromptBatch(ids, 1)}>Run {variants.length === 1 ? engines[variants[0].engine] : `all ${variants.length} variants`}</Button>}
-                              </div>
+                              {canWrite && <Button className="saved-prompt-action" size="sm" disabled={busy || !!pendingRun}
+                                onClick={() => queuePromptBatch(ids, 1)}>Run {variants.length === 1 ? engines[variants[0].engine] : `all ${variants.length} variants`}</Button>}
+                              <details className="prompt-variants" open={search.brand ? true : undefined}>
+                                <summary>Engine settings and results</summary>
+                                {variants.map(p => <div className="prompt-variant" key={p.id}>
+                                  <div className="prompt-row-title">
+                                    <span className="prompt-engine-icon"><img src={`/engine-icons/${p.engine}.svg`} alt="" width={18} height={18} /></span>
+                                    <Link to="/app" search={{ ...sectionSearch("prompts"), workspace: p.workspace_id, prompt: p.id }}>
+                                      <strong>{engines[p.engine]}</strong>
+                                    </Link>
+                                  </div>
+                                  <small>
+                                    {p.location_name} ·{" "}
+                                    {p.language_code} · {p.mode}{" "}
+                                    {p.actively_scheduled ? "· Scheduled" : ""}
+                                  </small>
+                                  {!!p.tags?.length && <div className="flex flex-wrap gap-1">
+                                    {(p.tags as string[]).map(tag => <Badge key={tag} variant="secondary">{tag}</Badge>)}
+                                  </div>}
+                                  <p className="data-note">{p.latest_collection ? `Last collection ${date(p.latest_collection.created_at)} · ${p.latest_collection.status === "succeeded"
+                                    ? p.latest_collection.has_answer ? "Eligible AI answer" : "Completed without an eligible AI answer" : p.latest_collection.status}` : "No collection in searchable history"}</p>
+                                  {p.latest_collection && <Link className="small-link" to="/app" search={{ org, workspace: p.workspace_id, tab: "runs", run: p.latest_collection.id }}>
+                                    {p.latest_collection.has_answer ? "View latest answer" : p.latest_collection.has_organic ? "View organic evidence" : "View latest run"}
+                                  </Link>}
+                                  {p.latest_answer_id && p.latest_answer_id !== p.latest_collection?.id && <Link className="small-link" to="/app"
+                                    search={{ org, workspace: p.workspace_id, tab: "runs", run: p.latest_answer_id }}>View latest answer</Link>}
+                                  {p.brand_period && <p className="data-note">Mentioned in {p.brand_period.mentions} of {p.brand_period.samples} eligible answers</p>}
+                                  {canWrite && renderPromptSettings(p)}
+                                  {canWrite && <div className="bulk-selection">
+                                    {variants.length > 1 && <label className="check-field">
+                                      <input type="checkbox" checked={promptSelection.has(p.id)} disabled={bulkBusy || promptPages.loading}
+                                        aria-label={`Select ${engines[p.engine]} for ${group.text} (${p.location_name}, ${p.language_code})`}
+                                        onChange={event => setPromptSelection(current => changeSelection(current, [p], event.target.checked))} />
+                                      Select variant
+                                    </label>}
+                                    <Button variant="outline" size="sm" disabled={busy || !!pendingRun}
+                                      onClick={() => queuePromptBatch([p.id], 1)}>Run {engines[p.engine]}</Button>
+                                    <Button variant="outline" size="sm" disabled={busy}
+                                      onClick={() => removePrompts([p.id])}>Delete</Button>
+                                  </div>}
+                                </div>)}
+                              </details>
                             </section>;
                           })}
                         </div>
