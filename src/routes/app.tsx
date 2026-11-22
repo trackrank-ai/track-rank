@@ -310,7 +310,7 @@ function App() {
   const selectingForSchedule = tab === "prompts" && search.promptView === "schedule" && !showingQuestion && canWrite;
   const creatingPrompts = tab === "prompts" && search.promptView === "create" && !showingQuestion;
   const scheduleSetup = search.setupIntent === "schedule";
-  const setupSetId = creatingPrompts && search.trackingView === "questions" ? search.set : undefined;
+  const setupSetId = creatingPrompts ? search.set : undefined;
   const libraryQuery = new URLSearchParams({ view: "library" });
   if (workspaceId) libraryQuery.set("workspace", workspaceId);
   if (promptSearch.trim()) libraryQuery.set("q", promptSearch.trim());
@@ -815,13 +815,14 @@ function App() {
     canLoadBulkPages && tracking && search.set ? "/prompt-sets/" + search.set + "?" + analyticsQuery({}, workspace) : "",
     request, promptLibraryRevision,
   );
+  const setupSet = setupSetId ? promptSets.find(set => set.id === setupSetId && (!workspaceId || set.workspace_id === workspaceId)) : undefined;
   const trackedSet = trackingResult?.data?.set;
+  const trackingWorkspaceId = (trackedSet ?? setupSet)?.workspace_id;
   useEffect(() => {
-    if (trackedSet && allWorkspaces) void navigate({
-      search: previous => ({ ...previous, workspace: trackedSet.workspace_id }), replace: true,
+    if (trackingWorkspaceId && allWorkspaces) void navigate({
+      search: previous => ({ ...previous, workspace: trackingWorkspaceId }), replace: true,
     });
-  }, [trackedSet, allWorkspaces, navigate]);
-  const setupSet = setupSetId ? promptSets.find(set => set.id === setupSetId && set.workspace_id === workspaceId) : undefined;
+  }, [trackingWorkspaceId, allWorkspaces, navigate]);
   const setupTitle = setupSetId ? "Add questions" : "Create tracking set";
   const setupSetLink: AppSearch = { org, workspace, tab: "tracking", set: setupSetId, trackingView: "questions" };
   const questionItemQuery = new URLSearchParams({ view: "library" });
@@ -1458,13 +1459,13 @@ function App() {
                   {tab === "prompts" && <p>{workspaceName}</p>}
                 </div>
                 {tab === "prompts" && !creatingPrompts && !selectingForSchedule && canWrite && <Button asChild>
-                  <Link to="/app" search={{ ...sectionSearch("prompts"), promptView: "create" }}>
-                    <Plus size={16} aria-hidden /> Create prompts
+                  <Link to="/app" search={{ ...sectionSearch("prompts"), workspace: promptSets.find(set => set.id === search.set)?.workspace_id ?? workspace, promptView: "create" }}>
+                    <Plus size={16} aria-hidden /> {search.set ? "Add questions" : "Create tracking set"}
                   </Link>
                 </Button>}
                 {selectingForSchedule && <Link className="small-link" to="/app" search={{ ...scheduleScope, tab: "schedules" }}>Back to schedules</Link>}
-                {creatingPrompts && <Link className="small-link" to="/app" search={setupSetId ? setupSetLink : sectionSearch("prompts")}>
-                  {setupSetId ? "Back to tracking set" : "Back to prompts"}
+                {creatingPrompts && <Link className="small-link" to="/app" search={setupSetId ? setupSetLink : search.setupFrom ? { org, workspace, tab: "tracking" } : sectionSearch("prompts")}>
+                  {setupSetId ? "Back to tracking set" : search.setupFrom ? "Back to tracking sets" : "Back to prompts"}
                 </Link>}
               </div>}
               {(reportTab || tab === "prompts") && setResult?.error && <p role="alert">{setResult.error}</p>}

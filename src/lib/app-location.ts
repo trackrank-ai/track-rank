@@ -26,6 +26,7 @@ export type AppSearch = AnalyticsScope & {
   questionView?: "answers" | "settings";
   promptView?: "create" | "schedule";
   setupIntent?: "schedule";
+  setupFrom?: "tracking";
   promptEngine?: AnalyticsScope["engine"];
   promptSchedule?: "active" | "inactive";
   promptBrand?: string;
@@ -86,6 +87,7 @@ export function parseAppSearch(search: Record<string, unknown>): AppSearch {
     questionView: question
       ? (["answers", "settings"] as const).find(value => value === search.questionView) : undefined,
     promptView: tab === "prompts" && (search.promptView === "create" || search.promptView === "schedule") ? search.promptView : undefined,
+    setupFrom: tab === "prompts" && search.promptView === "create" && search.setupFrom === "tracking" ? "tracking" : undefined,
     setupIntent: tab === "prompts" && search.promptView === "create" && search.setupIntent === "schedule" ? "schedule" : undefined,
     promptEngine: libraryContext ? analyticsScope({ engine: search.promptEngine }).engine : undefined,
     promptSchedule: libraryContext && (search.promptSchedule === "active" || search.promptSchedule === "inactive")
