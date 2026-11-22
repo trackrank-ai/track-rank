@@ -39,3 +39,18 @@ Active hosted trials show a nondismissible sticky accent banner above the app to
 ## Prompt creation and collection
 
 Default to one question per line. Show the parsed wording, repeated-line count, and per-engine matches before saving. Show a saved question once with its tracked engines. Saved wording is fixed. Keep engine settings available for individual variants and offer partial changes to execution mode, location and language for a selection. Make saved variants and recurring schedules distinct from one-time checks. Start with weekly timing and one sample, with timing changes and extra samples available on demand. Put schedule creation on Prompts and use Schedules to manage existing monitoring. A save receipt and a run batch each have a shareable organization/workspace URL. Run lists and CSV use the same URL-backed filters.
+
+## Design review and release · November 22, 2026
+
+The Impeccable review graded the pre-redesign public site **23/36** and the authenticated app **24/40**. The reviewers weighted agency analysts and in-house marketers equally. They found that the homepage gave its most prominent visual to an abstract chart, a new workspace showed six filters before its first useful action, and schedules for different engines could have identical visible and accessible names. The team used these findings to prioritize the following changes. A post-release design grade is still open.
+
+| Surface | Decision carried into production |
+| --- | --- |
+| Run detail | Put the question and collection context first, with the recorded answer, brand observations and inspectable sources together. Preserve links to each evidence tab. |
+| Homepage and Pricing | Reuse the evidence view for a labeled illustrative answer linked to Penpot documentation. Show the separate provider requirement alongside the trial action. Preserve the live catalog and editable cost assumptions. |
+| Overview and navigation | Lead with setup while the workspace awaits collection, then with findings and their reporting scope. On phones, expose the current section and workspace independently. |
+| Prompts, Schedules and Run History | Change question wording by deleting and recreating the prompt. Keep engine settings editable. Identify variants wherever people select a record to inspect, edit or delete. |
+
+The redesign shipped to production from `main` at `ce82463` without a database migration. The implementation is recorded in [answer detail and shared controls](https://github.com/trackrank-ai/track-rank/pull/16), [authenticated workflows](https://github.com/trackrank-ai/track-rank/pull/17), and [public pages](https://github.com/trackrank-ai/track-rank/pull/18).
+
+**Verification.** Live desktop and phone browsers exercised the homepage, example source link, pricing offers, calculator, navigation and dark mode. Authenticated checks used local fixtures to exercise REST, MCP, evidence links and schedule edits. Changing one Gemini schedule left the three other schedules in the two-question, two-engine batch untouched. Build and typecheck passed, with 108 tests passing and one skipped. Paid provider collection and checkout were outside this release check.
