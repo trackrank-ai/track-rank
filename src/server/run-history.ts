@@ -35,6 +35,7 @@ export const runHistoryFilters = scopeFilters.extend({
   metric: z.enum(["eligible", "coverage", "brand", "mention", "citation"]).optional(),
   prompt_id: z.string().min(1).max(100).optional(),
   q: z.string().trim().max(200).optional(),
+  outcome: z.enum(["pending", "failed", "uncertain", "organic", "no_answer", "eligible"]).optional(),
   status: z.enum(["queued", "submitting", "submitted", "succeeded", "failed", "uncertain"]).optional(),
   brand_id: z.string().min(1).max(100).optional(),
   research_type: z.enum(["domain", "page", "query"]).optional(),
@@ -57,6 +58,14 @@ export function parseHistoryFilters(params: URLSearchParams) {
 }
 
 export const eligibleAnswer = "runs.status='succeeded' AND runs.has_answer=1";
+export const outcomePredicates = {
+  pending: "runs.status IN ('queued','submitting','submitted')",
+  failed: "runs.status='failed'",
+  uncertain: "runs.status='uncertain'",
+  organic: "runs.status='succeeded' AND runs.has_answer=0 AND json_array_length(runs.organic_results)>0",
+  no_answer: "runs.status='succeeded' AND runs.has_answer=0",
+  eligible: eligibleAnswer,
+};
 export const runConfig = "CASE WHEN json_valid(runs.config) THEN runs.config ELSE '{}' END";
 export const brandSnapshot = `json_each(${runConfig}, '$.brands')`;
 export const runMentions = "json_each(CASE WHEN json_valid(runs.mentions) THEN runs.mentions ELSE '[]' END)";
@@ -122,6 +131,7 @@ function historyWhere(org: string, filters: z.output<typeof runHistoryFilters>) 
     conditions.push("prompt_id=?");
     bindings.push(filters.prompt_id);
   }
+  if (filters.outcome) conditions.push(outcomePredicates[filters.outcome]);
   if (filters.status) {
     conditions.push("status=?");
     bindings.push(filters.status);

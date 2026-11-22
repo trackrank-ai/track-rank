@@ -1,5 +1,5 @@
 import { DAY_MS, utcDay, validDay } from "../lib/analytics-filters";
-import { brandOutcome, brandSnapshot, brandSnapshotId, currentPromptWhere, eligibleAnswer, parseHistoryFilters, runConfig, searchableHistoryWhere } from "./run-history";
+import { brandOutcome, brandSnapshot, brandSnapshotId, currentPromptWhere, eligibleAnswer, outcomePredicates, parseHistoryFilters, runConfig, searchableHistoryWhere } from "./run-history";
 import { all, now, type Env } from "./types";
 
 function reportingPeriod(params: URLSearchParams) {
@@ -59,8 +59,22 @@ export async function analytics(env: Env, org: string, params: URLSearchParams) 
     ORDER BY kind,key`, ...bindings, org, ...(filters.workspace ? [filters.workspace] : []),
     ...(filters.set ? [filters.set] : []), ...selected.bindings, filters.tracked_brand ?? null);
   const total = rows.find(row => row.kind === "total")!;
+  const unrestricted = await searchableHistoryWhere(env, org, new URLSearchParams(filters.workspace ? { workspace: filters.workspace } : {}));
+  const [outcomes, workspaceTotals] = await Promise.all([
+    all<{ outcome: string; count: number }>(env, `SELECT CASE
+      WHEN ${outcomePredicates.pending} THEN 'pending' WHEN ${outcomePredicates.failed} THEN 'failed'
+      WHEN ${outcomePredicates.uncertain} THEN 'uncertain' WHEN ${eligibleAnswer} THEN 'eligible'
+      WHEN ${outcomePredicates.organic} THEN 'organic' ELSE 'no_answer' END AS outcome, count(*) AS count
+      FROM runs WHERE ${conditions.join(" AND ")} GROUP BY outcome`, ...bindings),
+    all<{ prompts: number; first_run: number | null }>(env, `SELECT
+      (SELECT count(*) FROM prompts WHERE org_id=? AND archived_at IS NULL ${filters.workspace ? "AND workspace_id=?" : ""}) AS prompts,
+      (SELECT min(created_at) FROM runs WHERE ${unrestricted.conditions.join(" AND ")}) AS first_run`,
+      org, ...(filters.workspace ? [filters.workspace] : []), ...unrestricted.bindings),
+  ]);
   return {
     from: filters.from, to: filters.to,
+    workspace_prompts: workspaceTotals[0].prompts, workspace_has_runs: workspaceTotals[0].first_run !== null, workspace_first_run: workspaceTotals[0].first_run,
+    outcomes: Object.fromEntries(outcomes.map(row => [row.outcome, row.count])),
     total_runs: total.samples, eligible_answers: total.eligible_answers,
     covered_prompts: total.covered_prompts, selected_prompts: total.selected_prompts,
     brands: rows.filter(row => row.kind === "brand").map(({ key, samples, mentions, citations }) => ({ id: key, samples, mentions, citations })),

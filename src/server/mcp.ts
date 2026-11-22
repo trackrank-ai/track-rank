@@ -1,3 +1,4 @@
+import { receiptActionSchema, submitPromptBatchSchema } from "./receipt-actions";
 import { bulkPromptTagsSchema, promptTag, promptTags } from "./prompt-tags";
 import { promptBatchSchema } from "./prompt-batch";
 import { organizationPlan } from "./plans";
@@ -6,7 +7,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { z } from "zod";
 import { api } from "./api";
-import { bulkPromptIdsSchema, movePromptsSchema, bulkToggleSchema, bulkRunSchema, bulkScheduleSchema, bulkScheduleUpdateSchema } from "./bulk";
+import { bulkPromptIdsSchema, movePromptsSchema, bulkToggleSchema, bulkRunSchema, bulkReadinessSchema, bulkScheduleSchema, bulkScheduleUpdateSchema } from "./bulk";
 import { listPageLimit } from "./prompt-library";
 import { createPromptSetSchema, setId, setNameSchema, updateSetMembersSchema } from "./prompt-sets";
 import { scopeFilters, runHistoryFilters } from "./run-history";
@@ -209,6 +210,9 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
         engine: z.enum(["chatgpt", "gemini", "google"]).optional(),
         schedule: z.enum(["active", "inactive"]).optional(),
         brand: z.string().min(1).max(100).optional(),
+        tracked_brand: scopeFilters.shape.tracked_brand,
+        from: scopeFilters.shape.from,
+        to: scopeFilters.shape.to,
         before: z.number().int().nonnegative().optional(),
         before_id: z.string().min(1).max(100).optional(),
       },
@@ -261,6 +265,22 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
     },
     async (args) => invoke("/prompts", "POST", args),
   );
+  server.registerTool("get_prompt_receipt", {
+    description: "Read the exact prompt variants saved by an operation ID.",
+    inputSchema: { operation_id: z.uuid() },
+  }, async ({ operation_id }) => invoke("/prompts/receipts/" + operation_id));
+  server.registerTool("submit_prompt_batch", {
+    description: "Save reviewed prompt variants and optionally collect or schedule only the approved new combinations. Confirm provider spend before requesting active collection. Retry with identical arguments.",
+    inputSchema: submitPromptBatchSchema,
+  }, async args => invoke("/prompts/bulk-submit", "POST", args));
+  server.registerTool("start_prompt_receipt", {
+    description: "Run new combinations from a saved receipt and/or create their schedules. Review charges and obtain explicit authorization before enabling collection. Retry with identical arguments.",
+    inputSchema: { operation_id: z.uuid(), action: receiptActionSchema },
+  }, async ({ operation_id, action }) => invoke("/prompts/receipts/" + operation_id, "POST", action));
+  server.registerTool("preview_prompts", {
+    description: "Review exact engine combinations, existing matches and monitoring state without saving or collecting.",
+    inputSchema: promptBatchSchema,
+  }, async args => invoke("/prompts/bulk-preview", "POST", args));
   server.registerTool(
     "save_prompts",
     {
@@ -310,6 +330,14 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
         args.idempotency_key,
       ),
   );
+  server.registerTool("review_collection", {
+    description: "Review workspace, tracked brands, execution settings, existing monitoring, provider connection, permissions and allowance for saved prompts.",
+    inputSchema: bulkReadinessSchema,
+  }, async args => invoke("/collection/readiness", "POST", args));
+  server.registerTool("get_run_batch", {
+    description: "Read the durable progress and evidence run IDs for a manual collection batch.",
+    inputSchema: { batch_key: bulkRunSchema.shape.batch_key },
+  }, async ({ batch_key }) => invoke("/runs/batches/" + batch_key));
   server.registerTool(
     "run_prompts",
     {

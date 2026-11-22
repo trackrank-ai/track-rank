@@ -35,3 +35,7 @@ Give each authenticated section and shareable record a stable URL. Use the exist
 Use `PricingSection` with `getPricingCatalog` on both public pricing surfaces; do not hardcode a second hosted tier catalog. Monthly volume and searchable history are the only tier differentiators. Keep custom plan contact and separate provider costs adjacent to pricing. Comparison claims need dated official sources, original currency and explicit non-equivalence. Never guarantee lower total cost.
 
 Active hosted trials show a nondismissible sticky accent banner above the app topbar. Use authoritative billing status and expiry for the selected organization, round remaining days up, update the clock while open, and link to the existing authorized Settings billing flow. Do not show old organization trial state during an organization switch.
+
+## Prompt creation and collection
+
+Default to one question per line. Show the parsed wording, repeated-line count, and per-engine matches before saving. Make saved variants and recurring schedules distinct from one-time checks. Start with weekly timing and one sample, with timing changes and extra samples available on demand. Put schedule creation on Prompts and use Schedules to manage existing monitoring. A save receipt and a run batch each have a shareable organization/workspace URL. Run lists and CSV use the same URL-backed filters.

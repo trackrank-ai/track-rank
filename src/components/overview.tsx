@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { useEffect, useState, type FormEvent } from "react";
-import { analyticsQuery, analyticsScope, type AnalyticsScope, type AnswerMetric } from "@/lib/analytics-filters";
+import { analyticsQuery, analyticsScope, utcDay, type AnalyticsScope, type AnswerMetric } from "@/lib/analytics-filters";
 import type { AppSearch } from "@/lib/app-location";
 import { MAX_PROMPT_TAGS, splitPromptTags, validPromptTag } from "@/lib/prompt-tags";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,10 @@ type OverviewData = {
   from: string;
   to: string;
   total_runs: number;
+  workspace_prompts: number;
+  workspace_has_runs: boolean;
+  workspace_first_run: number | null;
+  outcomes: Record<string, number>;
   eligible_answers: number;
   selected_prompts: number;
   covered_prompts: number;
@@ -91,13 +95,13 @@ export function OverviewFilters({ scope, org, workspace, workspaceNames, sets, b
         <input name="location" defaultValue={scope.location} maxLength={200} list="recorded-locations" placeholder="All locations" />
         <datalist id="recorded-locations">{locations?.data?.locations.map(name => <option value={name} key={name} />)}</datalist>
       </label>
-      <label className="app-field"><span>Tracked brand</span>
+      {brands.length > 0 && <label className="app-field"><span>Tracked brand</span>
         <select name="trackedBrand" defaultValue={scope.trackedBrand ?? ""}>
           <option value="">{brands.length ? "Default brand" : "No tracked brand"}</option>
           {scope.trackedBrand && !brands.some(brand => brand.id === scope.trackedBrand) && <option value={scope.trackedBrand}>Selected historical brand</option>}
           {brands.map(brand => <option key={brand.id} value={brand.id}>{brand.name}</option>)}
         </select>
-      </label>
+      </label>}
       <label className="app-field"><span>From (UTC)</span>
         <input name="from" type="date" required defaultValue={scope.from} />
       </label>
@@ -126,9 +130,16 @@ export function Overview({ org, workspace, scope, brands, request, revision }: {
   if (result?.error) return <p role="alert">{result.error}</p>;
   if (!result?.data) return <p role="status">Calculating visibility…</p>;
   const data = result.data;
-  if (scope.set && !data.selected_prompts) return <p className="data-note">
-    {scope.tags ? "No prompts in this set match the selected tags." : "This prompt set is empty. Add prompts to see its performance."}
-  </p>;
+  if (!data.total_runs) return <Card><CardContent className="form-stack">
+    <h2>{!data.workspace_prompts && !data.workspace_has_runs ? "Create your first prompts"
+      : data.workspace_has_runs ? "No collections match these filters" : "Choose prompts to run"}</h2>
+    <p>{data.workspace_has_runs ? "Clear filters to return to the default view, or widen the date range."
+      : data.workspace_prompts ? "Choose saved combinations in Prompts to review and collect their first answers."
+      : "Paste questions and select the engines you want to measure."}</p>
+    {data.workspace_has_runs
+      ? <Link to="/app" search={{ org, workspace, tab: "overview", from: data.workspace_first_run === null ? undefined : utcDay(data.workspace_first_run) }}>Clear filters</Link>
+      : <Link to="/app" search={{ org, workspace, tab: "prompts" }}>{data.workspace_prompts ? "Choose prompts to run" : "Create your first prompts"}</Link>}
+  </CardContent></Card>;
   const metricLink = (metric?: AnswerMetric, overrides?: AnalyticsScope) => ({
     ...scope, ...overrides, org, workspace, tab: "runs" as const, metric,
   });
@@ -146,6 +157,12 @@ export function Overview({ org, workspace, scope, brands, request, revision }: {
     { label: "Collected answers", metric: "eligible" as const, value: data.eligible_answers || "No eligible answers", note: `${data.eligible_answers} / ${data.total_runs} runs` },
   ];
   return <>
+    <div className="app-inline-form" aria-label="Collection outcomes">
+      {([["pending", "Pending"], ["failed", "Failed"], ["uncertain", "Uncertain"], ["organic", "Organic only"], ["eligible", "Eligible answers"]] as const)
+        .map(([outcome, label]) => <Link key={outcome} to="/app" search={{ ...metricLink(), outcome }}>
+          {label} ({data.outcomes[outcome] ?? 0})
+        </Link>)}
+    </div>
     <div className="app-metrics">
       {metrics.map(metric => <Card className="app-stat" key={metric.label}><CardContent>
         <span>{metric.label}</span><strong>{metric.value}</strong><small>{metric.note}</small>
@@ -154,12 +171,11 @@ export function Overview({ org, workspace, scope, brands, request, revision }: {
           <Link className="small-link" to="/app" search={metricLink("brand")}>View eligible answers</Link>}
       </CardContent></Card>)}
     </div>
-    <Card><CardContent>
+    {scope.trackedBrand && <Card><CardContent>
       <div className="panel-title"><div><h2>Visibility over time</h2><p>Daily mention rate and citation counts in UTC.</p></div></div>
-      {!scope.trackedBrand ? <p className="data-note">Choose a tracked brand to see its trend.</p>
-        : !data.daily.length ? <p className="data-note">No eligible answers</p>
+      {!data.daily.length ? <p className="data-note">No eligible answers</p>
         : <DailyTrend days={data.daily} link={day => metricLink("brand", { from: day, to: day })} />}
-    </CardContent></Card>
+    </CardContent></Card>}
     {brands.length > 0 && <Card><CardContent>
       <div className="panel-title"><h2>Brand comparison</h2></div>
       {brands.map(brand => {
