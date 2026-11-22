@@ -10,9 +10,17 @@ Use shadcn/ui (New York / neutral, CSS-variable theming) and Tailwind CSS v4. Co
 
 The question is the heading of a run detail. Follow it with the workspace, engine, collection location, timestamp and status. Give the answer a readable column. Show brand observations from the run snapshot and the sources returned with that answer. Link a source to a specific passage only when the evidence supplies that association. Preserve the separate organic-results view when Google returns organic links without an AI Overview.
 
-Use self-hosted Geist Variable. Start with 16 px for answer text, 14 px for controls and rows, and 12–13 px for metadata. Allow long questions, brand names and URLs to wrap. Keep the engine identifiable when a question label is shortened. Use the warm-white background, charcoal text and burnt-orange interactive accent in light mode. Dark mode follows the reader’s explicit choice. Keep normal text at a contrast ratio of at least 4.5:1 in both themes, including cost assumptions, inactive tabs and form hints.
+Use self-hosted Geist Variable. Start with 16 px for answer text, 14 px for controls and rows, and 12–13 px for metadata. Allow long questions, brand names and URLs to wrap. Keep the engine identifiable when a question label is shortened.
 
-Use the shared buttons, cards and tabs. Label form controls directly, associate explanatory text with its control, and make help accessible by keyboard and touch. Keep focus visible and use text for collection status. Keep related numbers and labels together when layouts stack.
+## Colors
+
+Use the warm-white background, charcoal text and burnt-orange interactive accent in light mode. Dark mode follows the reader’s explicit choice. Keep normal text at a contrast ratio of at least 4.5:1 in both themes, including cost assumptions, inactive tabs and form hints.
+
+Use the surface’s foreground tokens for text. In the app, use `--control-border` for editable controls. Public calculator fields use `--public-muted` for their border.
+
+## Components
+
+Use the shared buttons, cards and tabs. Label form controls directly, associate explanatory text with its control, and make help accessible by keyboard and touch. Keep focus visible and use text for collection status. Where the outline identifies an editable field, give its idle border at least 3:1 contrast against the adjacent surface in both themes. Give disclosure summaries and adjacent footer links a 44 px touch target on coarse pointers. Keep related numbers and labels together when layouts stack.
 
 ## Public product evidence
 
@@ -20,7 +28,7 @@ The landing page uses the same evidence presentation as an authenticated run. La
 
 ## Responsive navigation and workspace overview
 
-The compact app has a labeled section chooser and a separate workspace selector. Retain the current section and workspace after reload or sign-in. Make Product, Pricing and Compare directly accessible on the compact public site. At phone widths, keep all pricing comparison values accessible.
+The compact app has a labeled section chooser and a separate workspace selector. Retain the current section and workspace after reload or sign-in. Make Product, Pricing and Compare directly accessible on the compact public site. At phone widths, keep all pricing comparison values accessible. Check Home and Pricing at 320 CSS px with text enlarged to 200%, using both the self-hosted state and the populated hosted catalog. Prices, plan limits, navigation and trial actions must fit without horizontal page scrolling.
 
 For a workspace awaiting its first collection, put the next setup step ahead of analytics filters. Explain how brand assignment affects future snapshots and keep save-only actions available before credentials are connected. For a populated workspace, lead with a result and its scope. Distinguish an empty workspace from a search that returned no matches. Every schedule action must identify its engine variant and distinguish the workspace in organization-wide views.
 
@@ -30,7 +38,9 @@ Use `form-stack` for related fields, `form-grid` for independent columns, `app-i
 
 Keep the selection count, Run and Schedule visible together. Open **Manage selection** for moving, tagging or deleting the selected variants. Keep sampling and engine settings under Advanced. Show active report filters and schedule timing in their disclosure summaries.
 
-Group variant settings and their actions on separate rows with a visible gap. Let the settings use the full row at narrow widths. Numeric fields should tolerate clearing and retyping, show their valid range, and enable the affected action when the draft is valid.
+Let expanded engine settings use the available row width, including on tablets. Leave `0.75rem` (12 px at default text size) between the editor and its Run and Delete actions. On narrow screens, let variant selection take its own line so the action buttons can stay together when space permits.
+
+Keep numeric input as a draft while the user types. For samples, clearing the field and typing `5` must produce `5`. Use a valid whole number from 1 to 10 for projections and collection actions. While the draft is invalid, show the range beside the field and keep independent actions such as **Save prompts** available. In bulk schedule edits, a blank sample field preserves each schedule’s current count.
 
 ## Bulk selection
 
