@@ -331,7 +331,10 @@ function App() {
       ? reportTab ? reportScope : linkScope : {}),
     org: org || undefined, workspace, tab: nextTab,
     ...(nextTab === "prompts" && tab === "prompts" ? { tag: search.tag, set: search.set, brand: search.brand, from: search.from, to: search.to } : {}),
-    ...(nextTab === "runs" && tab === "runs" ? { metric: search.metric, researchType: search.researchType, researchValue: search.researchValue } : {}),
+    ...((nextTab === "overview" || nextTab === "runs") ? { trendMetric: search.trendMetric } : {}),
+    ...(nextTab === "runs" && tab === "runs" ? { metric: search.metric, evidenceDay: search.evidenceDay,
+      q: search.q, outcome: search.outcome, status: search.status, brand: search.brand,
+      researchType: search.researchType, researchValue: search.researchValue } : {}),
   });
   function filterByTag(tag: string) {
     setPromptSelection(new Map());
@@ -1327,17 +1330,17 @@ function App() {
               {reportTab && (() => {
                 const filters = <OverviewFilters
                   key={JSON.stringify([org, workspace, tab, search, reportScope])}
-                  org={org} workspace={workspace} workspaceNames={workspaceNames} scope={reportScope} sets={promptSets}
+                  org={org} workspace={workspace} workspaceNames={workspaceNames} scope={reportScope} sets={promptSets} summarize={tab === "research"}
                   brands={scopeBrands as { id: string; name: string }[]} engines={engines} request={request} revision={prompts}
                   onChange={scope => void navigate({ search: { org, workspace, tab, ...scope,
-                    researchType: search.researchType, researchValue: search.researchValue } })}
+                    researchType: search.researchType, researchValue: search.researchValue, trendMetric: search.trendMetric } })}
                 />;
                 return tab === "research" ? filters : <Overview org={org} workspace={workspace} workspaceName={workspaceName}
                   scope={reportScope} sets={promptSets} engines={engines} brands={scopeBrands as { id: string; name: string }[]}
                   hasTrackedBrand={allWorkspaces ? workspaces.some(w => brandIds(w.id).length > 0) : trackedBrandIds.size > 0}
                   brandWorkspace={workspaceId || workspaces[0]?.id || workspace}
                   credentialsConnected={!!settings.dataforseo_configured} canWrite={canWrite} canManageCredentials={isAdmin}
-                  request={request} revision={prompts} filters={filters} />;
+                  request={request} revision={prompts} filters={filters} trendMetric={search.trendMetric} />;
               })()}
               {tab === "workspaces" && (
                 <Card><CardContent>
@@ -2141,6 +2144,7 @@ function App() {
                     <Card><CardContent>
                       {detailError ? <p role="alert">{detailError}</p> : <p role="status">Loading run…</p>}
                       <Link to="/app" search={{ ...sectionSearch("runs"), runPrompt: search.runPrompt, batch: search.batch, receipt: search.receipt }}>Close run</Link>
+                      {search.trendMetric && <Link to="/app" search={sectionSearch("overview")}>Back to Overview</Link>}
                     </CardContent></Card>
                   )}
                   {selectedRun && (
@@ -2148,9 +2152,12 @@ function App() {
                       <CardContent>
                         <header className="run-detail-header">
                           <h1>{selectedRun.prompt_text}</h1>
-                          <Button variant="ghost" size="sm" asChild>
-                            <Link to="/app" search={{ ...sectionSearch("runs"), runPrompt: search.runPrompt, batch: search.batch, receipt: search.receipt }}>Close run</Link>
-                          </Button>
+                          <div className="app-inline-form">
+                            {search.trendMetric && <Link to="/app" search={sectionSearch("overview")}>Back to Overview</Link>}
+                            <Button variant="ghost" size="sm" asChild>
+                              <Link to="/app" search={{ ...sectionSearch("runs"), runPrompt: search.runPrompt, batch: search.batch, receipt: search.receipt }}>Close run</Link>
+                            </Button>
+                          </div>
                           <dl className="run-detail-context">
                             <div><dt>Workspace</dt><dd>{workspaceNames[selectedRun.workspace_id] ?? "Unavailable workspace"}</dd></div>
                             <div><dt>Engine</dt><dd>{engines[selectedRun.config?.engine] ?? "Unknown engine"}</dd></div>
@@ -2238,7 +2245,7 @@ function App() {
                           )}
                         </div>
                         <Tabs key={selectedRun.id} value={search.evidence ?? (!selectedRun.has_answer && selectedRun.organic_results?.length ? "organic" : "answer")}
-                          onValueChange={value => void navigate({ search: { ...search, org, workspace: selectedRun.workspace_id,
+                          onValueChange={value => void navigate({ search: { ...search, org, workspace,
                             tab: "runs", run: selectedRun.id, evidence: value as typeof search.evidence }, replace: true })}>
                           <TabsList variant="line" aria-label="Run evidence">
                             <TabsTrigger value="answer">Answer</TabsTrigger>
@@ -2337,6 +2344,7 @@ function App() {
                     canWrite={canWrite}
                     scope={linkScope}
                     metric={search.metric}
+                    trendMetric={search.trendMetric} evidenceDay={search.evidenceDay}
                     researchType={search.researchType}
                     researchValue={search.researchValue}
                     filters={search}

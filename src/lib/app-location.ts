@@ -1,4 +1,4 @@
-import { analyticsScope, type AnalyticsScope, type AnswerMetric } from "./analytics-filters";
+import { analyticsScope, answerMetrics, type AnalyticsScope, type AnswerMetric, type TrendMetric } from "./analytics-filters";
 import { normalizePromptTag, validPromptTag } from "./prompt-tags";
 
 const appTabs = ["overview", "prompts", "research", "runs", "brands", "schedules", "team", "settings", "agents", "workspaces"] as const;
@@ -10,6 +10,8 @@ export const runOutcomes = ["pending", "failed", "uncertain", "organic", "no_ans
 
 export type AppSearch = AnalyticsScope & {
   metric?: AnswerMetric;
+  trendMetric?: TrendMetric;
+  evidenceDay?: string;
   org?: string;
   workspace?: string;
   tab?: AppTab;
@@ -41,11 +43,16 @@ export function parseAppSearch(search: Record<string, unknown>): AppSearch {
     ? search.researchValue.trim() : "";
   const tag = typeof search.tag === "string" ? normalizePromptTag(search.tag) : "";
   const scoped = !tab || tab === "overview" || tab === "runs" || tab === "research";
-  const metric = (["eligible", "coverage", "brand", "mention", "citation"] as const).find(value => value === search.metric);
+  const scope = analyticsScope(tab === "research" ? { ...search, compareBrand: undefined } : search);
+  const metric = answerMetrics.find(value => value === search.metric);
+  const trendMetric = search.trendMetric === "mention" || search.trendMetric === "citation" ? search.trendMetric : undefined;
+  const evidenceDay = tab === "runs" && trendMetric ? analyticsScope({ from: search.evidenceDay }).from : undefined;
   return {
-    ...(scoped ? analyticsScope(search) : tab === "prompts"
+    ...(scoped ? scope : tab === "prompts"
       ? { set: resourceId(search.set), from: analyticsScope(search).from, to: analyticsScope(search).to } : {}),
-    ...(tab === "runs" && metric ? { metric } : {}),
+    ...(tab === "runs" && metric && (!metric.startsWith("compare_") || scope.compareBrand) ? { metric } : {}),
+    trendMetric: (!tab || tab === "overview" || tab === "runs") ? trendMetric : undefined,
+    evidenceDay: evidenceDay && (!scope.from || evidenceDay >= scope.from) && (!scope.to || evidenceDay <= scope.to) ? evidenceDay : undefined,
     org: resourceId(search.org),
     workspace: resourceId(search.workspace),
     tab,

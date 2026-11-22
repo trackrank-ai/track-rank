@@ -104,3 +104,63 @@
     grid-column: 2 / -1;
   }
 }
+
+.overview-rates > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: .75rem 1.5rem;
+  border-top: 1px solid var(--border);
+  padding-block: 1rem;
+}
+.overview-rates dt {
+  flex: 1 1 16rem;
+}
+.overview-rates dd {
+  display: grid;
+  gap: .15rem;
+  margin: 0;
+  min-width: 11rem;
+}
+.overview-rates dd strong {
+  font-size: 1.15rem;
+  font-variant-numeric: tabular-nums;
+}
+.overview-rates a, .overview-outcomes a {
+  text-decoration: underline;
+  text-underline-offset: .2em;
+}
+.overview-trend-controls [aria-current="true"] {
+  border-color: var(--primary);
+  color: var(--foreground);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: .2em;
+}
+.overview-trend {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: .5rem;
+  margin-block: 1rem;
+}
+.overview-trend-axis {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding-block: .15rem;
+}
+.overview-trend svg {
+  width: 100%;
+  height: 10rem;
+}
+.overview-trend-dates {
+  grid-column: 2;
+  display: flex;
+  justify-content: space-between;
+  padding-top: .25rem;
+}
+.overview-trend-axis, .overview-trend-dates {
+  color: var(--muted-foreground);
+  font-size: .75rem;
+  font-variant-numeric: tabular-nums;
+}

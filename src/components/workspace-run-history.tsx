@@ -31,11 +31,17 @@ const statuses = [
   ["succeeded", "Completed"], ["failed", "Failed"], ["uncertain", "Uncertain"],
 ];
 
+const metricLabels: Record<AnswerMetric, string> = {
+  eligible: "Eligible AI answers", coverage: "Question coverage", brand: "Eligible answers for tracked brands",
+  mention: "Tracked brand mentions", citation: "Tracked brand website citations",
+  compare_mention: "Comparison brand mentions", compare_citation: "Comparison brand website citations",
+};
+
 export function RunStatus({ value }: { value: string }) {
   return <Badge variant="outline" className={"run-status status-" + value}>{value}</Badge>;
 }
 
-export function WorkspaceRunHistory({ org, workspace, workspaceName, workspaceNames, runPrompt, prompts, brands, engines, request, refresh, canWrite, scope, metric, researchType, researchValue, filters, onChange }: {
+export function WorkspaceRunHistory({ org, workspace, workspaceName, workspaceNames, runPrompt, prompts, brands, engines, request, refresh, canWrite, scope, metric, trendMetric, evidenceDay, researchType, researchValue, filters, onChange }: {
   org: string;
   workspace: string;
   workspaceName: string;
@@ -49,16 +55,19 @@ export function WorkspaceRunHistory({ org, workspace, workspaceName, workspaceNa
   canWrite: boolean;
   scope: AnalyticsScope;
   metric?: AnswerMetric;
+  trendMetric?: AppSearch["trendMetric"];
+  evidenceDay?: string;
   researchType?: ResearchType;
   researchValue?: string;
-  filters: Pick<AppSearch, "q" | "status" | "brand" | "outcome">;
+  filters: Pick<AppSearch, "q" | "status" | "brand" | "outcome" | "run">;
   onChange: (patch: Partial<AppSearch>) => void;
 }) {
   const { q: keyword = "", status = "", brand = "", outcome } = filters;
   const engine = scope.engine ?? "";
   const [page, setPage] = useState<RunPage | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
-  const query = analyticsQuery(scope, workspace);
+  const query = analyticsQuery(evidenceDay ? { ...scope, from: evidenceDay, to: evidenceDay } : scope, workspace);
+  if (!metric || metric === "eligible" || metric === "coverage") query.delete("compare_brand");
   if (metric) query.set("metric", metric);
   if (researchType && researchValue) {
     query.set("research_type", researchType);
@@ -133,7 +142,8 @@ export function WorkspaceRunHistory({ org, workspace, workspaceName, workspaceNa
           <h2>Collection history</h2>
           <p>{workspace ? `Runs recorded in ${workspaceName}.` : "Runs across all workspaces."}</p>
         </div>
-        {!!current?.runs.length && <a className="small-link" href={"/api/v1/export?" + new URLSearchParams({ ...Object.fromEntries(query), org })}
+        {trendMetric && !filters.run && <Link className="small-link" to="/app" search={{ ...scope, org, workspace: workspace || "all", tab: "overview", trendMetric }}>Back to Overview</Link>}
+        {(!!current?.runs.length || (trendMetric && current && !current.error)) && <a className="small-link" href={"/api/v1/export?" + new URLSearchParams({ ...Object.fromEntries(query), org })}
           title="Export up to 1,000 matching runs">
           <Download size={14} /> Export CSV
         </a>}
@@ -142,13 +152,16 @@ export function WorkspaceRunHistory({ org, workspace, workspaceName, workspaceNa
         {Object.entries({
           engine, q: keyword, status, outcome, brand, runPrompt, metric, researchValue,
           set: scope.set, tags: scope.tags, location: scope.location, from: scope.from, to: scope.to, trackedBrand: scope.trackedBrand,
+          compareBrand: query.get("compare_brand"), evidenceDay,
         }).filter(([, value]) => value).map(([key, value]) => {
-          const labels: Record<string, string> = { q: "Search", runPrompt: "Prompt variant", trackedBrand: "Tracked brand", researchValue: "Research", set: "Prompt set" };
-          const displayed = key === "engine" ? engines[value!] : key === "brand" || key === "trackedBrand"
-            ? brands.find(item => item.id === value)?.name ?? value : key === "runPrompt" ? optionLabels.get(value!) : value;
+          const labels: Record<string, string> = { q: "Search", runPrompt: "Prompt variant", trackedBrand: "Tracked brand", compareBrand: "Comparison brand", evidenceDay: "Evidence day", researchValue: "Research", set: "Prompt set" };
+          const displayed = key === "engine" ? engines[value!] : key === "brand" || key === "trackedBrand" || key === "compareBrand"
+            ? brands.find(item => item.id === value)?.name ?? value : key === "runPrompt" ? optionLabels.get(value!) : key === "metric" && metric ? metricLabels[metric] : value;
           return <Button type="button" variant="outline" size="sm" key={key}
             onClick={() => onChange({ [key]: undefined, ...(key === "researchValue" ? { researchType: undefined } : {}),
-              ...(key === "trackedBrand" && metric && ["brand", "mention", "citation"].includes(metric) ? { metric: undefined } : {}) })}>
+              ...(key === "trackedBrand" ? { compareBrand: undefined } : {}),
+              ...((key === "trackedBrand" && metric && metric !== "eligible" && metric !== "coverage") ||
+                (key === "compareBrand" && metric?.startsWith("compare_")) ? { metric: undefined } : {}) })}>
             {labels[key] ?? key} · {displayed} ×
           </Button>;
         })}
@@ -200,7 +213,7 @@ export function WorkspaceRunHistory({ org, workspace, workspaceName, workspaceNa
       {narrowed && current && !current.error && !current.runs.length &&
         <p className="data-note">No runs match these filters. Try a different keyword or clear a filter.</p>}
       {current?.runs.map(run => (
-        <Link key={run.id} className="run-row" to="/app" search={{ ...scope, org, workspace: workspace || "all", tab: "runs", run: run.id, runPrompt, metric, researchType, researchValue }}>
+        <Link key={run.id} className="run-row" to="/app" search={{ ...scope, org, workspace: workspace || "all", tab: "runs", run: run.id, runPrompt, metric, trendMetric, evidenceDay, q: filters.q, status: filters.status, outcome, brand, researchType, researchValue }}>
           <span><strong>{run.prompt_text}</strong><small>
             {collectionVariantLabel(run.config?.engine, workspaceNames[run.workspace_id] ?? "", engines)}
             {" · "}{new Date(run.created_at).toLocaleString()} · {run.config?.mode}

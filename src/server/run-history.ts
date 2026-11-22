@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { HttpError } from "./types";
 import { now, one, required, type Env } from "./types";
-import { DAY_MS, validDay } from "../lib/analytics-filters";
+import { answerMetrics, DAY_MS, validDay } from "../lib/analytics-filters";
 import { promptTags } from "./prompt-tags";
 import { promptSetPredicate, requirePromptSet, setId } from "./prompt-sets";
 import { organizationPlan } from "./plans";
@@ -32,7 +32,8 @@ export const scopeFilters = z.object({
 });
 export const runHistoryFilters = scopeFilters.extend({
   workspace: setId.optional(),
-  metric: z.enum(["eligible", "coverage", "brand", "mention", "citation"]).optional(),
+  compare_brand: setId.optional(),
+  metric: z.enum(answerMetrics).optional(),
   prompt_id: z.string().min(1).max(100).optional(),
   q: z.string().trim().max(200).optional(),
   outcome: z.enum(["pending", "failed", "uncertain", "organic", "no_answer", "eligible"]).optional(),
@@ -52,18 +53,24 @@ export function parseHistoryFilters(params: URLSearchParams) {
   if (filters.from && filters.to && filters.from > filters.to)
     throw new HttpError(400, "The start date must be on or before the end date");
   if (!!filters.research_type !== !!filters.research_value) throw new HttpError(400, "Choose a research item");
-  if (filters.metric && ["brand", "mention", "citation"].includes(filters.metric) && !filters.tracked_brand)
+  if (filters.metric && filters.metric !== "eligible" && filters.metric !== "coverage" && !filters.tracked_brand)
     throw new HttpError(400, "Choose a tracked brand");
+  if (filters.compare_brand && (!filters.tracked_brand || filters.compare_brand === filters.tracked_brand))
+    throw new HttpError(400, "Choose two distinct tracked brands");
+  if (filters.metric?.startsWith("compare_") && !filters.compare_brand)
+    throw new HttpError(400, "Choose a comparison brand");
   return filters;
 }
 
 export const eligibleAnswer = "runs.status='succeeded' AND runs.has_answer=1";
+const missingAnswer = "runs.status='succeeded' AND runs.has_answer=0";
+const hasOrganic = "coalesce(json_array_length(runs.organic_results),0)>0";
 export const outcomePredicates = {
   pending: "runs.status IN ('queued','submitting','submitted')",
   failed: "runs.status='failed'",
   uncertain: "runs.status='uncertain'",
-  organic: "runs.status='succeeded' AND runs.has_answer=0 AND json_array_length(runs.organic_results)>0",
-  no_answer: "runs.status='succeeded' AND runs.has_answer=0",
+  organic: `${missingAnswer} AND ${hasOrganic}`,
+  no_answer: `${missingAnswer} AND NOT (${hasOrganic})`,
   eligible: eligibleAnswer,
 };
 export const runConfig = "CASE WHEN json_valid(runs.config) THEN runs.config ELSE '{}' END";
@@ -119,12 +126,15 @@ function historyWhere(org: string, filters: z.output<typeof runHistoryFilters>) 
     bindings.push(Date.parse(filters.to) + DAY_MS);
   }
   if (filters.metric) conditions.push(eligibleAnswer);
-  if (filters.metric && ["brand", "mention", "citation"].includes(filters.metric)) {
-    conditions.push(`EXISTS (SELECT 1 FROM ${brandSnapshot} AS snapshot WHERE ${brandSnapshotId}=?)`);
-    bindings.push(filters.tracked_brand);
-    if (filters.metric === "mention" || filters.metric === "citation") {
-      conditions.push(brandOutcome("?", filters.metric === "mention" ? "mentioned" : "cited"));
-      bindings.push(filters.tracked_brand);
+  if (filters.metric && filters.metric !== "eligible" && filters.metric !== "coverage") {
+    for (const brand of [filters.tracked_brand, filters.compare_brand]) {
+      if (!brand) continue;
+      conditions.push(`EXISTS (SELECT 1 FROM ${brandSnapshot} AS snapshot WHERE ${brandSnapshotId}=?)`);
+      bindings.push(brand);
+    }
+    if (filters.metric !== "brand") {
+      conditions.push(brandOutcome("?", filters.metric.endsWith("mention") ? "mentioned" : "cited"));
+      bindings.push(filters.metric.startsWith("compare_") ? filters.compare_brand : filters.tracked_brand);
     }
   }
   if (filters.prompt_id) {

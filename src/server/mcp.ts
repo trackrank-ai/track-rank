@@ -181,8 +181,8 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
   }, async ({ set_id, ...args }) => invoke(`/prompt-sets/${set_id}/members`, "PATCH", args));
   const reportingInput = { ...scopeFilters.shape, ...workspaceInput };
   server.registerTool("get_overview", {
-    description: "Compute full-period visibility totals, coverage, brand rates and UTC daily trends. Pass tracked_brand for daily brand statistics.",
-    inputSchema: reportingInput,
+    description: "Compute full-period visibility totals, coverage, brand rates and UTC daily trends. Pass tracked_brand for daily brand statistics and compare_brand for their common cohort.",
+    inputSchema: { ...reportingInput, compare_brand: runHistoryFilters.shape.compare_brand },
   }, async args => invoke(filteredPath("/analytics", args)));
   server.registerTool("list_collection_locations", {
     description: "List locations recorded on runs in the reporting scope.",

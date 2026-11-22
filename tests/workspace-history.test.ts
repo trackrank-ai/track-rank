@@ -452,3 +452,74 @@ test("full-period analytics reconciles with paged run history, research, and CSV
   await assert.rejects(call("/analytics?workspace=foreign"), { status: 404 });
   await assert.rejects(call("/analytics?from=2026-02-30"), { status: 400 });
 });
+
+test("comparison rates, outcome counts and matching evidence use recorded run cohorts across REST and MCP", async () => {
+  const { sql, env, call } = setup();
+  const { mcp } = await import("../src/server/mcp");
+  const { hashToken } = await import("../src/server/crypto");
+  const key = "trk_comparison_fixture";
+  sql.prepare(`INSERT INTO api_keys(id,org_id,user_id,name,prefix,token_hash,scopes,expires_at,created_at)
+    VALUES('comparison-key','org','owner','Agent','trk',?,'["read"]',?,0)`).run(await hashToken(key), Date.now() + 60000);
+  const later = Date.now();
+  const earlier = later - 86400000;
+  const from = new Date(earlier).toISOString().slice(0, 10);
+  const to = new Date(later).toISOString().slice(0, 10);
+  const insert = sql.prepare(`INSERT INTO runs(id,org_id,prompt_id,workspace_id,prompt_text,config,status,
+    has_answer,mentions,organic_results,idempotency_key,created_at,updated_at)
+    VALUES(?,'org','prompt','source','Question',?,?,?,?,?,?,?,?)`);
+  function run(id: string, time: number, {
+    status = "succeeded", answer = 1, organic = false, competitor = true, engine = "google",
+    mention = false, cite = false, competitorCite = false,
+  } = {}) {
+    const brands = [{ id: "client" }, ...(competitor ? [{ id: "rival" }] : [])];
+    const mentions = [{ brand_id: "client", mentioned: mention, cited: cite }, { brand_id: "rival", cited: competitorCite }];
+    insert.run(id, JSON.stringify({ engine, brands }), status, answer, JSON.stringify(mentions), organic ? "[{}]" : "[]", id, time, time);
+  }
+  run("before-rival", earlier, { competitor: false, mention: true, competitorCite: true });
+  run("both-cited", later, { cite: true, competitorCite: true });
+  run("both-unmentioned", later);
+  run("organic-only", later, { answer: 0, organic: true });
+  run("no-answer", later, { answer: 0 });
+  run("failed", later, { status: "failed" });
+  run("other-engine", later, { engine: "gemini" });
+  const filters = { workspace: "source", from, to, engine: "google", tracked_brand: "client", compare_brand: "rival" };
+  const rest = (path: string, extra: Record<string, string> = {}) => call(path + "?" + new URLSearchParams({ ...filters, ...extra }));
+  async function tool(name: string, extra: Record<string, string> = {}) {
+    const { workspace, ...args } = filters;
+    const request = new Request("https://example.test/mcp", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: { workspace_id: workspace, ...args, ...extra } } }),
+    });
+    const payload = await (await mcp(request, env, { waitUntil() {} } as any)).json() as any;
+    assert.equal(payload.result.isError, false, payload.result.content[0].text);
+    return payload.result.content[0].text;
+  }
+  const report = await (await rest("/analytics")).json() as any;
+  assert.deepEqual(JSON.parse(await tool("get_overview")), report);
+  assert.deepEqual(report.outcomes, { eligible: 3, failed: 1, no_answer: 1, organic: 1 });
+  assert.equal(report.total_runs, 6);
+  assert.equal(report.daily.reduce((sum: number, day: any) => sum + day.samples, 0), 3);
+  assert.deepEqual(report.comparison_daily, [{
+    day: to, samples: 2, mentions: 0, citations: 1, compare_mentions: 0, compare_citations: 1,
+  }]);
+  for (const [metric, ids] of Object.entries({
+    brand: ["both-unmentioned", "both-cited"], mention: [],
+    citation: ["both-cited"], compare_citation: ["both-cited"],
+  })) {
+    const history = await (await rest("/runs", { metric })).json() as any;
+    assert.deepEqual(history.runs.map((row: any) => row.id), ids);
+    assert.deepEqual(JSON.parse(await tool("list_runs", { metric })), history);
+    const csv = await (await rest("/export", { metric })).text();
+    assert.equal(await tool("export_runs", { metric }), csv);
+    assert.equal(csv.split("\r\n").length, ids.length + 1);
+  }
+  for (const [outcome, id] of [["organic", "organic-only"], ["no_answer", "no-answer"], ["failed", "failed"]]) {
+    const { runs } = await (await rest("/runs", { outcome })).json() as any;
+    assert.deepEqual(runs.map((row: any) => row.id), [id]);
+  }
+  assert.deepEqual((await (await rest("/analytics", { to: from })).json() as any).comparison_daily, []);
+  await assert.rejects(rest("/analytics", { compare_brand: "client" }), { status: 400 });
+  await assert.rejects(rest("/runs", { compare_brand: "", metric: "compare_mention" }), { status: 400 });
+  await assert.rejects(rest("/runs", { workspace: "foreign", metric: "brand" }), { status: 404 });
+});

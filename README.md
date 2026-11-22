@@ -25,7 +25,7 @@ See [launch status](docs/LAUNCH.md), [operations and support](docs/OPERATIONS.md
 
 ## Workspaces, research, and Settings
 
-Open a run to inspect its question, workspace, engine, status, recorded answer, brand observations and sources. The landing page shows a labeled example of that view. On phones, use the section chooser for app navigation and the workspace selector for client scope. Overview shows setup guidance before the first collection and scoped results once the workspace has runs.
+Open a run to inspect its question, workspace, engine, status, recorded answer, brand observations and sources. The landing page shows a labeled example of that view. On phones, use the section chooser for app navigation and the workspace selector for client scope. Overview shows setup guidance before the first collection. After collection, open the runs behind mention and website citation rates, switch the daily trend between metrics, or compare brands using answers that tracked both.
 
 - Use the sidebar to switch between client workspaces or select **All workspaces** for the organization-wide view. **Default workspace** is a regular workspace. Workspaces share the organization's team, provider credentials, and billing.
 - Use **Manage workspaces**, **Brands**, and **Prompts** to manage those records. Deleting a workspace or prompt removes its schedules and preserves collected run history and evidence.
