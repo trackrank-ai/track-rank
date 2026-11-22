@@ -87,10 +87,9 @@
 .app-shell .app-nav a {
   min-height: 2.5rem;
   font-size: .875rem;
-  color: var(--muted-foreground);
 }
-.app-shell .app-nav a.active {
-  color: var(--primary);
+.app-shell .app-nav a:not(.active) {
+  color: var(--muted-foreground);
 }
 .app-shell .app-topbar > div,
 .app-shell .app-page-heading p:last-child,
