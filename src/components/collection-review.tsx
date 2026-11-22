@@ -26,7 +26,7 @@ export function CollectionDetails({ workspace, workspaceId, brands, locales, pro
       {available !== undefined && ` ${available.toLocaleString()} checks available this month.`}</p>
     <p className="data-note">Provider charges apply separately for each check.</p>
     <div className="app-inline-form">
-      <Link target="_blank" rel="noopener" to="/app" search={{ org, tab: "settings" }}>Provider settings</Link>
+      <Link target="_blank" rel="noopener" to="/app" search={{ org, tab: "settings", settingsSection: "providers" }}>Provider settings</Link>
       <Link target="_blank" rel="noopener" to="/app" search={{ org, workspace: workspaceId, tab: "brands" }}>Workspace brands</Link>
     </div>
   </div>;

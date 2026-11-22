@@ -76,7 +76,7 @@ Provider-specific deletion preserves the other provider. Credential saves and pr
 
 Run history and CSV export support `workspace`, `engine`, `prompt_id`, `status`, `q` for prompt text or answer text, and `brand_id` for mentions or citations in eligible collected answers. Use the same filters on every page. CSV exports up to 1,000 matching runs.
 
-Research drill-downs use `research_type=domain|page|query` and an exact `research_value`. They match citations or grounding queries in collected AI answers.
+Research drill-downs use `research_type=domain|page|query` and an exact `research_value`. They match citations or grounding queries in eligible collected AI answers. `GET /runs` and MCP `list_runs` include `total_matches` for these filters. The total counts all matching runs before cursor pagination. Export uses the same matching rules and keeps its 1,000-row limit.
 
 Moving prompts preserves their IDs and schedules. The associated brand follows the prompt when the destination tracks it. Each queued or completed run retains the workspace it had when it was created.
 
@@ -162,8 +162,8 @@ Plan `limits.searchable_history_days`, when present, restricts Overview, researc
 - `GET /billing/admins`: owner-only member/delegation inventory, available while unpaid.
 - `PATCH /billing/admins`: interactive owner only, `{user_ids: string[1..100], action: "grant" | "revoke"}`. Validates the whole selection before mutation; foreign members reject the batch; owners inherently retain access. Membership deletion cascades grants.
 - `POST /billing/checkout` and `/billing/portal`: interactive owner or delegated billing admin only. A viewer with billing delegation can manage payments but cannot mutate workspace content.
-- `GET /billing/handoff`: authorized billing manager's sign-in-required app URL, never a Stripe bearer URL.
-- `GET /billing/admin-handoff`: owner-only sign-in-required delegation URL.
+- `GET /billing/handoff`: authorized billing manager's sign-in-required link to the organization’s Billing section, without a Stripe bearer URL.
+- `GET /billing/admin-handoff`: owner-only sign-in-required link to the organization’s Billing section for delegation.
 - MCP `get_billing`, `billing_management_handoff`, `billing_admin_handoff` mirror these read/recovery paths, including when product entitlement is paused. Keys cannot mutate billing permissions or create payment sessions; interactive confirmation is required.
 
 One organization has one account/subscription. Plan allowances and user roles are independent; custom enterprise terms use the existing versioned-plan operator workflow.
@@ -179,7 +179,7 @@ One organization has one account/subscription. Plan allowances and user roles ar
 | PATCH | `/prompt-sets/:id/members` | Update with `{action: "add" or "remove", prompt_ids}`. |
 | GET | `/analytics` | Full-period run and eligible-answer totals, prompt coverage, per-brand counts, selected-brand daily trends and optional common-cohort comparison. |
 | GET | `/analytics/locations` | Up to 500 recorded collection locations in scope, ignoring the active location filter. |
-| GET | `/research` | Eligible answer total and up to 100 matching domains, pages, queries and detected brands per kind, ranked by distinct answers. |
+| GET | `/research` | Eligible answer total and up to 100 matching domains, pages, queries and detected brands per kind, ranked by distinct answers. A repeated domain, page, or query counts once per eligible answer. |
 
 Use `GET /prompts?view=library&set=<id>` for paginated members, including compact selection reads. Names are 1–100 characters. Create and membership updates accept up to 500 prompt IDs per request. Membership is unique per set and changes are idempotent. Every selected prompt must be active and in the set's workspace and organization before a request writes anything. For larger selections, follow creation with membership updates using the returned set ID. Read scope permits inspection and write scope is required for mutations.
 

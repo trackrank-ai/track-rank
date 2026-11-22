@@ -54,7 +54,7 @@ Local account creation and UI exploration need no paid provider credentials. Rea
 - Use the shared form layouts in `docs/DESIGN.md` when pairing fields with actions. Use accessible labeled controls, keyboard-operable tooltips, loading/error/empty states, and the existing responsive light-default design (dark is explicitly opt-in). Authenticated views show actual data, not invented metrics.
 - Give new authenticated sections and shareable records a stable URL that restores the same organization, workspace, and destination after sign-in or reload. Follow the shareable navigation guidance in `docs/DESIGN.md`.
 - Apply the global workspace selection to research drill-downs. Match domains, URLs and grounding queries against stored evidence from eligible AI answers. Link each match to its run and show brand mentions from the run snapshot.
-- Keep provider credentials, organization management and hosted billing in Settings. Keep billing accessible when workspace access is paused. Show credential status and add, replace and remove actions per provider. Removing DataForSEO pauses collection schedules. Removing OpenRouter preserves collection schedules.
+- Keep provider credentials, organization management and hosted billing in Settings. Use organization-scoped Settings links for Providers, Team & access, and Billing. Keep billing accessible when workspace access is paused. Show credential status and add, replace and remove actions per provider. Removing DataForSEO pauses collection schedules. Removing OpenRouter preserves collection schedules.
 
 ## Durable execution and data changes
 

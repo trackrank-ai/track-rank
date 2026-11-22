@@ -45,7 +45,8 @@ test("billing delegation is owner-only, bulk atomic and tenant-scoped, including
   const billing=await (await call("/billing","finance")).json() as any;
   assert.equal(billing.can_manage_billing,true);
   assert.equal(billing.access_status,"choose_plan");
-  assert.equal((await call("/billing/handoff","finance")).status,200);
+  const direct = await (await call("/billing/handoff","finance")).json() as { url: string };
+  assert.equal(new URL(direct.url).searchParams.get("settingsSection"), "billing");
   await assert.rejects(call("/billing/admin-handoff","finance"),{status:403});
   await assert.rejects(call("/workspaces","finance"),{status:402});
   await call("/billing/admins","alice",{user_ids:["finance"],action:"revoke"});
@@ -70,6 +71,7 @@ test("MCP billing recovery uses a verified app handoff, never Stripe bearer sess
   assert.equal(handoff.requires_interactive_session,true);
   assert.equal(new URL(handoff.url).origin,env.BASE_URL);
   assert.equal(new URL(handoff.url).searchParams.get("org"),"org");
+  assert.equal(new URL(handoff.url).searchParams.get("settingsSection"),"billing");
   assert.equal((await invoke("get_context")).isError,true);
   await assert.rejects(api(new Request("https://example.test/api/v1/billing/admins",{method:"PATCH",body:JSON.stringify({user_ids:["finance"],action:"grant"})}),env,{waitUntil(){}} as any,{userId:"alice",orgId:"org",keyId:"billing-key",scopes:["read","write"]}),{status:403});
 });

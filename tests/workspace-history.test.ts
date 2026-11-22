@@ -411,7 +411,7 @@ test("full-period analytics reconciles with paged run history, research, and CSV
       JSON.stringify({ engine: "google", location_name: location, brands: tracked ? [{ id: "client" }] : [] }),
       "succeeded", hasAnswer,
       JSON.stringify([{ brand_id: "client", mentioned: mention, cited }]),
-      JSON.stringify([{ domain: "example.test", url: "https://example.test/", title: "Example" }]),
+      JSON.stringify([{ domain: "example.test", url: "https://example.test/", title: "Example" }, { domain: "example.test", url: "https://example.test/another" }]),
       '["chicago","chicago"]', id);
   for (let index = 0; index < 102; index++) write("sample-" + index, { mention: index < 101, cited: index === 101 });
   write("untracked", { tracked: false });
@@ -441,7 +441,16 @@ test("full-period analytics reconciles with paged run history, research, and CSV
   const summary = await get("/research?" + filters);
   assert.equal(summary.answers, 103);
   assert.equal(summary.items.find((item: any) => item.kind === "query").count, 103);
-  assert.equal((await get("/runs?" + filters + "&research_type=domain&research_value=example.test")).runs.length, 100);
+  const sourceMatches = filters + "&research_type=domain&research_value=example.test";
+  const firstSourcePage = await get("/runs?" + sourceMatches);
+  const lastSourcePage = await get("/runs?" + sourceMatches + `&before=${firstSourcePage.next_before}&before_id=${firstSourcePage.next_before_id}`);
+  const domainCount = summary.items.find((item: any) => item.kind === "domain" && item.value === "example.test").count;
+  assert.equal(firstSourcePage.runs.length, 100);
+  assert.equal(firstSourcePage.runs.length + lastSourcePage.runs.length, domainCount);
+  assert.equal(firstSourcePage.total_matches, domainCount);
+  assert.equal(lastSourcePage.total_matches, domainCount);
+  const sourceCsv = await (await call("/export?" + sourceMatches)).text();
+  assert.equal(sourceCsv.split("\r\n").length - 1, domainCount);
   assert.equal((await get("/analytics?workspace=source&from=" + start)).total_runs, 105);
   await call("/prompts/bulk-tags", { ids: ["prompt"], tags: ["chicago-market"], action: "remove" }, undefined, "PATCH");
   assert.equal((await get("/analytics?" + filters)).total_runs, 0);

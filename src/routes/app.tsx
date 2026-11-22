@@ -17,13 +17,14 @@ import { formatBillingPrice } from "@/lib/billing-price";
 import { MAX_COLLECTION_PROMPTS, RUNS_PER_REQUEST, SCHEDULES_PER_REQUEST } from "@/lib/collection-limits";
 import { readPendingCollection, savePendingCollection } from "@/lib/pending-collection";
 import { inspectPromptInput, MAX_PROMPT_COMBINATIONS } from "@/lib/prompt-input";
-import { appLoginPath, parseAppSearch, type AppTab as Tab } from "@/lib/app-location";
+import { appLoginPath, parseAppSearch, settingsSections, type AppTab as Tab, type SettingsSection } from "@/lib/app-location";
 import { Tooltip as HelpTooltip } from "radix-ui";
 import { LegalLinks } from "@/components/legal-layout";
 import { TrialBanner } from "@/components/trial-banner";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { ProviderCredentialsCard } from "@/components/provider-credentials-card";
 import { ResearchDrilldown } from "@/components/research-drilldown";
+import { ResearchResults, type ResearchSummary } from "@/components/research-results";
 import { RunStatus, WorkspaceRunHistory } from "@/components/workspace-run-history";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
@@ -47,7 +48,6 @@ import {
   Check,
   Copy,
   Download,
-  ExternalLink,
   Fingerprint,
   KeyRound,
   Link2,
@@ -75,7 +75,6 @@ const nav: { id: Tab; label: string; Icon: typeof BarChart3 }[] = [
   { id: "runs", label: "Run history", Icon: BookOpen },
   { id: "brands", label: "Brands", Icon: Fingerprint },
   { id: "schedules", label: "Schedules", Icon: CalendarClock },
-  { id: "team", label: "Team", Icon: Users },
   { id: "settings", label: "Settings", Icon: Settings2 },
   { id: "agents", label: "API & agents", Icon: KeyRound },
 ];
@@ -269,13 +268,17 @@ function App() {
     [pendingBatch, setPendingBatch] = useState<{ scope: string; batch: PendingRunBatch } | null>(null);
   const org = search.org ?? orgs[0]?.id ?? "";
   const tab = search.tab ?? "overview";
-  const paneName = tab === "workspaces" ? "Workspaces" : nav.find(item => item.id === tab)?.label;
+  const settingsTab = tab === "settings" || tab === "team";
+  const paneName = settingsTab ? "Settings" : tab === "workspaces" ? "Workspaces" : nav.find(item => item.id === tab)?.label;
   const workspaces = workspaceRecords.filter(w => !w.archived_at);
   const [editingWorkspace, setEditingWorkspace] = useState("");
   const [editingBrand, setEditingBrand] = useState<Item | null>(null);
   const orgReady = !!org && loadedOrg === org;
   const canSubscribe = billing.can_manage_billing && (!billing.status || ["none", "canceled", "incomplete_expired"].includes(billing.status));
   const workspaceReady = orgReady && !billingBlocksWorkspace(billing.access_status);
+  const settingsSection = search.settingsSection ?? (tab === "team" ? "team" : billingBlocksWorkspace(billing.access_status) ? "billing" : "providers");
+  const teamSettings = settingsTab && settingsSection === "team";
+  const researchGroup = search.researchGroup ?? search.researchType ?? "domain";
   const linkedPrompt = promptDetail?.id === search.prompt && promptDetail?.org_id === org ? promptDetail : null;
   const selectedRun = runDetail?.id === search.run && runDetail?.org_id === org ? runDetail : null;
   const workspace = search.workspace ?? linkedPrompt?.workspace_id ?? selectedRun?.workspace_id ?? ALL_WORKSPACES;
@@ -324,18 +327,24 @@ function App() {
   const isScopedHistory = tab === "runs" && Object.values(linkScope).some(Boolean);
   const reportScope = {
     ...defaultPeriod(), ...Object.fromEntries(Object.entries(linkScope).filter(([, value]) => value !== undefined)),
-    trackedBrand: linkScope.trackedBrand || scopeBrands.find(b => b.kind !== "competitor")?.id || scopeBrands[0]?.id,
+    compareBrand: tab === "research" ? undefined : linkScope.compareBrand,
+    trackedBrand: tab === "research" ? undefined : linkScope.trackedBrand || scopeBrands.find(b => b.kind !== "competitor")?.id || scopeBrands[0]?.id,
   } as AnalyticsScope;
   const sectionSearch = (nextTab: Tab) => ({
     ...((nextTab === "overview" || nextTab === "research" || nextTab === "runs") && (reportTab || isScopedHistory)
       ? reportTab ? reportScope : linkScope : {}),
     org: org || undefined, workspace, tab: nextTab,
     ...(nextTab === "prompts" && tab === "prompts" ? { tag: search.tag, set: search.set, brand: search.brand, from: search.from, to: search.to } : {}),
+    ...(nextTab === "research" && tab === "research" ? { researchGroup } : {}),
     ...((nextTab === "overview" || nextTab === "runs") ? { trendMetric: search.trendMetric } : {}),
     ...(nextTab === "runs" && tab === "runs" ? { metric: search.metric, evidenceDay: search.evidenceDay,
       q: search.q, outcome: search.outcome, status: search.status, brand: search.brand,
-      researchType: search.researchType, researchValue: search.researchValue } : {}),
+      researchGroup: search.researchGroup, researchType: search.researchType, researchValue: search.researchValue } : {}),
   });
+  const settingsSearch = (section: SettingsSection) => ({ org, workspace, tab: "settings" as const, settingsSection: section });
+  const closeRun = search.researchType ? {
+    ...sectionSearch("research"), researchGroup, researchType: search.researchType, researchValue: search.researchValue,
+  } : { ...sectionSearch("runs"), runPrompt: search.runPrompt, batch: search.batch, receipt: search.receipt };
   function filterByTag(tag: string) {
     setPromptSelection(new Map());
     void navigate({ search: { ...sectionSearch("prompts"), prompt: search.prompt, tag: tag || undefined } });
@@ -349,10 +358,10 @@ function App() {
     if (nextTab !== tab || search.prompt || search.run) void navigate({ search: sectionSearch(nextTab) });
   }
   function setOrg(next: string, replace = false) {
-    void navigate({ search: { org: next, tab }, replace, hash: "" });
+    void navigate({ search: settingsTab ? { ...settingsSearch(settingsSection), org: next, workspace: undefined } : { org: next, tab }, replace, hash: "" });
   }
   function setWorkspace(next: string) {
-    void navigate({ search: { org, workspace: next, tab } });
+    void navigate({ search: { org, workspace: next, tab, ...(tab === "research" ? { ...reportScope, set: undefined, researchGroup } : {}), ...(settingsTab ? { settingsSection } : {}) } });
   }
   const batchInFlight = useRef(false);
   const batchScope = org && session ? `trackrank:pending-run:${session.user.id}:${org}` : "";
@@ -542,7 +551,7 @@ function App() {
   }, [org, workspace]);
   useEffect(() => {
     if (initializing || pendingInvite || !org || search.trial || !orgReady) return;
-    const defaultWorkspace = search.prompt || search.run
+    const defaultWorkspace = settingsTab ? undefined : search.prompt || search.run
       ? linkedPrompt?.workspace_id ?? selectedRun?.workspace_id
       : workspace;
     if (!search.org || (!search.workspace && defaultWorkspace) || !search.tab) {
@@ -551,7 +560,7 @@ function App() {
         replace: true,
       });
     }
-  }, [initializing, pendingInvite, org, orgReady, search, workspace, linkedPrompt?.workspace_id, selectedRun?.workspace_id, tab, navigate]);
+  }, [initializing, pendingInvite, org, orgReady, search, workspace, linkedPrompt?.workspace_id, selectedRun?.workspace_id, tab, settingsTab, navigate]);
   const promptDetailVersion = search.prompt ? prompts : null;
   useEffect(() => {
     setDetailError("");
@@ -620,11 +629,11 @@ function App() {
     else setLoading(false);
   }, [org, load]);
   useEffect(() => {
-    if (!workspaceReady || !["team", "agents"].includes(tab)) return;
+    if (!workspaceReady || !(teamSettings || tab === "agents")) return;
     let canceled = false;
     (async () => {
       try {
-        if (tab === "team") {
+        if (teamSettings) {
           const d = await request("/members");
           if (!canceled) setMembers(d.members);
           if (isAdmin) {
@@ -644,7 +653,7 @@ function App() {
     return () => {
       canceled = true;
     };
-  }, [tab, workspaceReady, isAdmin, request]);
+  }, [tab, teamSettings, workspaceReady, isAdmin, request]);
   useEffect(() => {
     setPromptText("");
     setPromptTagInput("");
@@ -770,15 +779,10 @@ function App() {
   const draftRunError = draftSampleCount === undefined ? sampleCountError : !settings.dataforseo_configured ? "Connect DataForSEO to run now or start monitoring."
     : draftAvailable !== undefined && previewNew * draftSampleCount > draftAvailable ? "The requested checks exceed your remaining monthly allowance." : "";
 
-  const research = useReport<{ answers: number; items: { kind: string; value: string; title: string; count: number }[] }>(
+  const research = useReport<ResearchSummary>(
     workspaceReady && !unavailableWorkspace && tab === "research" && !search.researchValue
       ? "/research?" + analyticsQuery(reportScope, workspace) : "", request, prompts,
   );
-  const sources = {
-    domains: research?.data?.items.filter(item => item.kind === "domain") ?? [],
-    pages: research?.data?.items.filter(item => item.kind === "page") ?? [],
-    queries: research?.data?.items.filter(item => item.kind === "query") ?? [],
-  };
   const discovered = research?.data?.items.filter(item => item.kind === "brand")
     .map(item => item.value).filter(name => !brands.some(brand => brand.name.toLowerCase() === name.toLowerCase())) ?? [];
   async function savePendingRun(batch: PendingRunBatch | null, progressOnly = false) {
@@ -1050,9 +1054,9 @@ function App() {
               key={id}
               to="/app"
               search={sectionSearch(id)}
-              className={tab === id ? "active" : ""}
+              className={(id === "settings" ? settingsTab : tab === id) ? "active" : ""}
               onClick={() => setError("")}
-              aria-current={tab === id ? "page" : undefined}
+              aria-current={(id === "settings" ? settingsTab : tab === id) ? "page" : undefined}
             >
               <Icon size={17} />
               <span>{label}</span>
@@ -1061,7 +1065,7 @@ function App() {
         </nav>
         <label className="app-field app-section-chooser">
           <span>Section</span>
-          <select value={tab} onChange={event => { setError(""); setTab(event.target.value as Tab); }}>
+          <select value={settingsTab ? "settings" : tab} onChange={event => { setError(""); setTab(event.target.value as Tab); }}>
             {nav.map(({ id, label }) => <option key={id} value={id}>{label}</option>)}
             <option value="workspaces">Workspaces</option>
           </select>
@@ -1096,7 +1100,7 @@ function App() {
       </aside>
       <div className="app-main">
         {orgReady && billing.access_status === "free_trial" && Number.isFinite(Number(billing.free_trial?.ends_at)) && <TrialBanner endsAt={Number(billing.free_trial.ends_at)}>
-          <Link to="/app" search={sectionSearch("settings")} className="trial-banner-link">{billing.can_manage_billing ? "Choose a subscription →" : "View billing / ask your billing admin →"}</Link>
+          <Link to="/app" search={settingsSearch("billing")} className="trial-banner-link">{billing.can_manage_billing ? "Choose a subscription →" : "View billing / ask your billing admin →"}</Link>
         </TrialBanner>}
         <header className="app-topbar">
           <div>
@@ -1109,7 +1113,7 @@ function App() {
           </div>
           <div className="topbar-actions">
           <ThemeToggle />
-          {org && isAdmin && <Button className="invite-shortcut" size="sm" variant="outline" onClick={() => setTab("team")}><Users size={14} /> Invite teammates</Button>}
+          {org && isAdmin && <Button className="invite-shortcut" size="sm" variant="outline" asChild><Link to="/app" search={settingsSearch("team")}><Users size={14} /> Invite teammates</Link></Button>}
           <Button
             className="app-mobile-signout"
             variant="ghost"
@@ -1147,9 +1151,21 @@ function App() {
           </div>
         </header>
         <main className="app-content">
-          {tab === "settings" && org && (
-            <Card><CardContent>
-              <h2>Organization</h2>
+          {settingsTab && org && (
+            <div className="app-page-heading"><div>
+              <h1>Settings</h1>
+              <p>{orgs.find(organization => organization.id === org)?.name ?? "Unavailable organization"}</p>
+            </div></div>
+          )}
+          {settingsTab && org && <nav className="app-subnav" aria-label="Organization settings">
+            {(Object.keys(settingsSections) as SettingsSection[]).map(section =>
+              <Button key={section} variant={settingsSection === section ? "secondary" : "ghost"} size="sm" asChild>
+                <Link to="/app" search={settingsSearch(section)} aria-current={settingsSection === section ? "page" : undefined}>{settingsSections[section]}</Link>
+              </Button>)}
+          </nav>}
+          {settingsTab && org && (
+            <details className="advanced-settings">
+              <summary>Manage organizations</summary>
               <p className="data-note">Team access, billing, credentials, and usage limits are shared across its workspaces.</p>
               <label className="org-switcher">
                 <span>Switch organization</span>
@@ -1205,10 +1221,10 @@ function App() {
                   </Button>
                 </form>
               </details>
-            </CardContent></Card>
+            </details>
           )}
-          {tab === "settings" && orgReady && billing.enabled && <Card><CardContent>
-            <p className="section-eyebrow">Billing</p>
+          {settingsTab && settingsSection === "billing" && orgReady && !billing.enabled && <Card><CardContent><h2>Billing</h2><p>Hosted billing is disabled for this installation.</p></CardContent></Card>}
+          {settingsTab && settingsSection === "billing" && orgReady && billing.enabled && <Card><CardContent>
             <h2>{billing.access_status === "trial_expired" ? "Your free trial has ended" : billing.access_status === "free_trial" ? "Your 14-day free trial is active" : "Plan & billing"}</h2>
             {billing.access_status === "free_trial" && <p>Trial access until {new Date(billing.free_trial.ends_at).toLocaleString()}. No card is on file for this trial and no automatic charge will happen at expiry.</p>}
             <p>Subscriptions are billed per organization before applicable tax. Your first paid charge is refundable within 7 days. Provider usage is billed separately.</p>
@@ -1238,7 +1254,7 @@ function App() {
 
           </CardContent></Card>}
 
-          {tab === "settings" && (
+          {settingsTab && settingsSection === "team" && (
             <details className="app-structure-guide">
               <summary>When to use a workspace or an organization</summary>
               <p>Give each client a workspace inside your agency organization. A workspace holds its prompts, schedules, run history, and tracked brands. Your agency team, provider credentials, billing, and usage allowance are shared across those workspaces.</p>
@@ -1304,12 +1320,12 @@ function App() {
               {error ? <p>Use Refresh to try loading this organization again.</p> : <p role="status">Loading organization…</p>}
             </CardContent></Card>
           ) : billingBlocksWorkspace(billing.access_status) ? (
-            tab === "settings" ? null : <Card><CardContent>
+            settingsTab && settingsSection === "billing" ? null : <Card><CardContent>
               <h2>Workspace access paused</h2>
               <p>Open billing settings to see your plan and payment options. Your existing data stays in this organization.</p>
-              <Button asChild><Link to="/app" search={sectionSearch("settings")}>Open billing settings</Link></Button>
+              <Button asChild><Link to="/app" search={settingsSearch("billing")}>Open billing settings</Link></Button>
             </CardContent></Card>
-          ) : unavailableWorkspace ? (
+          ) : unavailableWorkspace && !settingsTab ? (
             <Card><CardContent>
               <h2>Workspace unavailable</h2>
               <p>Check the link or ask your team for access.</p>
@@ -1317,7 +1333,7 @@ function App() {
             </CardContent></Card>
           ) : (
             <>
-              {!(tab === "runs" && selectedRun) && <div className="app-page-heading">
+              {!settingsTab && !(tab === "runs" && selectedRun) && <div className="app-page-heading">
                 <div>
                   <h1>{paneName}</h1>
                   {tab === "prompts" && <p>{allWorkspaces
@@ -1330,10 +1346,10 @@ function App() {
               {reportTab && (() => {
                 const filters = <OverviewFilters
                   key={JSON.stringify([org, workspace, tab, search, reportScope])}
-                  org={org} workspace={workspace} workspaceNames={workspaceNames} scope={reportScope} sets={promptSets} summarize={tab === "research"}
+                  org={org} workspace={workspace} workspaceNames={workspaceNames} scope={reportScope} sets={promptSets} summarize={tab === "research"} showBrand={tab !== "research"}
                   brands={scopeBrands as { id: string; name: string }[]} engines={engines} request={request} revision={prompts}
                   onChange={scope => void navigate({ search: { org, workspace, tab, ...scope,
-                    researchType: search.researchType, researchValue: search.researchValue, trendMetric: search.trendMetric } })}
+                    researchGroup: tab === "research" ? researchGroup : undefined, researchType: search.researchType, researchValue: search.researchValue, trendMetric: search.trendMetric } })}
                 />;
                 return tab === "research" ? filters : <Overview org={org} workspace={workspace} workspaceName={workspaceName}
                   scope={reportScope} sets={promptSets} engines={engines} brands={scopeBrands as { id: string; name: string }[]}
@@ -2004,92 +2020,13 @@ function App() {
               {tab === "research" && (search.researchType && search.researchValue ? (
                 <ResearchDrilldown
                   key={JSON.stringify([org, workspace, reportScope, search.researchType, search.researchValue])}
-                  org={org} workspace={workspace} scope={reportScope} type={search.researchType} value={search.researchValue} request={request}
+                  org={org} workspace={workspace} scope={reportScope} group={researchGroup} type={search.researchType} value={search.researchValue}
+                  engines={engines} workspaceNames={workspaceNames} request={request}
                 />
               ) : research?.error ? <p role="alert">{research.error}</p>
                 : !research?.data ? <p role="status">Loading research…</p> : (
                 <>
-                  <Card>
-                    <CardContent>
-                      <div className="panel-title">
-                        <div>
-                          <h2>The evidence behind the answers</h2>
-                          <p>
-                            Only collected sources. Organic SERPs remain
-                            separate in each run.
-                          </p>
-                        </div>
-                      </div>
-                      <Tabs defaultValue="domains">
-                        <TabsList>
-                          <TabsTrigger value="domains">Domains</TabsTrigger>
-                          <TabsTrigger value="pages">Pages</TabsTrigger>
-                          <TabsTrigger value="queries">
-                            Grounding queries
-                          </TabsTrigger>
-                        </TabsList>
-                        <TabsContent value="domains">
-                          {sources.domains.length ? (
-                            sources.domains.map((d) => (
-                              <div className="simple-row" key={d.value}>
-                                <Link to="/app" search={{ ...sectionSearch("research"), researchType: "domain", researchValue: d.value }}>
-                                  <strong>{d.value}</strong>
-                                </Link>
-                                <span>
-                                  {d.count} / {research.data?.answers} answers
-                                </span>
-                              </div>
-                            ))
-                          ) : (
-                            <Empty
-                              title="No cited domains yet"
-                              description="Run a prompt, then return here once the result has been collected."
-                            />
-                          )}
-                        </TabsContent>
-                        <TabsContent value="pages">
-                          {sources.pages.length ? (
-                            sources.pages.map((p) => (
-                              <div className="citation-row" key={p.value}>
-                                <Link to="/app" search={{ ...sectionSearch("research"), researchType: "page", researchValue: p.value }}>
-                                  <strong>{p.title || p.value}</strong>
-                                  <span>{p.value}</span>
-                                </Link>
-                                <a className="small-link" href={p.value} target="_blank" rel="noreferrer" aria-label="Open original page">
-                                  <ExternalLink size={14} />
-                                </a>
-                                <Badge variant="secondary">
-                                  {p.count} answers
-                                </Badge>
-                              </div>
-                            ))
-                          ) : (
-                            <Empty
-                              title="No cited pages yet"
-                              description="This view lists actual cited pages, not all URLs appearing in a SERP."
-                            />
-                          )}
-                        </TabsContent>
-                        <TabsContent value="queries">
-                          {sources.queries.length ? (
-                            sources.queries.map(({ value: q, count }) => (
-                              <div className="simple-row" key={q}>
-                                <Link to="/app" search={{ ...sectionSearch("research"), researchType: "query", researchValue: q }}>{q}</Link>
-                                <Badge variant="secondary">
-                                  {count} answers
-                                </Badge>
-                              </div>
-                            ))
-                          ) : (
-                            <Empty
-                              title="No grounding queries returned"
-                              description="Grounding queries appear only when the provider includes them; missing queries are not inferred."
-                            />
-                          )}
-                        </TabsContent>
-                      </Tabs>
-                    </CardContent>
-                  </Card>
+                  <ResearchResults data={research.data} group={researchGroup} search={sectionSearch("research")} />
                   <Card>
                     <CardContent>
                       <div className="panel-title">
@@ -2143,7 +2080,7 @@ function App() {
                   {search.run && !selectedRun && (
                     <Card><CardContent>
                       {detailError ? <p role="alert">{detailError}</p> : <p role="status">Loading run…</p>}
-                      <Link to="/app" search={{ ...sectionSearch("runs"), runPrompt: search.runPrompt, batch: search.batch, receipt: search.receipt }}>Close run</Link>
+                      <Link to="/app" search={closeRun}>{search.researchType ? "Back to matching answers" : "Close run"}</Link>
                       {search.trendMetric && <Link to="/app" search={sectionSearch("overview")}>Back to Overview</Link>}
                     </CardContent></Card>
                   )}
@@ -2155,7 +2092,7 @@ function App() {
                           <div className="app-inline-form">
                             {search.trendMetric && <Link to="/app" search={sectionSearch("overview")}>Back to Overview</Link>}
                             <Button variant="ghost" size="sm" asChild>
-                              <Link to="/app" search={{ ...sectionSearch("runs"), runPrompt: search.runPrompt, batch: search.batch, receipt: search.receipt }}>Close run</Link>
+                              <Link to="/app" search={closeRun}>{search.researchType ? "Back to matching answers" : "Close run"}</Link>
                             </Button>
                           </div>
                           <dl className="run-detail-context">
@@ -2650,7 +2587,7 @@ function App() {
                   </Card>
                 </>
               )}
-              {tab === "team" && (
+              {teamSettings && (
                 <>
                   <Card>
                     <CardContent>
@@ -2659,6 +2596,7 @@ function App() {
                         <Badge variant="outline">{settings.role}</Badge>
                       </div>
                       <p className="data-note">Unlimited teammates. No per-seat fees. Members share this organization’s workspaces and usage limits.</p>
+                      {!isAdmin && <p className="data-note">An organization owner or administrator can invite teammates and manage access.</p>}
                       {members.map((m) => (
                         <div className="member-row" key={m.user_id}>
                           <span>
@@ -2804,7 +2742,7 @@ function App() {
                   )}
                 </>
               )}
-              {tab === "settings" && (
+              {settingsTab && settingsSection === "billing" && (
                 <>
                   {settings.plan && (
                     <Card>
@@ -2840,6 +2778,10 @@ function App() {
                       </CardContent>
                     </Card>
                   </div>
+                </>
+              )}
+              {settingsTab && settingsSection === "providers" && (
+                <>
                   {isAdmin ? (
                     <>
                       <ProviderCredentialsCard
@@ -3120,7 +3062,7 @@ function App() {
               )}
             </>
           )}
-          {tab === "settings" && <footer className="settings-legal"><LegalLinks /></footer>}
+          {settingsTab && <footer className="settings-legal"><LegalLinks /></footer>}
         </main>
       </div>
     </div>

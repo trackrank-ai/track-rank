@@ -3,7 +3,10 @@ import { normalizePromptTag, validPromptTag } from "./prompt-tags";
 
 const appTabs = ["overview", "prompts", "research", "runs", "brands", "schedules", "team", "settings", "agents", "workspaces"] as const;
 export type AppTab = typeof appTabs[number];
-export type ResearchType = "domain" | "page" | "query";
+const researchTypes = ["domain", "page", "query"] as const;
+export type ResearchType = typeof researchTypes[number];
+export const settingsSections = { providers: "Providers", team: "Team & access", billing: "Billing" } as const;
+export type SettingsSection = keyof typeof settingsSections;
 
 export const runStatuses = ["queued", "submitting", "submitted", "succeeded", "failed", "uncertain"] as const;
 export const runOutcomes = ["pending", "failed", "uncertain", "organic", "no_answer", "eligible"] as const;
@@ -26,8 +29,10 @@ export type AppSearch = AnalyticsScope & {
   status?: typeof runStatuses[number];
   outcome?: typeof runOutcomes[number];
   brand?: string;
+  researchGroup?: ResearchType;
   researchType?: ResearchType;
   researchValue?: string;
+  settingsSection?: SettingsSection;
   trial?: "start";
 };
 
@@ -37,8 +42,7 @@ function resourceId(value: unknown) {
 
 export function parseAppSearch(search: Record<string, unknown>): AppSearch {
   const tab = appTabs.find(value => value === search.tab);
-  const researchType = search.researchType === "domain" || search.researchType === "page" || search.researchType === "query"
-    ? search.researchType : undefined;
+  const researchType = researchTypes.find(type => type === search.researchType);
   const researchValue = typeof search.researchValue === "string" && search.researchValue.length <= 4096
     ? search.researchValue.trim() : "";
   const tag = typeof search.tag === "string" ? normalizePromptTag(search.tag) : "";
@@ -68,6 +72,9 @@ export function parseAppSearch(search: Record<string, unknown>): AppSearch {
     status: tab === "runs" ? runStatuses.find(value => value === search.status) : undefined,
     outcome: tab === "runs" ? runOutcomes.find(value => value === search.outcome) : undefined,
     brand: tab === "runs" || tab === "prompts" ? resourceId(search.brand) : undefined,
+    researchGroup: tab === "research" || tab === "runs" ? researchTypes.find(type => type === search.researchGroup) : undefined,
+    settingsSection: tab === "settings"
+      ? (Object.keys(settingsSections) as SettingsSection[]).find(section => section === search.settingsSection) : undefined,
     researchType: (tab === "research" || tab === "runs") && researchValue ? researchType : undefined,
     researchValue: (tab === "research" || tab === "runs") && researchType && researchValue ? researchValue : undefined,
     trial: search.trial === "start" ? "start" : undefined,

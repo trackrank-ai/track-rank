@@ -351,7 +351,7 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
     "list_runs",
     {
       description:
-        "List run history with status, citations, grounding queries and mentions. Continue with next_before and next_before_id.",
+        "List run history with status, citations, grounding queries and mentions. Research matches include the full total_matches before pagination. Continue with next_before and next_before_id.",
       inputSchema: z.object({
         ...historyInput,
         before: z.number().int().nonnegative().optional(),

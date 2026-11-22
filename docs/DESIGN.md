@@ -48,7 +48,7 @@ Use the shared bulk selection control for lists with bulk actions. Show the sele
 
 ## Shareable app navigation
 
-Give each authenticated section and shareable record a stable URL. Use the existing app search parameters for organization, workspace, section, and record identity. Add to that contract when creating a new destination. Use real links for navigation and keep loading and permission errors in the destination view. A shared URL must survive refresh, browser history, and sign-in. The server still checks membership and resource ownership. Keep credentials, invitation tokens, and other secrets out of shareable app queries.
+Give each authenticated section and shareable record a stable URL. Use the existing app search parameters for organization, workspace, section, and record identity. Add to that contract when creating a new destination. Use real links for navigation and keep loading and permission errors in the destination view. A shared URL must survive refresh, browser history, and sign-in. The server still checks membership and resource ownership. Keep credentials, invitation tokens, and other secrets out of shareable app queries. Sources and matching answers retain the workspace, report filters and selected research group. Organization settings links address a section of the owning organization and work independently of the selected workspace.
 
 ## Pricing and active trials
 

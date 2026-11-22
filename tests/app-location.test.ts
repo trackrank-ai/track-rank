@@ -35,3 +35,15 @@ test("filtered analytics and metric links retain their scope through sign-in", (
   const result = new URL(login.searchParams.get("next")!, login).searchParams;
   assert.deepEqual(Object.fromEntries(result), { ...Object.fromEntries(original), tags: "chicago-market,consideration" });
 });
+
+test("research groups and organization settings destinations survive sign-in", () => {
+  const cases: Record<string, string>[] = [
+    { org: "agency", workspace: "client", tab: "research", researchGroup: "page", researchType: "page", researchValue: "https://example.test/a", engine: "google" },
+    { org: "agency", tab: "settings", settingsSection: "billing" },
+  ];
+  for (const original of cases) {
+    const login = new URL(appLoginPath("?" + new URLSearchParams(original), ""), "https://trackrank.invalid");
+    const search = new URL(login.searchParams.get("next")!, login).searchParams;
+    assert.deepEqual(Object.fromEntries(search), original);
+  }
+});

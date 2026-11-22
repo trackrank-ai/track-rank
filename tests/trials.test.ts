@@ -67,7 +67,7 @@ test('paid upgrade Checkout charges immediately and returns to the same organiza
  assert.ok(checkoutBody);
  assert.equal(checkoutBody.get('subscription_data[trial_period_days]'), null);
  assert.equal(checkoutBody.get('payment_method_collection'), 'always');
- assert.equal(checkoutBody.get('success_url'), `https://test.example/app?org=${org}&tab=settings`);
+ assert.equal(checkoutBody.get('success_url'), `https://test.example/app?org=${org}&tab=settings&settingsSection=billing`);
  assert.equal(checkoutBody.get('cancel_url'), checkoutBody.get('success_url'));
  assert.equal((await organizationPlan(env, org)).version, 'trial-v2');
 });

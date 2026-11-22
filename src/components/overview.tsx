@@ -43,7 +43,7 @@ export function useReport<T>(path: string, request: RequestData, revision: unkno
   return result?.path === path && result.request === request ? result : undefined;
 }
 
-export function OverviewFilters({ scope, org, workspace, workspaceNames, sets, brands, engines, request, revision, onChange, summarize = true }: {
+export function OverviewFilters({ scope, org, workspace, workspaceNames, sets, brands, engines, request, revision, onChange, showBrand = true, summarize = true }: {
   scope: AnalyticsScope;
   org: string;
   workspace: string;
@@ -55,9 +55,10 @@ export function OverviewFilters({ scope, org, workspace, workspaceNames, sets, b
   revision: unknown;
   onChange: (scope: AnalyticsScope) => void;
   summarize?: boolean;
+  showBrand?: boolean;
 }) {
   const [error, setError] = useState("");
-  const locationQuery = analyticsQuery({ ...scope, location: undefined, trackedBrand: undefined }, workspace);
+  const locationQuery = analyticsQuery({ ...scope, location: undefined, trackedBrand: undefined, compareBrand: undefined }, workspace);
   const locations = useReport<{ locations: string[] }>("/analytics/locations?" + locationQuery, request, revision);
   const activeSet = sets.find(set => set.id === scope.set);
   const activeBrand = brands.find(brand => brand.id === scope.trackedBrand);
@@ -67,7 +68,7 @@ export function OverviewFilters({ scope, org, workspace, workspaceNames, sets, b
     scope.tags && `Tags: ${scope.tags.split(",").join(", ")}`,
     scope.engine && (engines[scope.engine] ?? scope.engine),
     scope.location && `Location: ${scope.location}`,
-    scope.trackedBrand && `Brand: ${activeBrand?.name ?? "Selected historical brand"}`,
+    showBrand && scope.trackedBrand && `Brand: ${activeBrand?.name ?? "Selected historical brand"}`,
   ].filter(Boolean);
   function apply(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -113,7 +114,7 @@ export function OverviewFilters({ scope, org, workspace, workspaceNames, sets, b
           <input name="location" defaultValue={scope.location} maxLength={200} list="recorded-locations" placeholder="All locations" />
           <datalist id="recorded-locations">{locations?.data?.locations.map(name => <option value={name} key={name} />)}</datalist>
         </label>
-        {(brands.length > 0 || scope.trackedBrand) && <label className="app-field"><span>Tracked brand</span>
+        {showBrand && (brands.length > 0 || scope.trackedBrand) && <label className="app-field"><span>Tracked brand</span>
           <select name="trackedBrand" defaultValue={scope.trackedBrand ?? ""}>
             <option value="">{brands.length ? "Default brand" : "No tracked brand"}</option>
             {scope.trackedBrand && !activeBrand && <option value={scope.trackedBrand}>Selected historical brand</option>}
@@ -164,7 +165,7 @@ export function Overview({
         description: "Assign a brand to a workspace to measure mentions and citations.", permitted: canWrite },
       { id: "prompts", complete: !!data.workspace_prompts, tab: "prompts", label: "Save questions", action: "Open Prompts",
         description: "Choose the questions and engines you want to track.", permitted: canWrite },
-      { id: "settings", complete: credentialsConnected, tab: "settings", label: "Connect DataForSEO", action: "Open Settings",
+      { id: "settings", complete: credentialsConnected, tab: "settings", label: "Connect DataForSEO", action: "Open Providers",
         description: "Connect your organization’s provider account to collect answers.", permitted: canManageCredentials },
       { id: "collect", complete: false, tab: "prompts", label: "Start a collection", action: "Choose variants",
         description: "Review and run saved combinations from Prompts.", permitted: canWrite },
@@ -179,7 +180,7 @@ export function Overview({
             <div><strong>{step.label}</strong><p className="overview-scope">{step.description}</p></div>
             {step.complete ? <span className="overview-scope">Complete</span>
               : step.permitted ? <Button size="sm" variant={step.id === next ? "default" : "outline"} asChild>
-                <Link to="/app" search={{ org, workspace: step.id === "brands" ? brandWorkspace : workspace, tab: step.tab }}>{step.action}</Link>
+                <Link to="/app" search={{ org, workspace: step.id === "brands" ? brandWorkspace : workspace, tab: step.tab, ...(step.id === "settings" ? { settingsSection: "providers" as const } : {}) }}>{step.action}</Link>
               </Button> : <span className="overview-scope">{step.id === "settings" ? "Organization admin required" : "Editor access required"}</span>}
           </li>)}
         </ol>

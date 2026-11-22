@@ -1669,6 +1669,15 @@ input:is([type="checkbox"], [type="radio"]) {
 .workspace-management-link {
   margin-top: 10px;
 }
+.app-subnav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-block: 8px 14px;
+}
+.app-content .org-switcher {
+  margin-top: 12px;
+}
 .settings-legal {
   margin-top: 24px;
   padding-block: 12px;
@@ -2272,6 +2281,25 @@ form.app-inline-form,
 .citation-row > [data-slot="badge"] {
   font-size: 8px;
   white-space: nowrap;
+}
+.research-result > .small-link {
+  flex: 0 0 auto;
+}
+.research-result .research-result-count {
+  color: var(--muted-foreground);
+  font-size: 0.78rem;
+  margin: 0;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.research-result strong,
+.research-answer-row > a strong {
+  font-size: 0.875rem;
+}
+.research-result a span,
+.research-answer-row > a small {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
 }
 .app-content [data-slot="tabs-list"] {
   max-width: 100%;
