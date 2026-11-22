@@ -12,7 +12,7 @@ Use shadcn/ui (New York / neutral, CSS-variable theming) and Tailwind CSS v4. Co
 - Geist Variable, self-hosted via Fontsource. Tight headline tracking, generous whitespace, restrained small labels.
 - Ascending three-bar mark, shared visual language for wordmark and favicon. No bitmap logo dependency.
 - Quiet borders, modest corners, sparse shadows. Dark olive-charcoal ownership panel contrasts the light product UI.
-- Icons: Lucide. No simulated provider logos or implied provider integrations.
+- Icons: Lucide. Saved prompt rows use self-hosted engine marks from [Lobe Icons](https://github.com/lobehub/lobe-icons) with names available on hover and keyboard focus.
 
 ## Product honesty and interaction
 
