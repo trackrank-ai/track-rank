@@ -86,7 +86,7 @@ Deleting a prompt or workspace archives its metadata for existing runs and remov
 
 Create a brand with `workspace_id` to track it in that workspace immediately. New runs match the brands explicitly tracked in their workspace. Listing schedules accepts an optional `workspace` filter.
 
-Run history sorts by creation timestamp and run ID, newest first. To get the next page, pass both `next_before` as `before` and `next_before_id` as `before_id`, with the same workspace filter. The MCP `list_runs` tool accepts the same cursor fields. Both response fields are null at the end. Provide both cursor parameters together.
+Run history sorts by creation timestamp and run ID, newest first. To get the next page, pass both `next_before` as `before` and `next_before_id` as `before_id`, with the same workspace filter. Use the optional `limit` to return 1–100 runs per page (default 100). The MCP `list_runs` tool accepts the same page size and cursor fields. Both response fields are null at the end. Provide both cursor parameters together.
 To open a question’s evidence, pass `question_id` to `GET /runs`, `GET /export`, `list_runs`, or `export_runs`. Run searches match current variants and their recorded workspace. The usual history, date, engine, set, and tag restrictions apply. Use `metric=eligible` for AI answers or `metric=brand&tracked_brand=<id>` for eligible answers that tracked the selected brand. `prompt_schedule=active|inactive` and `prompt_brand=<id>` optionally mirror the library’s variant filters. Open each record with `GET /runs/<id>` or `get_run` to inspect the full answer and citations. Historical evidence remains available from the general run history after a variant is moved or archived.
 
 

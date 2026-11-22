@@ -511,7 +511,10 @@ export async function api(
       conditions.push("(created_at,id)<(?,?)");
       bindings.push(before, beforeId);
     }
-    const pageSize = 100;
+    const limit = u.searchParams.get("limit");
+    const pageLimit = listPageLimit.max(100).safeParse(limit === null ? 100 : Number(limit));
+    if (!pageLimit.success) throw new HttpError(400, "Invalid run history page size");
+    const pageSize = pageLimit.data;
     const runs = await all(
       env,
       "SELECT id,prompt_id,workspace_id,prompt_text,config,status,mentions,citations,grounding_queries,discovered_brands,has_answer,error,provider_cost,created_at,updated_at FROM runs WHERE " +

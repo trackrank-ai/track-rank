@@ -260,7 +260,7 @@ export function Overview({
             <dt><strong>{label}</strong><p className="data-note">{definition}</p></dt>
             <dd><strong>{rate(totals[count])}</strong>
               <span>{formatCount(totals[count])}</span>
-              <Link to="/app" search={metricLink(metric)}>View {comparisonName ? `${selectedBrand} evidence` : "matching runs"}</Link>
+              <Link to="/app" search={metricLink(metric)}>View {comparisonName ? `${selectedBrand} evidence` : totals[count] ? "matching runs" : "evidence for this result"}</Link>
             </dd>
             {comparisonName && <dd><strong>{rate(totals[comparisonCount])}</strong>
               <span>{formatCount(totals[comparisonCount])}</span>

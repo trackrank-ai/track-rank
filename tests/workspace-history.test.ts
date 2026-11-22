@@ -504,7 +504,7 @@ test("comparison rates, outcome counts and matching evidence use recorded run co
     FROM runs WHERE id='both-cited'`).run();
   const filters = { workspace: "source", from, to, engine: "google", tracked_brand: "client", compare_brand: "rival" };
   const rest = (path: string, extra: Record<string, string> = {}) => call(path + "?" + new URLSearchParams({ ...filters, ...extra }));
-  async function tool(name: string, extra: Record<string, string> = {}) {
+  async function tool(name: string, extra: Record<string, string | number> = {}) {
     const { workspace, ...args } = filters;
     const request = new Request("https://example.test/mcp", {
       method: "POST",
@@ -520,6 +520,11 @@ test("comparison rates, outcome counts and matching evidence use recorded run co
   assert.deepEqual(report.outcomes, { eligible: 3, failed: 1, no_answer: 1, organic: 1 });
   assert.equal(report.total_runs, 6);
   assert.equal(report.daily.reduce((sum: number, day: any) => sum + day.samples, 0), 3);
+  const firstEligible = await (await rest("/runs", { metric: "brand", limit: "1" })).json() as any;
+  assert.equal(firstEligible.runs.length, 1);
+  assert.equal(firstEligible.next_before_id, firstEligible.runs[0].id);
+  assert.deepEqual(JSON.parse(await tool("list_runs", { metric: "brand", limit: 1 })), firstEligible);
+  await assert.rejects(rest("/runs", { limit: "101" }), { status: 400 });
   assert.deepEqual(report.comparison_daily, [{
     day: to, samples: 2, mentions: 0, citations: 1, compare_mentions: 0, compare_citations: 1,
   }]);

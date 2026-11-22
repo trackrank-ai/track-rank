@@ -364,6 +364,7 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
         "List run history with status, citations, grounding queries and mentions. Filter by question_id across engine variants. Research matches include the full total_matches before pagination. Continue with next_before and next_before_id.",
       inputSchema: z.object({
         ...historyInput,
+        limit: listPageLimit.max(100).optional(),
         before: z.number().int().nonnegative().optional(),
         before_id: z.string().min(1).max(100).optional(),
       }).refine(args => (args.before === undefined) === (args.before_id === undefined), "Supply both cursor fields"),

@@ -15,6 +15,7 @@ type RunPage = {
   next_before: number | null;
   next_before_id: string | null;
   error?: string;
+  denominator?: "available" | "empty" | "unavailable";
 };
 type HistoryPrompt = { question: string; engine?: string; workspace: string };
 
@@ -84,6 +85,11 @@ export function WorkspaceRunHistory({ org, workspace, workspaceName, workspaceNa
   if (filters.reportQuestion) query.set("report_evidence_run", filters.reportQuestion);
   if (runPrompt) query.set("prompt_id", runPrompt);
   const path = "/runs?" + query;
+  const numerator = metric?.endsWith("mention") || metric?.endsWith("citation");
+  const denominatorQuery = new URLSearchParams(query);
+  denominatorQuery.set("metric", "brand");
+  denominatorQuery.set("limit", "1");
+  const denominatorPath = numerator ? "/runs?" + denominatorQuery : undefined;
   const current = page?.key === path ? page : null;
   const narrowed = Boolean(keyword.trim() || status || brand || outcome || runPrompt || filters.reportQuestion || metric || researchType || Object.values(scope).some(Boolean));
   const [runPrompts, setRunPrompts] = useState(new Map<string, HistoryPrompt>());
@@ -108,9 +114,18 @@ export function WorkspaceRunHistory({ org, workspace, workspaceName, workspaceNa
     let canceled = false;
     setPage(null);
     const timer = window.setTimeout(() => {
-      request(path).then(data => {
+      request(path).then(async data => {
+        let denominator: RunPage["denominator"];
+        if (!canceled && !data.runs.length && denominatorPath) {
+          try {
+            const matches = await request(denominatorPath);
+            denominator = matches.runs.length ? "available" : "empty";
+          } catch {
+            denominator = "unavailable";
+          }
+        }
         if (!canceled) {
-          setPage({ key: path, runs: data.runs, next_before: data.next_before, next_before_id: data.next_before_id });
+          setPage({ key: path, runs: data.runs, next_before: data.next_before, next_before_id: data.next_before_id, denominator });
           setRunPrompts(known => includeRunPrompts(known, data.runs));
         }
       }).catch(error => {
@@ -118,7 +133,7 @@ export function WorkspaceRunHistory({ org, workspace, workspaceName, workspaceNa
       });
     }, 180);
     return () => { canceled = true; window.clearTimeout(timer); };
-  }, [path, request, refresh]);
+  }, [path, denominatorPath, request, refresh]);
 
   async function loadOlder() {
     if (!current || current.next_before === null || !current.next_before_id || loadingMore) return;
@@ -139,7 +154,29 @@ export function WorkspaceRunHistory({ org, workspace, workspaceName, workspaceNa
     }
   }
 
-  const overviewLink = backLink ?? (trendMetric ? { ...scope, org, workspace: workspace || "all", tab: "overview" as const, trendMetric } : undefined);
+  const overviewLink = backLink ?? (trendMetric || metric ? { ...scope, org, workspace: workspace || "all", tab: "overview" as const, trendMetric } : undefined);
+  const metricBrand = metric?.startsWith("compare_") ? scope.compareBrand : scope.trackedBrand;
+  const metricBrandName = brands.find(item => item.id === metricBrand)?.name ??
+    (metric?.startsWith("compare_") ? "the comparison brand" : "the tracked brand");
+  let emptyMetricMessage = "No eligible AI answers match these filters.";
+  if (metric === "brand" || numerator) {
+    emptyMetricMessage = scope.compareBrand
+      ? "No eligible answers in this view tracked both brands."
+      : "No eligible answers in this view tracked the selected brand.";
+  }
+  if (current?.denominator === "available") {
+    emptyMetricMessage = metric?.endsWith("citation")
+      ? `Eligible answers match these filters. None cited ${metricBrandName}’s website.`
+      : `Eligible answers match these filters. None mentioned ${metricBrandName}.`;
+  }
+  if (current?.denominator === "unavailable") {
+    emptyMetricMessage = "No answers match this metric. The eligible answer count could not be checked.";
+  }
+  const historySearch: AppSearch = {
+    ...scope, org, workspace: workspace || "all", tab: "runs", runPrompt, metric, trendMetric, evidenceDay,
+    q: filters.q, status: filters.status, outcome, brand, researchType, researchValue,
+    reportQuestion: filters.reportQuestion, reportEngine: filters.reportEngine,
+  };
   const clearLink = historyLink?.({}) ?? { org, workspace: workspace || "all", tab: "runs" as const };
   return (
     <Card><CardContent>
@@ -217,10 +254,21 @@ export function WorkspaceRunHistory({ org, workspace, workspaceName, workspaceNa
           <Link to="/app" search={historyLink?.({}) ?? { org, workspace: workspace || "all", tab: "prompts" }}>{historyLink ? "Review tracking answers" : "Go to Prompts"}</Link>
         </Button></div>}
       </div>}
-      {narrowed && current && !current.error && !current.runs.length &&
-        <p className="data-note">No runs match these filters. Try a different keyword or clear a filter.</p>}
+      {narrowed && current && !current.error && !current.runs.length && (metric
+        ? <div className="form-stack">
+          <p className="data-note">{emptyMetricMessage}</p>
+          <div className="form-actions">
+            {(current.denominator === "available" || current.denominator === "unavailable") && <Button size="sm" variant="outline" asChild>
+              <Link to="/app" search={historyLink?.({ metric: "brand" }) ?? { ...historySearch, metric: "brand" }}>View eligible answers</Link>
+            </Button>}
+            {overviewLink && <Button size="sm" variant="outline" asChild>
+              <Link to="/app" search={overviewLink}>Adjust report filters</Link>
+            </Button>}
+          </div>
+        </div>
+        : <p className="data-note">No runs match these filters. Try a different keyword or clear a filter.</p>)}
       {current?.runs.map(run => (
-        <Link key={run.id} className="run-row" to="/app" search={historyLink?.({ run: run.id }) ?? { ...scope, org, workspace: workspace || "all", tab: "runs", run: run.id, runPrompt, metric, trendMetric, evidenceDay, q: filters.q, status: filters.status, outcome, brand, researchType, researchValue, reportQuestion: filters.reportQuestion, reportEngine: filters.reportEngine }}>
+        <Link key={run.id} className="run-row" to="/app" search={historyLink?.({ run: run.id }) ?? { ...historySearch, run: run.id }}>
           <span><strong>{run.prompt_text}</strong><small>
             {collectionVariantLabel(run.config?.engine, workspaceNames[run.workspace_id] ?? "", engines)}
             {" · "}{new Date(run.created_at).toLocaleString()} · {run.config?.mode}
