@@ -1,3 +1,5 @@
+import "@/components/app-evidence.css";
+import { EvidenceReport, EvidenceSources } from "@/components/evidence-report";
 import { RunBatch } from "@/components/run-batch";
 import { CollectionDetails, CollectionReview, type Readiness } from "@/components/collection-review";
 import { defaultMonitoringTiming, MonitoringEditor, monitoringProjection } from "@/components/monitoring-timing";
@@ -22,18 +24,22 @@ import { ResearchDrilldown } from "@/components/research-drilldown";
 import { RunStatus, WorkspaceRunHistory } from "@/components/workspace-run-history";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
+  cloneElement,
   useCallback,
   useEffect,
   useMemo,
+  useId,
   useRef,
   useState,
   type FormEvent,
   type ReactNode,
+  type ReactElement,
 } from "react";
 import {
   BarChart3,
   BookOpen,
   Building2,
+  CircleHelp,
   CalendarClock,
   Check,
   Copy,
@@ -76,8 +82,25 @@ const engines: Record<string, string> = {
   google: "Google + AI Overviews",
 };
 const date = (t: number) => new Date(t).toLocaleString();
-function HelpTip({label,text}:{label:string;text:string}) {
-  return <HelpTooltip.Provider delayDuration={150}><HelpTooltip.Root><HelpTooltip.Trigger asChild><span className="help-tip" tabIndex={0} role="button" aria-label={"About " + label}>ⓘ</span></HelpTooltip.Trigger><HelpTooltip.Portal><HelpTooltip.Content className="help-tip-content" sideOffset={6}>{text}<HelpTooltip.Arrow /></HelpTooltip.Content></HelpTooltip.Portal></HelpTooltip.Root></HelpTooltip.Provider>;
+function HelpTip({ label, text }: { label: string; text: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <HelpTooltip.Provider delayDuration={150}>
+      <HelpTooltip.Root open={open} onOpenChange={setOpen}>
+        <HelpTooltip.Trigger asChild>
+          <button type="button" className="help-tip" aria-label={"About " + label} onClick={() => setOpen(true)}>
+            <CircleHelp size={16} aria-hidden="true" />
+          </button>
+        </HelpTooltip.Trigger>
+        <HelpTooltip.Portal>
+          <HelpTooltip.Content className="help-tip-content" sideOffset={6}>
+            {text}
+            <HelpTooltip.Arrow className="help-tip-arrow" />
+          </HelpTooltip.Content>
+        </HelpTooltip.Portal>
+      </HelpTooltip.Root>
+    </HelpTooltip.Provider>
+  );
 }
 function FormField({
   label,
@@ -85,15 +108,21 @@ function FormField({
   hint,
 }: {
   label: string;
-  children: ReactNode;
+  children: ReactElement<{ id?: string; "aria-describedby"?: string }>;
   hint?: string;
 }) {
+  const generatedId = useId();
+  const id = children.props.id ?? generatedId;
+  const hintId = `${id}-hint`;
   return (
-    <label className="app-field">
-      <span>{label} {hint && <HelpTip label={label} text={hint} />}</span>
-      {children}
-      {hint && <small>{hint}</small>}
-    </label>
+    <div className="app-field">
+      <label htmlFor={id}>{label}</label>
+      {cloneElement(children, {
+        id,
+        "aria-describedby": [children.props["aria-describedby"], hint && hintId].filter(Boolean).join(" ") || undefined,
+      })}
+      {hint && <small id={hintId}>{hint}</small>}
+    </div>
   );
 }
 function Empty({
@@ -1264,7 +1293,7 @@ function App() {
             </CardContent></Card>
           ) : (
             <>
-              <div className="app-page-heading">
+              {!(tab === "runs" && selectedRun) && <div className="app-page-heading">
                 <div>
                   <p className="section-eyebrow">
                     {tab === "overview"
@@ -1287,7 +1316,7 @@ function App() {
                   </p>
                 </div>
 
-              </div>
+              </div>}
               {(reportTab || tab === "prompts") && setResult?.error && <p role="alert">{setResult.error}</p>}
               {reportTab && <OverviewFilters
                 key={JSON.stringify([org, workspace, tab, search, reportScope])}
@@ -1600,13 +1629,15 @@ function App() {
                                   <option value="live">Live</option>
                                 </select>
                               </FormField>
-                              <FormField label="Location" hint="Search DataForSEO's supported locations, then choose a match. With several engines checked, only shared locations are offered. Search a city when using Google or Gemini.">
-                                <input type="search" aria-label="Search supported locations" placeholder="Search country or city…" value={locationQuery} onChange={e => setLocationQuery(e.target.value)} maxLength={100} />
-                                <select aria-label="Selected location" name="location_name" required value={promptLocation} disabled={providerChoicesLoading || !!providerChoices?.error} onChange={e => setPromptLocation(e.target.value)}>
+                              <fieldset className="app-field app-field-group">
+                                <legend>Location</legend>
+                                <small id="prompt-location-hint">Search DataForSEO’s supported locations, then choose a match. With several engines checked, only shared locations are offered. Search a city when using Google or Gemini.</small>
+                                <input type="search" aria-label="Search supported locations" aria-describedby="prompt-location-hint" placeholder="Search country or city…" value={locationQuery} onChange={e => setLocationQuery(e.target.value)} maxLength={100} />
+                                <select aria-label="Selected location" aria-describedby="prompt-location-hint" name="location_name" required value={promptLocation} disabled={providerChoicesLoading || !!providerChoices?.error} onChange={e => setPromptLocation(e.target.value)}>
                                   {(providerChoices?.locations || [promptLocation]).filter(Boolean).map((name:string) => <option key={name} value={name}>{name}</option>)}
                                 </select>
                                 <small>{providerChoicesLoading ? "Loading supported choices…" : providerChoices?.error || "Select a listed value. Narrow the search for more locations."}</small>
-                              </FormField>
+                              </fieldset>
                               <FormField label="Language" hint="Languages supported by every selected engine. Provider codes are shown next to the names; arbitrary codes are rejected.">
                                 <select aria-label="Language" name="language_code" required value={promptLanguage} disabled={providerChoicesLoading || !!providerChoices?.error} onChange={e => setPromptLanguage(e.target.value)}>
                                   {(providerChoices?.languages || [{code:"en",name:"English"}]).map((language:Item) => <option key={language.code} value={language.code}>{language.name} ({language.code})</option>)}
@@ -2089,20 +2120,19 @@ function App() {
                   {selectedRun && (
                     <Card className="selected-run">
                       <CardContent>
-                        <div className="panel-title">
-                          <div>
-                            <RunStatus value={selectedRun.status} />
-                            <h2>{selectedRun.prompt_text}</h2>
-                            <p>
-                              {engines[selectedRun.config?.engine]} ·{" "}
-                              {selectedRun.config?.location_name} ·{" "}
-                              {date(selectedRun.created_at)}
-                            </p>
-                          </div>
+                        <header className="run-detail-header">
+                          <h1>{selectedRun.prompt_text}</h1>
                           <Button variant="ghost" size="sm" asChild>
                             <Link to="/app" search={{ ...sectionSearch("runs"), runPrompt: search.runPrompt, batch: search.batch, receipt: search.receipt }}>Close run</Link>
                           </Button>
-                        </div>
+                          <dl className="run-detail-context">
+                            <div><dt>Workspace</dt><dd>{workspaceNames[selectedRun.workspace_id] ?? "Unavailable workspace"}</dd></div>
+                            <div><dt>Engine</dt><dd>{engines[selectedRun.config?.engine] ?? "Unknown engine"}</dd></div>
+                            <div><dt>Location</dt><dd>{selectedRun.config?.location_name ?? "Not recorded"}</dd></div>
+                            <div><dt>Run created</dt><dd><time dateTime={new Date(selectedRun.created_at).toISOString()}>{date(selectedRun.created_at)}</time></dd></div>
+                            <div><dt>Status</dt><dd><RunStatus value={selectedRun.status} /></dd></div>
+                          </dl>
+                        </header>
                         {(selectedRun.error || selectedRun.status === "failed") && (
                           <p className="form-error">{selectedRun.error || "Collection failed. No provider explanation was recorded."}</p>
                         )}
@@ -2184,7 +2214,7 @@ function App() {
                         <Tabs key={selectedRun.id} value={search.evidence ?? (!selectedRun.has_answer && selectedRun.organic_results?.length ? "organic" : "answer")}
                           onValueChange={value => void navigate({ search: { ...search, org, workspace: selectedRun.workspace_id,
                             tab: "runs", run: selectedRun.id, evidence: value as typeof search.evidence }, replace: true })}>
-                          <TabsList>
+                          <TabsList variant="line" aria-label="Run evidence">
                             <TabsTrigger value="answer">Answer</TabsTrigger>
                             <TabsTrigger value="citations">
                               Citations
@@ -2194,46 +2224,23 @@ function App() {
                             <TabsTrigger value="analysis">Analysis</TabsTrigger>
                           </TabsList>
                           <TabsContent value="answer">
-                            <pre className="answer-content">
-                              {selectedRun.answer_text ||
-                                (selectedRun.status === "succeeded"
-                                  ? "No AI answer / AI Overview was present in this collection."
-                                  : "Waiting for a result.")}
-                            </pre>
-                            <div className="mention-tags">
-                              {(selectedRun.mentions || []).map((m: Item) => (
-                                <Badge
-                                  variant={
-                                    m.mentioned ? "secondary" : "outline"
-                                  }
-                                  key={m.brand_id}
-                                >
-                                  {m.name}:{" "}
-                                  {m.mentioned ? "mentioned" : "not mentioned"}
-                                  {m.cited ? " · cited" : ""}
-                                </Badge>
-                              ))}
-                            </div>
+                            <EvidenceReport
+                              answer={selectedRun.answer_text}
+                              observations={(selectedRun.mentions || []).map((mention: Item) => ({
+                                label: mention.name,
+                                value: `${mention.mentioned ? "Mentioned" : "Not mentioned"}${mention.cited ? " · Cited" : ""}`,
+                              }))}
+                              sources={selectedRun.citations || []}
+                              emptyAnswer={selectedRun.status === "succeeded"
+                                ? "No AI answer / AI Overview was present in this collection."
+                                : selectedRun.status === "failed" || selectedRun.status === "uncertain"
+                                  ? "No AI answer was recorded."
+                                  : "Waiting for a result."}
+                            />
                           </TabsContent>
                           <TabsContent value="citations">
-                            {(selectedRun.citations || []).map((c: Item) => (
-                              <div className="citation-row" key={c.url}>
-                                <a
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  href={c.url}
-                                >
-                                  <strong>{c.title}</strong>
-                                  <span>{c.url}</span>
-                                </a>
-                                <ExternalLink size={13} />
-                              </div>
-                            ))}
-                            {!selectedRun.citations?.length && (
-                              <p className="data-note">
-                                The provider returned no citations.
-                              </p>
-                            )}
+                            <h3>Sources supplied by the provider</h3>
+                            <EvidenceSources sources={selectedRun.citations || []} />
                           </TabsContent>
                           <TabsContent value="queries">
                             <ul className="query-list">
