@@ -1,10 +1,11 @@
-import { handleQuestionConflict, promptQuestionText, renamePromptQuestion, renamePromptQuestionSchema } from "./prompt-questions";
+import { promptQuestionText } from "./prompt-questions";
 import { applyReceiptAction, readReceiptAction, receiptActionSchema, submitPromptBatch, submitPromptBatchSchema } from "./receipt-actions";
 import { promptSetsRoute } from "./prompt-sets";
 import { analytics, collectionLocations, researchSummary } from "./analytics";
 import { bulkPromptTagsSchema, decodePrompt, promptTags, updatePromptTags } from "./prompt-tags";
+import { bulkPromptSettingsSchema, promptSettingsSchema, updatePromptSettings } from "./prompt-settings";
 import { body } from "./request-body";
-import { bulkPromptIdsSchema, movePromptsSchema, bulkRunSchema, bulkScheduleSchema, bulkPromptSettingsSchema, updateBulkSchedules, bulkScheduleUpdateSchema, selectedRows, createBulkRuns, createBulkSchedules, bulkReadinessSchema, collectionReadiness, readRunBatch, MAX_BULK_SELECTION_REQUEST_BYTES } from "./bulk";
+import { bulkPromptIdsSchema, movePromptsSchema, bulkRunSchema, bulkScheduleSchema, updateBulkSchedules, bulkScheduleUpdateSchema, selectedRows, createBulkRuns, createBulkSchedules, bulkReadinessSchema, collectionReadiness, readRunBatch, MAX_BULK_SELECTION_REQUEST_BYTES } from "./bulk";
 import { assertProviderOptions, providerOptions } from "./provider-options";
 import { MAX_PROMPT_BATCH_BYTES, promptBatchSchema, getPromptReceipt, previewPromptBatch, savePromptBatch } from "./prompt-batch";
 import { listSavedPrompts, listPageLimit } from "./prompt-library";
@@ -422,17 +423,8 @@ export async function api(
   }
   if (path === "/prompts/bulk-tags" && method === "PATCH")
     return json(await updatePromptTags(env, org, await body(req, bulkPromptTagsSchema)));
-  if (path === "/prompts/bulk-settings" && method === "PATCH") {
-    const b=await body(req,bulkPromptSettingsSchema);
-    const rows=await selectedRows(env,org,'prompts',b.ids);
-    await env.DB.batch(rows.map(row=>env.DB.prepare("UPDATE prompts SET mode=? WHERE org_id=? AND id=? AND archived_at IS NULL").bind(b.mode,org,row.id)));
-    return json({updated:rows.length});
-  }
-  const questionMatch = path.match(/^\/prompt-questions\/([\w-]{1,100})$/);
-  if (questionMatch && method === "PATCH") {
-    const { text } = await body(req, renamePromptQuestionSchema);
-    return json(await renamePromptQuestion(env, org, questionMatch[1], text));
-  }
+  if (path === "/prompts/bulk-settings" && method === "PATCH")
+    return json(await updatePromptSettings(env, org, await body(req, bulkPromptSettingsSchema)));
   const match = path.match(/^\/prompts\/([^/]+)(?:\/(run))?$/);
   if (match && !match[2] && method === "DELETE") {
     await belongs(env, "prompts", org, match[1]);
@@ -444,26 +436,8 @@ export async function api(
     return json({ prompt: decodePrompt(prompt) });
   }
   if (match && !match[2] && method === "PATCH") {
-    const b = await body(req, promptSchema);
-    await assertProviderOptions([b.engine], b.location_name, b.language_code);
-    await belongs(env, "prompts", org, match[1]);
-    await belongs(env, "workspaces", org, b.workspace_id);
-    await requireWorkspaceBrand(env, org, b.workspace_id, b.brand_id);
-    await handleQuestionConflict(exec(
-      env,
-      "UPDATE prompts SET workspace_id=?,brand_id=?,text=?,engine=?,mode=?,location_name=?,language_code=?,updated_at=?,tags=coalesce(?,tags) WHERE id=? AND org_id=? AND archived_at IS NULL",
-      b.workspace_id,
-      b.brand_id || null,
-      b.text,
-      b.engine,
-      b.mode,
-      b.location_name,
-      b.language_code,
-      now(),
-      b.tags ? JSON.stringify(b.tags) : null,
-      match[1],
-      org,
-    ));
+    const settings = await body(req, promptSettingsSchema);
+    await updatePromptSettings(env, org, { ...settings, ids: [match[1]] });
     return json({ ok: true });
   }
   if (match?.[2] === "run" && method === "POST") {

@@ -107,7 +107,8 @@ test("resource edits and deletes preserve collected evidence and confine changes
   const { id: brand } = await (await call("/brands", { name: "Client", workspace_id: "source" })).json() as { id: string };
   await call("/workspaces/source", { name: "Renamed client", brand_id: brand }, "owner", "PATCH");
   await call("/brands/" + brand, { name: "Client renamed", kind: "client" }, "owner", "PATCH");
-  await call("/prompts/prompt", { text: "Edited prompt", workspace_id: "source", brand_id: brand }, "owner", "PATCH");
+  await call("/prompts/prompt", { brand_id: brand }, "owner", "PATCH");
+  const saved = sql.prepare("SELECT text,engine FROM prompts WHERE id='prompt'").get()!;
   const run = await createRun(env, "org", "prompt", "keep-collected-history");
   sql.exec(`INSERT INTO schedules(id,org_id,prompt_id,preset,days,times_json,timezone,enabled,created_at,batch_id)
     VALUES('p-schedule','org','prompt','daily','[1]','["09:00"]','UTC',1,0,'batch'),
@@ -123,6 +124,14 @@ test("resource edits and deletes preserve collected evidence and confine changes
   await assert.rejects(call("/prompts/prompt"), { status: 404 });
   await assert.rejects(createRun(env, "org", "prompt", "deleted-prompt-fails"), { status: 404 });
   assert.equal(sql.prepare("SELECT id FROM schedules WHERE id='p-schedule'").get(), undefined);
+  const { prompts: replacement } = await (await call("/prompts/bulk", {
+    workspace_id: "source", texts: [saved.text], engines: [saved.engine],
+  })).json() as { prompts: { id: string; outcome: string }[] };
+  assert.notEqual(replacement[0].id, "prompt");
+  assert.equal(replacement[0].outcome, "created");
+  const retained = sql.prepare("SELECT prompt_id,prompt_text FROM runs WHERE id=?").get(String(run.id));
+  assert.equal(retained?.prompt_id, "prompt");
+  assert.equal(retained?.prompt_text, saved.text);
   await call("/workspaces/source", undefined, "owner", "DELETE");
   assert.equal(sql.prepare("SELECT id FROM schedules WHERE id='a-schedule'").get(), undefined);
   assert.equal((await (await call("/prompts?view=library")).json() as { prompts: unknown[] }).prompts.length, 0);
@@ -160,7 +169,7 @@ test("prompt tags are workspace-scoped, editable and filterable through REST and
   const { hashToken } = await import("../src/server/crypto");
   const bulk = (ids: string[], action: string, tags: string[], user = "owner") =>
     call("/prompts/bulk-tags", { ids, action, tags }, user, "PATCH");
-  const get = async (id: string) => (await (await call("/prompts/" + id)).json() as { prompt: { tags: string[] } }).prompt;
+  const get = async (id: string) => (await (await call("/prompts/" + id)).json() as { prompt: { tags: string[]; text: string; location_name: string; language_code: string } }).prompt;
   const library = async (query: string) => (await (await call("/prompts?view=library&" + query)).json()) as {
     tags: string[]; prompts: { id: string; variants: { id: string }[] }[];
   };
@@ -177,15 +186,19 @@ test("prompt tags are workspace-scoped, editable and filterable through REST and
   assert.deepEqual((await library("workspace=target")).tags, ["brand name", "portland"]);
   assert.equal((await library("workspace=target&tag=brand+name")).prompts[0].variants.length, 2);
   const edited = (await library("workspace=target&engine=gemini")).prompts[0].variants[0];
-  await call("/prompts/bulk", { ...command, engines: ["gemini"], source_id: edited.id, tags: [] });
+  await call("/prompts/" + edited.id, { tags: [] }, "owner", "PATCH");
   assert.deepEqual((await get(edited.id)).tags, []);
   assert.equal((await library("workspace=target&tag=brand+name")).prompts.length, 1);
 
   const single = { workspace_id: "target", text: "Sample for a single save", tags: ["Original tag"] };
   const created = await (await call("/prompts", single)).json() as { id: string };
-  await call("/prompts/" + created.id, { workspace_id: single.workspace_id, text: "Updated sample" }, "owner", "PATCH");
+  await assert.rejects(call("/prompts/" + created.id, { text: "Updated sample", mode: "live" }, "owner", "PATCH"), { status: 400 });
+  assert.equal((await get(created.id)).text, single.text);
+  await call("/prompts/" + created.id, { location_name: "Canada", mode: "priority" }, "owner", "PATCH");
   assert.deepEqual((await get(created.id)).tags, ["original tag"]);
-  await call("/prompts/" + created.id, { ...single, tags: [] }, "owner", "PATCH");
+  assert.equal((await get(created.id)).location_name, "Canada");
+  assert.equal((await get(created.id)).language_code, "en");
+  await call("/prompts/" + created.id, { tags: [] }, "owner", "PATCH");
   assert.deepEqual((await get(created.id)).tags, []);
 
   const scoped = await library("workspace=source&tag=SEATTLE+LOCATION&q=First");
@@ -283,7 +296,8 @@ test("bulk selection pages keep the same tenant and filters across REST and MCP"
       result: { isError: boolean; content: { text: string }[] };
     };
     assert.equal(result.isError, isError, result.content[0].text);
-    return JSON.parse(result.content[0].text);
+    const content = result.content[0].text;
+    return content.startsWith("{") ? JSON.parse(content) : content;
   }
 
   const query = "/prompts?view=library&workspace=source&tag=batch&q=selection";
@@ -317,14 +331,8 @@ test("bulk selection pages keep the same tenant and filters across REST and MCP"
   assert.deepEqual(byEngine.prompts[0].variants, [{ id: "match-1000", workspace_id: "source" }]);
 
   const question = grouped.prompts[0];
-  assert.equal((await tool("rename_prompt_question", { question_id: question.id, text: "Selection revised question" })).id, question.id);
-  assert.equal(sql.prepare("SELECT count(*) AS n FROM prompts WHERE question_id=? AND text='Selection revised question'").get(question.id)?.n, 1000);
-  assert.equal((await tool("rename_prompt_question", { question_id: question.id, text: "Selection fixture match-0000" }, true)).status, 409);
-  await assert.rejects(call("/prompt-questions/" + question.id, { text: "Selection blocked" }, "viewer", "PATCH"), { status: 403 });
-  const foreign = sql.prepare("SELECT question_id FROM prompts WHERE id='foreign-prompt'").get()!;
-  assert.equal((await tool("rename_prompt_question", { question_id: foreign.question_id, text: "Selection blocked" }, true)).status, 404);
-  const renamed = await (await call("/prompt-questions/" + question.id, { text: "Selection fixture" }, "owner", "PATCH")).json();
-  assert.deepEqual(renamed, { id: question.id, text: "Selection fixture" });
+  await assert.rejects(call("/prompt-questions/" + question.id, { text: "Selection blocked" }, "owner", "PATCH"), { status: 404 });
+  assert.equal(sql.prepare("SELECT count(*) AS n FROM prompts WHERE question_id=? AND text='Selection fixture'").get(question.id)?.n, 1000);
   assert.deepEqual(sql.prepare("PRAGMA foreign_key_check").all(), []);
 
   const schedulePage = await tool("list_schedules", { workspace_id: "source", limit: 20 });
@@ -341,7 +349,15 @@ test("bulk selection pages keep the same tenant and filters across REST and MCP"
 
   await assert.rejects(call("/prompts/bulk-settings", { ids: [expected[0]], mode: "priority" }, "viewer", "PATCH"), { status: 403 });
   assert.equal((await tool("update_prompt_settings", { ids: [expected[0], "foreign-prompt"], mode: "priority" }, true)).status, 404);
-  assert.deepEqual(await tool("update_prompt_settings", { ids: expected.slice(0, 100), mode: "priority" }), { updated: 100 });
+  assert.match(String(await tool("rename_prompt_question", { question_id: question.id, text: "Selection blocked" }, true)), /rename_prompt_question/);
+  assert.match(String(await tool("update_prompt_settings", { ids: [expected[0]], text: "Selection blocked" }, true)), /text/);
+  assert.match(String(await tool("save_prompts", {
+    workspace_id: "source", engines: ["chatgpt"], texts: ["Selection blocked"], source_id: expected[0],
+  }, true)), /source_id/);
+  assert.equal((await tool("update_prompt_settings", { ids: [expected[0]], location_name: "unsupported location" }, true)).status, 400);
+  assert.deepEqual(await tool("update_prompt_settings", { ids: expected.slice(0, 100), mode: "priority", location_name: "Canada" }), { updated: 100 });
+  assert.equal(sql.prepare("SELECT location_name FROM prompts WHERE id=?").get(expected[0])?.location_name, "Canada");
+  assert.equal(sql.prepare("SELECT text FROM prompts WHERE id=?").get(expected[0])?.text, "Selection fixture match-0000");
   assert.deepEqual(await tool("move_prompts", { ids: [expected[0]], workspace_id: "target" }), { moved: 1 });
   assert.deepEqual(await tool("delete_prompts", { ids: [expected[1]] }), { deleted: 1 });
   const remaining: any = await (await call(query + "&limit=20")).json();

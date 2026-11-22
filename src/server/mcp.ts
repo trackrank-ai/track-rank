@@ -1,4 +1,4 @@
-import { renamePromptQuestionSchema } from "./prompt-questions";
+import { bulkPromptSettingsSchema } from "./prompt-settings";
 import { receiptActionSchema, submitPromptBatchSchema } from "./receipt-actions";
 import { bulkPromptTagsSchema, promptTag, promptTags } from "./prompt-tags";
 import { promptBatchSchema } from "./prompt-batch";
@@ -8,7 +8,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { z } from "zod";
 import { api } from "./api";
-import { bulkPromptIdsSchema, movePromptsSchema, bulkPromptSettingsSchema, bulkRunSchema, bulkReadinessSchema, bulkScheduleSchema, bulkScheduleUpdateSchema } from "./bulk";
+import { bulkPromptIdsSchema, movePromptsSchema, bulkRunSchema, bulkReadinessSchema, bulkScheduleSchema, bulkScheduleUpdateSchema } from "./bulk";
 import { listPageLimit } from "./prompt-library";
 import { createPromptSetSchema, setId, setNameSchema, updateSetMembersSchema } from "./prompt-sets";
 import { scopeFilters, runHistoryFilters } from "./run-history";
@@ -228,12 +228,8 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
       return invoke("/prompts?" + query);
     },
   );
-  server.registerTool("rename_prompt_question", {
-    description: "Edit the shared question for every engine linked to the question ID returned by list_prompts.",
-    inputSchema: renamePromptQuestionSchema.extend({ question_id: z.string().min(1).max(100) }),
-  }, async ({ question_id, text }) => invoke("/prompt-questions/" + encodeURIComponent(question_id), "PATCH", { text }));
   server.registerTool("update_prompt_settings", {
-    description: "Change the execution mode of up to 100 selected prompts.",
+    description: "Update execution mode, location, language, brand, or tags on up to 100 prompt variants. Unspecified settings stay the same.",
     inputSchema: bulkPromptSettingsSchema,
   }, async (args) => invoke("/prompts/bulk-settings", "PATCH", args));
   server.registerTool("move_prompts", {
@@ -289,7 +285,7 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
   server.registerTool(
     "save_prompts",
     {
-      description: "Save a batch of prompts with shared tags, or edit one via source_id. Supply a full tags array to replace tags on an edited prompt. Saving does not start any runs.",
+      description: "Save a batch of prompts with shared tags. Exact matches reuse existing variants. Saving does not start any runs.",
       inputSchema: promptBatchSchema,
     },
     async (args) => invoke("/prompts/bulk", "POST", args),

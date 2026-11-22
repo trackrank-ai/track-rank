@@ -1,4 +1,4 @@
-import { handleQuestionConflict, promptQuestionText } from "./prompt-questions";
+import { promptQuestionText } from "./prompt-questions";
 import { hashToken } from "./crypto";
 import { promptTags } from "./prompt-tags";
 import {assertProviderOptions} from "./provider-options";
@@ -14,7 +14,6 @@ export const promptBatchSchema=z.object({
  texts:z.array(promptQuestionText).min(1).max(MAX_PROMPT_COMBINATIONS),
  engines:z.array(z.enum(['chatgpt','gemini','google'])).min(1).max(3),
  operation_id:z.uuid().optional(),
- source_id:z.string().min(1).max(100).optional(),
  tags:promptTags.optional(),
  mode:z.enum(['standard','priority','live']).default('standard'),location_name:z.string().trim().min(2).max(200).default('United States'),language_code:z.string().min(2).max(20).default('en'),
 }).strict();
@@ -40,16 +39,11 @@ async function reviewPromptBatch(env: Env, org: string, input: unknown, save: bo
  const combinations = texts.length * engines.length;
  if (combinations > MAX_PROMPT_COMBINATIONS)
   throw new HttpError(400, `Detected ${combinations} prompt/engine combinations. Save at most ${MAX_PROMPT_COMBINATIONS} per batch.`);
- if(b.source_id && texts.length!==1)throw new HttpError(400,'Edit one prompt at a time, or cancel editing to paste a batch.');
  const workspace = await one<{ id: string; name: string }>(env, 'SELECT id,name FROM workspaces WHERE id=? AND org_id=? AND archived_at IS NULL',b.workspace_id,org);
  if (!workspace) throw new HttpError(404, 'Workspace not found');
  await requireWorkspaceBrand(env,org,b.workspace_id,b.brand_id);
- if(b.source_id && !await one(env,'SELECT id FROM prompts WHERE id=? AND org_id=? AND archived_at IS NULL',b.source_id,org))throw new HttpError(404,'Prompt not found');
  await assertProviderOptions(engines,b.location_name,b.language_code);
- const entries = texts.flatMap(text => engines.map((engine, index) => ({
-  text, engine, id: b.source_id && index === 0 ? b.source_id : uuid(),
-  edit: Number(!!b.source_id && index === 0),
- })));
+ const entries = texts.flatMap(text => engines.map(engine => ({ text, engine, id: uuid() })));
  const selection = JSON.stringify(entries);
  const scope = [org, b.workspace_id, b.brand_id ?? "", b.mode, b.location_name, b.language_code];
  const reviewSql = `SELECT p.id, json_extract(c.value,'$.text') AS text,
@@ -57,15 +51,13 @@ async function reviewPromptBatch(env: Env, org: string, input: unknown, save: bo
    CASE WHEN EXISTS(SELECT 1 FROM schedules s WHERE s.org_id=p.org_id AND s.prompt_id=p.id AND s.enabled=1)
      THEN 'active' WHEN EXISTS(SELECT 1 FROM schedules s WHERE s.org_id=p.org_id AND s.prompt_id=p.id)
      THEN 'paused' ELSE 'none' END AS monitoring,
-   CASE WHEN p.id IS NULL THEN 'new' WHEN json_extract(c.value,'$.edit')=1 THEN 'updated'
+   CASE WHEN p.id IS NULL THEN 'new'
      WHEN ? AND p.id=json_extract(c.value,'$.id') THEN 'created' ELSE 'reused' END AS outcome
    FROM json_each(?) c LEFT JOIN prompts p ON p.id=(
-     SELECT p.id FROM prompts p WHERE p.org_id=? AND p.archived_at IS NULL AND
-       ((json_extract(c.value,'$.edit')=1 AND p.id=json_extract(c.value,'$.id')) OR
-        (json_extract(c.value,'$.edit')=0 AND ${sameCombination}))
+     SELECT p.id FROM prompts p WHERE ${sameCombination}
      ORDER BY p.created_at,p.id LIMIT 1
    ) ORDER BY c.key`;
- const reviewArgs = [Number(save), selection, org, ...scope];
+ const reviewArgs = [Number(save), selection, ...scope];
  const review = env.DB.prepare(reviewSql).bind(...reviewArgs);
  if (!save) {
   const { results } = await review.all<Combination>();
@@ -74,36 +66,28 @@ async function reviewPromptBatch(env: Env, org: string, input: unknown, save: bo
 
  const time = now();
  const tags = b.tags === undefined ? null : JSON.stringify(b.tags);
- const statements = [];
  const receiptGuard = b.operation_id ? " AND NOT EXISTS(SELECT 1 FROM prompt_receipts WHERE org_id=? AND id=?)" : "";
  const guardArgs = b.operation_id ? [org, b.operation_id] : [];
- if (b.source_id) {
-  statements.push(env.DB.prepare(`UPDATE prompts SET workspace_id=?,brand_id=?,text=?,engine=?,
-    mode=?,location_name=?,language_code=?,updated_at=?,tags=coalesce(?,tags)
-    WHERE id=? AND org_id=? AND archived_at IS NULL${receiptGuard}`)
-   .bind(b.workspace_id, b.brand_id ?? null, texts[0], engines[0], b.mode, b.location_name,
-    b.language_code, time, tags, b.source_id, org, ...guardArgs));
- }
- statements.push(env.DB.prepare(`INSERT INTO prompts(id,org_id,workspace_id,brand_id,text,engine,mode,
+ const insert = env.DB.prepare(`INSERT INTO prompts(id,org_id,workspace_id,brand_id,text,engine,mode,
    location_name,language_code,created_at,updated_at,tags)
    SELECT json_extract(c.value,'$.id'),?,?,?,json_extract(c.value,'$.text'),
      json_extract(c.value,'$.engine'),?,?,?,?,?,?
    FROM json_each(?) c
-   WHERE json_extract(c.value,'$.edit')=0 AND NOT EXISTS(SELECT 1 FROM prompts p WHERE ${sameCombination})${receiptGuard}`)
+   WHERE NOT EXISTS(SELECT 1 FROM prompts p WHERE ${sameCombination})${receiptGuard}`)
   .bind(org, b.workspace_id, b.brand_id ?? null, b.mode, b.location_name, b.language_code,
-   time, time, tags ?? "[]", selection, ...scope, ...guardArgs));
+   time, time, tags ?? "[]", selection, ...scope, ...guardArgs);
  if (payloadHash) {
-  statements.push(env.DB.prepare(`INSERT OR IGNORE INTO prompt_receipts(org_id,id,payload_hash,receipt,created_at)
+  const saveReceipt = env.DB.prepare(`INSERT OR IGNORE INTO prompt_receipts(org_id,id,payload_hash,receipt,created_at)
     SELECT ?,?,?,json_object('id',?,'workspace',json(?),'questions',?,'saved_combinations',count(id),
       'prompts',json_group_array(json_object('id',id,'text',text,'engine',engine,'monitoring',monitoring,'outcome',outcome))),?
-    FROM (${reviewSql})`).bind(org, b.operation_id, payloadHash, b.operation_id, JSON.stringify(workspace), texts.length, time, ...reviewArgs));
-  await handleQuestionConflict(env.DB.batch(statements));
+    FROM (${reviewSql})`).bind(org, b.operation_id, payloadHash, b.operation_id, JSON.stringify(workspace), texts.length, time, ...reviewArgs);
+  await env.DB.batch([insert, saveReceipt]);
   const stored = await storedReceipt(env, org, b.operation_id!);
   if (!stored) throw new HttpError(409, "The save receipt is unavailable. Retry the same operation.");
   return replayReceipt(stored, payloadHash);
  }
  // D1 serializes the match check, insertion and receipt read in the same transaction.
- const results = await handleQuestionConflict(env.DB.batch<Combination>([...statements, review]));
+ const results = await env.DB.batch<Combination>([insert, review]);
  const prompts = results.at(-1)!.results;
  return { workspace, questions: texts.length, saved_combinations: prompts.filter(prompt => prompt.id).length, prompts };
 }
