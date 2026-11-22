@@ -1551,7 +1551,7 @@ function App() {
                               </select>
                             </FormField>
                           )}
-                          <FormField label={editPrompt ? "Prompt" : "Prompts — paste your list"} hint={editPrompt ? "Edit this prompt. Select extra engines below to add variants without deleting other saved prompts." : "Paste one question per line. For CSV-style input, change the paste format in Prompt settings."}>
+                          <FormField label={editPrompt ? "Prompt" : "Prompts — paste your list"} hint={editPrompt ? "Wording changes apply to every engine tracking this question. Select extra engines below to add variants." : "Paste one question per line. For CSV-style input, change the paste format in Prompt settings."}>
                             <textarea
                               name="text"
                               required
@@ -1896,6 +1896,23 @@ function App() {
                                   {allWorkspaces && workspaceNames[group.workspace_id] && `${workspaceNames[group.workspace_id]} · `}
                                   {[...new Set(variants.map(variant => engines[variant.engine]))].join(" · ")}
                                 </small>
+                                {canWrite && <details className="prompt-variants">
+                                  <summary>Edit question</summary>
+                                  <form key={group.text} className="app-inline-form" onSubmit={event => {
+                                    const details = event.currentTarget.closest("details");
+                                    void submit(event, async values => {
+                                      await request("/prompt-questions/" + group.id, "PATCH", { text: values.get("text") });
+                                      await load();
+                                      if (details) details.open = false;
+                                      setNotice("Question updated for all tracked engines.");
+                                    });
+                                  }}>
+                                    <FormField label="Question" hint="Applies to every engine tracking this question.">
+                                      <textarea name="text" defaultValue={group.text} required minLength={3} maxLength={700} />
+                                    </FormField>
+                                    <Button size="sm" disabled={busy}>Save question</Button>
+                                  </form>
+                                </details>}
                                 <details className="prompt-variants" open={search.brand ? true : undefined}>
                                   <summary>Engine settings and results</summary>
                                   {variants.map(p => <div className="prompt-variant" key={p.id}>
@@ -1928,7 +1945,7 @@ function App() {
                                           onChange={event => setPromptSelection(current => changeSelection(current, [p], event.target.checked))} />
                                         Select variant
                                       </label>}
-                                      <Button variant="outline" size="sm" onClick={() => editSavedPrompt(p)}>Edit</Button>
+                                      <Button variant="outline" size="sm" onClick={() => editSavedPrompt(p)}>Edit engine settings</Button>
                                       <Button variant="outline" size="sm" disabled={busy || !!pendingRun}
                                         onClick={() => queuePromptBatch([p.id], 1)}>Run {engines[p.engine]}</Button>
                                       <Button variant="outline" size="sm" disabled={busy}

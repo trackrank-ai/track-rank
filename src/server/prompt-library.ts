@@ -66,7 +66,7 @@ export async function listSavedPrompts(env: Env, org: string, params: URLSearchP
   const scope = conditions.join(" AND ");
   const total = filters.before === undefined && !filters.selection
     ? one<{ total: number }>(env,
-      `SELECT count(*) AS total FROM (SELECT 1 FROM prompts p WHERE ${scope} GROUP BY workspace_id,text)`, ...values)
+      `SELECT count(*) AS total FROM (SELECT 1 FROM prompts p WHERE ${scope} GROUP BY question_id)`, ...values)
     : null;
   const cursor = filters.before === undefined ? "" : "AND (created_at,id)<(?,?)";
   const cursorValues = filters.before === undefined ? [] : [filters.before, filters.before_id];
@@ -91,14 +91,14 @@ export async function listSavedPrompts(env: Env, org: string, params: URLSearchP
     ? [filters.tracked_brand, start, end, filters.tracked_brand] : [])];
   const [rows, tags, count] = await Promise.all([
     all<Row>(env, `WITH matching AS (
-          SELECT p.*, row_number() OVER (PARTITION BY workspace_id,text ORDER BY created_at DESC,id DESC) AS variant_rank
+          SELECT p.*, row_number() OVER (PARTITION BY question_id ORDER BY created_at DESC,id DESC) AS variant_rank
           FROM prompts p WHERE ${scope}
         ), page AS (
-          SELECT id,workspace_id,text,created_at FROM matching WHERE variant_rank=1 ${cursor}
+          SELECT id,question_id,text,created_at FROM matching WHERE variant_rank=1 ${cursor}
           ORDER BY created_at DESC,id DESC LIMIT ?
         )
-        SELECT ${columns}, page.id AS group_id, page.created_at AS group_created_at, page.text AS group_text
-        FROM page JOIN matching p ON p.workspace_id=page.workspace_id AND p.text=page.text
+        SELECT ${columns}, page.question_id AS group_id, page.id AS cursor_id, page.created_at AS group_created_at, page.text AS group_text
+        FROM page JOIN matching p ON p.question_id=page.question_id
         ORDER BY page.created_at DESC,page.id DESC,p.created_at DESC,p.id DESC`,
       ...values, ...cursorValues, pageSize + 1, ...historyParams),
     filters.selection ? [] : all<{ tag: string }>(env,
@@ -117,10 +117,10 @@ export async function listSavedPrompts(env: Env, org: string, params: URLSearchP
   }
 
   const groups = new Map<unknown, Row>();
-  for (const { group_id, group_created_at, group_text, variant_rank, ...row } of rows) {
+  for (const { group_id, group_created_at, group_text, cursor_id, variant_rank, ...row } of rows) {
     let group = groups.get(group_id);
     if (!group) {
-      group = { id: group_id, created_at: group_created_at, workspace_id: row.workspace_id, text: group_text, variants: [] };
+      group = { id: group_id, cursor_id, created_at: group_created_at, workspace_id: row.workspace_id, text: group_text, variants: [] };
       groups.set(group_id, group);
     }
     (group.variants as unknown[]).push(variant(row));
@@ -128,9 +128,9 @@ export async function listSavedPrompts(env: Env, org: string, params: URLSearchP
   const entries = [...groups.values()];
   const last = entries.length > pageSize ? entries[pageSize - 1] : null;
   return {
-    prompts: entries.slice(0, pageSize),
+    prompts: entries.slice(0, pageSize).map(({ cursor_id, ...group }) => group),
     ...(count ? { total: count.total } : {}),
     tags: tags.map(row => row.tag),
-    next_cursor: last ? { before: last.created_at, before_id: last.id } : null,
+    next_cursor: last ? { before: last.created_at, before_id: last.cursor_id } : null,
   };
 }

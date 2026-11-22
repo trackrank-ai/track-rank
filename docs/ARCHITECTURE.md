@@ -29,6 +29,8 @@ flowchart TD
 - Schedules attach to individual prompts. The schedule’s enabled state controls recurring execution. Unarchived prompts are also available for manual collection. Each scheduled local time has its own date-and-time slot for duplicate dispatcher invocations and DST fall-back. Daily, weekly, M/W/F, custom weekdays; editable IANA timezone/time; same-day catch-up only.
 - D1 migrations are explicit versioned SQL. Drizzle is presently used for authentication, not a claimed automatic PostgreSQL migration layer.
 
+Saved question text lives in `prompt_questions` with a stable ID and unique wording within each workspace. `prompt_engines` links each collection variant to that question, with its own provider settings, tags and schedules. The `prompts` SQL view exposes the current text for engine-based operations. Rename changes future collections across linked engines. Admitted runs and saved receipts retain their snapshots.
+
 ## Execution and reliability
 
 Create a durable run with an organization-scoped idempotency key and atomic monthly run-count admission. Persist before external work. The Workflow receives only the run ID, claims that run with an atomic state update, and starts collection within the organization’s provider submission rate. Accepted tasks can remain in flight while more runs start.

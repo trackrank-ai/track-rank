@@ -33,7 +33,7 @@ export async function analytics(env: Env, org: string, params: URLSearchParams) 
         (${eligibleAnswer}) AS eligible
       FROM runs WHERE ${conditions.join(" AND ")}
     ), selected AS MATERIALIZED (
-      SELECT p.id,p.workspace_id FROM prompts p WHERE p.org_id=? ${filters.workspace ? "AND p.workspace_id=?" : ""}
+      SELECT p.id,p.question_id,p.workspace_id FROM prompts p WHERE p.org_id=? ${filters.workspace ? "AND p.workspace_id=?" : ""}
       ${setWorkspace} AND ${selected.conditions.join(" AND ")}
     ), samples AS MATERIALIZED (
       SELECT DISTINCT runs.id, runs.created_at, ${brandSnapshotId} AS brand_id,
@@ -42,8 +42,8 @@ export async function analytics(env: Env, org: string, params: URLSearchParams) 
       FROM scoped runs, ${brandSnapshot} AS snapshot WHERE runs.eligible AND ${brandSnapshotId} IS NOT NULL
     )
     SELECT 'total' AS kind,'' AS key,count(*) AS samples,0 AS mentions,0 AS citations,coalesce(sum(eligible),0) AS eligible_answers,
-      count(DISTINCT CASE WHEN eligible THEN selected.id END) AS covered_prompts,
-      (SELECT count(*) FROM selected) AS selected_prompts
+      count(DISTINCT CASE WHEN eligible THEN selected.question_id END) AS covered_prompts,
+      (SELECT count(DISTINCT question_id) FROM selected) AS selected_prompts
     FROM scoped LEFT JOIN selected ON selected.id=scoped.prompt_id AND selected.workspace_id=scoped.workspace_id
     UNION ALL
     SELECT 'day',date(created_at/1000,'unixepoch'),count(*),sum(mentioned),sum(cited),0,0,0
@@ -67,7 +67,7 @@ export async function analytics(env: Env, org: string, params: URLSearchParams) 
       WHEN ${outcomePredicates.organic} THEN 'organic' ELSE 'no_answer' END AS outcome, count(*) AS count
       FROM runs WHERE ${conditions.join(" AND ")} GROUP BY outcome`, ...bindings),
     all<{ prompts: number; first_run: number | null }>(env, `SELECT
-      (SELECT count(*) FROM prompts WHERE org_id=? AND archived_at IS NULL ${filters.workspace ? "AND workspace_id=?" : ""}) AS prompts,
+      (SELECT count(DISTINCT question_id) FROM prompts WHERE org_id=? AND archived_at IS NULL ${filters.workspace ? "AND workspace_id=?" : ""}) AS prompts,
       (SELECT min(created_at) FROM runs WHERE ${unrestricted.conditions.join(" AND ")}) AS first_run`,
       org, ...(filters.workspace ? [filters.workspace] : []), ...unrestricted.bindings),
   ]);

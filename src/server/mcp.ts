@@ -1,3 +1,4 @@
+import { renamePromptQuestionSchema } from "./prompt-questions";
 import { receiptActionSchema, submitPromptBatchSchema } from "./receipt-actions";
 import { bulkPromptTagsSchema, promptTag, promptTags } from "./prompt-tags";
 import { promptBatchSchema } from "./prompt-batch";
@@ -227,6 +228,10 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
       return invoke("/prompts?" + query);
     },
   );
+  server.registerTool("rename_prompt_question", {
+    description: "Edit the shared question for every engine linked to the question ID returned by list_prompts.",
+    inputSchema: renamePromptQuestionSchema.extend({ question_id: z.string().min(1).max(100) }),
+  }, async ({ question_id, text }) => invoke("/prompt-questions/" + encodeURIComponent(question_id), "PATCH", { text }));
   server.registerTool("update_prompt_settings", {
     description: "Change the execution mode of up to 100 selected prompts.",
     inputSchema: bulkPromptSettingsSchema,

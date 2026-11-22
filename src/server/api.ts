@@ -1,3 +1,4 @@
+import { handleQuestionConflict, promptQuestionText, renamePromptQuestion, renamePromptQuestionSchema } from "./prompt-questions";
 import { applyReceiptAction, readReceiptAction, receiptActionSchema, submitPromptBatch, submitPromptBatchSchema } from "./receipt-actions";
 import { promptSetsRoute } from "./prompt-sets";
 import { analytics, collectionLocations, researchSummary } from "./analytics";
@@ -50,7 +51,7 @@ const promptSchema = z
   .object({
     workspace_id: id,
     brand_id: id.nullable().optional(),
-    text: z.string().trim().min(3).max(700),
+    text: promptQuestionText,
     engine: z.enum(["chatgpt", "gemini", "google"]).default("chatgpt"),
     mode: z.enum(["standard", "priority", "live"]).default("standard"),
     location_name: z.string().trim().min(2).max(200).default("United States"),
@@ -427,6 +428,11 @@ export async function api(
     await env.DB.batch(rows.map(row=>env.DB.prepare("UPDATE prompts SET mode=? WHERE org_id=? AND id=? AND archived_at IS NULL").bind(b.mode,org,row.id)));
     return json({updated:rows.length});
   }
+  const questionMatch = path.match(/^\/prompt-questions\/([\w-]{1,100})$/);
+  if (questionMatch && method === "PATCH") {
+    const { text } = await body(req, renamePromptQuestionSchema);
+    return json(await renamePromptQuestion(env, org, questionMatch[1], text));
+  }
   const match = path.match(/^\/prompts\/([^/]+)(?:\/(run))?$/);
   if (match && !match[2] && method === "DELETE") {
     await belongs(env, "prompts", org, match[1]);
@@ -443,7 +449,7 @@ export async function api(
     await belongs(env, "prompts", org, match[1]);
     await belongs(env, "workspaces", org, b.workspace_id);
     await requireWorkspaceBrand(env, org, b.workspace_id, b.brand_id);
-    await exec(
+    await handleQuestionConflict(exec(
       env,
       "UPDATE prompts SET workspace_id=?,brand_id=?,text=?,engine=?,mode=?,location_name=?,language_code=?,updated_at=?,tags=coalesce(?,tags) WHERE id=? AND org_id=? AND archived_at IS NULL",
       b.workspace_id,
@@ -457,7 +463,7 @@ export async function api(
       b.tags ? JSON.stringify(b.tags) : null,
       match[1],
       org,
-    );
+    ));
     return json({ ok: true });
   }
   if (match?.[2] === "run" && method === "POST") {

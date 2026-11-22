@@ -176,7 +176,7 @@ test("prompt tags are workspace-scoped, editable and filterable through REST and
   await call("/prompts/bulk", { ...command, tags: ["extra"] });
   assert.deepEqual((await library("workspace=target")).tags, ["brand name", "portland"]);
   assert.equal((await library("workspace=target&tag=brand+name")).prompts[0].variants.length, 2);
-  const edited = (await library("workspace=target&engine=gemini")).prompts[0];
+  const edited = (await library("workspace=target&engine=gemini")).prompts[0].variants[0];
   await call("/prompts/bulk", { ...command, engines: ["gemini"], source_id: edited.id, tags: [] });
   assert.deepEqual((await get(edited.id)).tags, []);
   assert.equal((await library("workspace=target&tag=brand+name")).prompts.length, 1);
@@ -190,7 +190,7 @@ test("prompt tags are workspace-scoped, editable and filterable through REST and
 
   const scoped = await library("workspace=source&tag=SEATTLE+LOCATION&q=First");
   assert.deepEqual(scoped.tags, ["alternatives", "seattle location"]);
-  assert.deepEqual(scoped.prompts.map(p => p.id), ["prompt"]);
+  assert.deepEqual(scoped.prompts.flatMap(p => p.variants.map(v => v.id)), ["prompt"]);
   assert.equal((await library("workspace=source&tag=seattle")).prompts.length, 0);
   assert.deepEqual((await library("workspace=target&tag=seattle+location")).prompts, []);
 
@@ -209,7 +209,7 @@ test("prompt tags are workspace-scoped, editable and filterable through REST and
   }
   await invoke("update_prompt_tags", { ids: ["alt"], action: "remove", tags: [" SEATTLE LOCATION "] });
   const page = await invoke("list_prompts", { workspace_id: "source", tag: "Seattle Location" });
-  assert.deepEqual(page.prompts.map((p: {id: string}) => p.id), ["prompt"]);
+  assert.deepEqual(page.prompts.flatMap((p: {variants: {id: string}[]}) => p.variants.map(v => v.id)), ["prompt"]);
   await invoke("save_prompts", { texts: ["A prompt from MCP"], engines: ["chatgpt"], workspace_id: "source", tags: ["From agent"] });
   assert.equal((await invoke("list_prompts", { tag: "from agent" })).prompts.length, 1);
   assert.deepEqual((await invoke("get_prompt", { id: "alt" })).prompt.tags, ["alternatives"]);
@@ -296,14 +296,13 @@ test("bulk selection pages keep the same tenant and filters across REST and MCP"
   assert.deepEqual(first.prompts[0].variants[0], { id: expected.at(-1), workspace_id: "source" });
   const last = await tool("list_prompts", { ...matching, ...first.next_cursor });
   assert.equal(last.next_cursor, null);
-  assert.deepEqual([...first.prompts, ...last.prompts].map(row => row.id), [...expected].reverse());
+  assert.deepEqual([...first.prompts, ...last.prompts].map(row => row.variants[0].id), [...expected].reverse());
   await assert.rejects(call(query + "&limit=101"), { status: 400 });
   await assert.rejects(call(query + "&selection=1&before=1"), { status: 400 });
 
-  sql.exec(`UPDATE prompts SET text='Selection fixture' WHERE id LIKE 'match-%';
-    UPDATE prompts SET engine='gemini' WHERE id='match-1000';
-    UPDATE prompts SET text='Selection second question' WHERE id='match-0000';
-    UPDATE prompts SET text='Selection fixture' WHERE id='foreign-prompt';`);
+  sql.exec(`UPDATE prompts SET text='Selection fixture',engine='gemini' WHERE id='match-1000';
+    UPDATE prompt_engines SET question_id=(SELECT question_id FROM prompts WHERE id='match-1000')
+      WHERE id LIKE 'match-%' AND id<>'match-0000';`);
   const grouped = await tool("list_prompts", { ...matching, selection: false, limit: 1 });
   assert.equal(grouped.total, 2);
   assert.equal(grouped.prompts.length, 1);
@@ -316,6 +315,17 @@ test("bulk selection pages keep the same tenant and filters across REST and MCP"
   assert.equal(nextGroup.next_cursor, null);
   const byEngine = await tool("list_prompts", { ...matching, engine: "gemini" });
   assert.deepEqual(byEngine.prompts[0].variants, [{ id: "match-1000", workspace_id: "source" }]);
+
+  const question = grouped.prompts[0];
+  assert.equal((await tool("rename_prompt_question", { question_id: question.id, text: "Selection revised question" })).id, question.id);
+  assert.equal(sql.prepare("SELECT count(*) AS n FROM prompts WHERE question_id=? AND text='Selection revised question'").get(question.id)?.n, 1000);
+  assert.equal((await tool("rename_prompt_question", { question_id: question.id, text: "Selection fixture match-0000" }, true)).status, 409);
+  await assert.rejects(call("/prompt-questions/" + question.id, { text: "Selection blocked" }, "viewer", "PATCH"), { status: 403 });
+  const foreign = sql.prepare("SELECT question_id FROM prompts WHERE id='foreign-prompt'").get()!;
+  assert.equal((await tool("rename_prompt_question", { question_id: foreign.question_id, text: "Selection blocked" }, true)).status, 404);
+  const renamed = await (await call("/prompt-questions/" + question.id, { text: "Selection fixture" }, "owner", "PATCH")).json();
+  assert.deepEqual(renamed, { id: question.id, text: "Selection fixture" });
+  assert.deepEqual(sql.prepare("PRAGMA foreign_key_check").all(), []);
 
   const schedulePage = await tool("list_schedules", { workspace_id: "source", limit: 20 });
   assert.equal(schedulePage.total, 1004);

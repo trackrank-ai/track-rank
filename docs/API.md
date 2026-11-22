@@ -25,6 +25,7 @@ Scopes: `read` for GET, `write` for research mutations, `run` for paid execution
 | POST | `/prompts/bulk` | Save up to 500 prompt/engine combinations per request |
 | POST | `/prompts/move` | Move up to 100 prompt IDs to another workspace in the same organization with `{ids, workspace_id}` |
 | GET | `/prompts/:id` | Read a saved prompt in the selected organization |
+| PATCH | `/prompt-questions/:id` | Write scope. Update `{text}` for all engines attached to the question. |
 | PATCH | `/prompts/:id` | Full prompt configuration, same as creation. Sending `tags` replaces the list. Omit it to preserve tags. |
 | PATCH | `/prompts/bulk-settings` | Set execution mode on up to 100 selected prompts with `{ids, mode}` |
 | PATCH | `/prompts/bulk-tags` | Add or remove tags on up to 100 prompts with `{ids, action: "add" or "remove", tags}` |
@@ -64,7 +65,7 @@ The prompt library spans the organization when `workspace` is omitted. It suppor
 
 The first non-selection page of the prompt library and schedule list returns `total` for the current filters. Set `limit` to 1–100 for prompts or 1–500 for schedules to choose the page size. To gather every matching selection, keep the same filters and use `selection=1` for compact pages of up to 1,000 matches. Prompt selection groups contain variants reduced to `id` and `workspace_id`. Schedule selection rows include IDs and settings used to prefill shared edits. Forward both fields of `next_cursor` until it is null. Selection reads do not apply changes. Split large prompt settings, tags, move, and delete actions into requests of up to 100 IDs each.
 
-The prompt library and MCP `list_prompts` group matching variants by question. Each group contains `id` (the newest matching variant ID), `workspace_id`, `text`, `created_at`, and `variants`. Groups match exact text within a workspace. Filters apply to variants before grouping, and totals and cursors count groups. Pass the variant IDs to existing bulk actions.
+The prompt library and MCP `list_prompts` group matching variants by question. Each group contains `id` (the stable question ID), `workspace_id`, `text`, `created_at`, and `variants`. Saving identical wording in a workspace attaches the variants to the same question. Filters apply to variants before grouping, and totals and cursors count groups. Pass the variant IDs to existing bulk actions. Use `PATCH /prompt-questions/:id` with `{ "text": "Revised question" }` or MCP `rename_prompt_question` with `question_id` and `text` to edit the wording for every linked engine. A rename to wording already used by another question in that workspace returns 409. Saved runs retain the wording they collected.
 
 Manual and scheduled runs share the organization's monthly allowance.
 

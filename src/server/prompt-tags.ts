@@ -24,12 +24,12 @@ export async function updatePromptTags(env: Env, org: string, input: z.output<ty
   try {
     const result = await exec(env, `
       WITH selected AS MATERIALIZED (
-        SELECT id FROM prompts WHERE org_id=? AND archived_at IS NULL
+        SELECT id FROM prompt_engines WHERE org_id=? AND archived_at IS NULL
         AND id IN (SELECT value FROM json_each(?))
       )
-      UPDATE prompts SET tags=(
+      UPDATE prompt_engines SET tags=(
         SELECT json_group_array(value) FROM (
-          SELECT value FROM json_each(prompts.tags) ${operation}
+          SELECT value FROM json_each(prompt_engines.tags) ${operation}
           SELECT value FROM json_each(?) ORDER BY value
         )
       ),updated_at=?

@@ -32,7 +32,7 @@ confirmed. No invented registrations, head-office address or product tax code.
    Keep the Worker in maintenance through migrations `0016` to `0018` and the
    matching deployment. These migrations remove schema used by older Workers.
    Apply pending migrations, including `0019` for durable collection dispatch and
-   `0020` for prompt tags, `0024` for prompt sets and server-side Overview analytics, and `0025` for prompt receipts and manual collection batches, before deploying the Worker. Keep maintenance on through migration `0026` and the matching Worker deployment because the migration drops the prompt execution flag. Existing schedules blocked by that flag become paused. Roll forward with the matching Worker if deployment fails.
+   `0020` for prompt tags, `0024` for prompt sets and server-side Overview analytics, and `0025` for prompt receipts and manual collection batches, before deploying the Worker. Keep maintenance on through migration `0026` and the matching Worker deployment because the migration drops the prompt execution flag. Existing schedules blocked by that flag become paused. Apply migration `0027` in maintenance with the matching Worker to move prompt wording into shared question records. Verify that grouped questions and existing schedules and runs are readable before restoring traffic. Roll forward with the matching Worker if deployment fails.
 4. Obtain live restricted credentials via the deployment's secret store; confirm
    Stripe account charges/payouts eligibility and required business details.
 5. Create live Product/Price (USD 10 monthly, tax-exclusive) and portal (invoices,

@@ -1,3 +1,4 @@
+import { handleQuestionConflict, promptQuestionText } from "./prompt-questions";
 import { hashToken } from "./crypto";
 import { promptTags } from "./prompt-tags";
 import {assertProviderOptions} from "./provider-options";
@@ -10,7 +11,7 @@ import { requireWorkspaceBrand } from './workspace-brands';
 export const MAX_PROMPT_BATCH_BYTES = 6 * 700 * MAX_PROMPT_COMBINATIONS + 16_384;
 export const promptBatchSchema=z.object({
  workspace_id:z.string().min(1).max(100),brand_id:z.string().min(1).max(100).nullable().optional(),
- texts:z.array(z.string().trim().min(3).max(700)).min(1).max(MAX_PROMPT_COMBINATIONS),
+ texts:z.array(promptQuestionText).min(1).max(MAX_PROMPT_COMBINATIONS),
  engines:z.array(z.enum(['chatgpt','gemini','google'])).min(1).max(3),
  operation_id:z.uuid().optional(),
  source_id:z.string().min(1).max(100).optional(),
@@ -96,13 +97,13 @@ async function reviewPromptBatch(env: Env, org: string, input: unknown, save: bo
     SELECT ?,?,?,json_object('id',?,'workspace',json(?),'questions',?,'saved_combinations',count(id),
       'prompts',json_group_array(json_object('id',id,'text',text,'engine',engine,'monitoring',monitoring,'outcome',outcome))),?
     FROM (${reviewSql})`).bind(org, b.operation_id, payloadHash, b.operation_id, JSON.stringify(workspace), texts.length, time, ...reviewArgs));
-  await env.DB.batch(statements);
+  await handleQuestionConflict(env.DB.batch(statements));
   const stored = await storedReceipt(env, org, b.operation_id!);
   if (!stored) throw new HttpError(409, "The save receipt is unavailable. Retry the same operation.");
   return replayReceipt(stored, payloadHash);
  }
  // D1 serializes the match check, insertion and receipt read in the same transaction.
- const results = await env.DB.batch<Combination>([...statements, review]);
+ const results = await handleQuestionConflict(env.DB.batch<Combination>([...statements, review]));
  const prompts = results.at(-1)!.results;
  return { workspace, questions: texts.length, saved_combinations: prompts.filter(prompt => prompt.id).length, prompts };
 }

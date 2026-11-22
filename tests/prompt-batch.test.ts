@@ -1,3 +1,5 @@
+import { DatabaseSync } from "node:sqlite";
+import { readFileSync, readdirSync } from "node:fs";
 import {test} from 'node:test';import assert from 'node:assert/strict';import {inspectPromptInput,parsePromptInput} from '../src/lib/prompt-input';import {savePromptBatch} from '../src/server/prompt-batch';import {fixture} from './helpers/billing-fixture';
 test("a single line preserves commas and counts repeated nonblank questions", () => {
   const question = "For a small agency, which reporting tools work best?";
@@ -12,7 +14,7 @@ test('paste supports lines or quoted commas; lines preserve natural punctuation 
 });
 test('batch atomically saves engine variants, reuses exact matches, and rejects cross-tenant edits',async()=>{
  const {env,sql}=setup();const first=await savePromptBatch(env,'org',base);assert.equal(first.saved_combinations,6);assert.equal(sql.prepare('SELECT count(*) AS n FROM prompts').get()?.n,6);await savePromptBatch(env,'org',base);assert.equal(sql.prepare('SELECT count(*) AS n FROM prompts').get()?.n,6);await assert.rejects(savePromptBatch(env,'another',base),/Workspace not found/);
- const source=sql.prepare("SELECT id FROM prompts WHERE engine='gemini' LIMIT 1").get()!;await savePromptBatch(env,'org',{...base,texts:['Updated question?'],engines:['gemini','google'],source_id:source.id});assert.equal(sql.prepare('SELECT engine,text FROM prompts WHERE id=?').get(source.id)?.engine,'gemini');assert.equal(sql.prepare("SELECT count(*) AS n FROM prompts WHERE text='Updated question?'").get()?.n,2);
+ const source=sql.prepare("SELECT id FROM prompts WHERE engine='gemini' LIMIT 1").get()!;await savePromptBatch(env,'org',{...base,texts:['Updated question?'],engines:['gemini','google'],source_id:source.id});assert.equal(sql.prepare('SELECT engine,text FROM prompts WHERE id=?').get(source.id)?.engine,'gemini');assert.equal(sql.prepare("SELECT count(*) AS n FROM prompts WHERE text='Updated question?'").get()?.n,3);
 });
 test('bad inputs and more than 500 prompt-engine combinations do not partially save',async()=>{
  const {env,sql}=setup();await assert.rejects(savePromptBatch(env,'org',{...base,texts:['valid question','x']}));assert.equal(sql.prepare('SELECT count(*) AS n FROM prompts').get()?.n,0);await assert.rejects(savePromptBatch(env,'org',{...base,texts:Array.from({length:167},(_,i)=>'Question '+i)}),/Detected 501.*500/);assert.equal(sql.prepare('SELECT count(*) AS n FROM prompts').get()?.n,0);
@@ -47,7 +49,7 @@ test("saved prompt filters combine keyword, engine, schedule, and client across 
   const list = async (query: string) => (await api(
     new Request('https://example.test/api/v1/prompts?org=org&workspace=space&view=library&' + query),
     env,{waitUntil:()=>{}} as any,{userId:'owner',orgId:'org'},
-  )).json() as Promise<{prompts:{id:string; variants:{actively_scheduled:number}[]}[];next_cursor:{before:number;before_id:string}|null}>;
+  )).json() as Promise<{prompts:{id:string; variants:{id:string; actively_scheduled:number}[]}[];next_cursor:{before:number;before_id:string}|null}>;
   const insert = sql.prepare("INSERT INTO prompts(id,org_id,workspace_id,brand_id,text,engine,created_at,updated_at) VALUES(?,'org','space',?,?,?,10,10)");
   for (let i = 0; i < 105; i++) insert.run("p"+String(i).padStart(3,"0"),null,"Test keyword "+i,"google");
   insert.run("explicit-other","other","Test keyword other","google");
@@ -64,7 +66,7 @@ test("saved prompt filters combine keyword, engine, schedule, and client across 
   assert.equal(next.prompts.length,6);
   assert.equal(new Set([...page.prompts,...next.prompts].map(prompt => prompt.id)).size,106);
   assert.equal(next.next_cursor,null);
-  assert.deepEqual((await list(query + "&schedule=active")).prompts.map(row => [row.id,row.variants[0].actively_scheduled]), [["p000",1]]);
+  assert.deepEqual((await list(query + "&schedule=active")).prompts.map(row => [row.variants[0].id,row.variants[0].actively_scheduled]), [["p000",1]]);
   assert.deepEqual((await list(query + "&schedule=inactive")).prompts.map(row => row.variants[0].actively_scheduled),Array(100).fill(0));
 });
 
@@ -152,4 +154,32 @@ test("REST and MCP share receipt actions, exact batch status and readiness", asy
   const loaded = await call("/runs/batches/" + operation_id);
   assert.deepEqual(loaded.runs.map((run: any) => run.status), ["uncertain", "succeeded"]);
   assert.equal(sql.prepare("SELECT count(*) AS n FROM schedules").get()?.n, 2);
+});
+
+test("shared question migration preserves engine and historical references", () => {
+  const sql = new DatabaseSync(":memory:");
+  const migration = "0027_shared_prompt_questions.sql";
+  for (const file of readdirSync("migrations").filter(file => file.endsWith(".sql") && file < migration).sort()) {
+    sql.exec(readFileSync("migrations/" + file, "utf8"));
+  }
+  sql.exec(`INSERT INTO organizations(id,name,created_at) VALUES('org','Organization',0);
+    INSERT INTO workspaces(id,org_id,name,created_at) VALUES('w','org','Workspace',0);
+    INSERT INTO prompts(id,org_id,workspace_id,text,engine,created_at,updated_at) VALUES
+      ('g','org','w','Shared question','gemini',0,0),('c','org','w','Shared question','chatgpt',0,0);
+    INSERT INTO schedules(id,org_id,prompt_id,preset,days,times_json,timezone,created_at)
+      VALUES('sched','org','g','daily','[0]','["09:00"]','UTC',0);
+    INSERT INTO runs(id,org_id,prompt_id,workspace_id,prompt_text,config,status,idempotency_key,created_at,updated_at)
+      VALUES('run','org','c','w','Shared question','{}','succeeded','op',0,0);
+    INSERT INTO prompt_sets VALUES('set','org','w','Example');
+    INSERT INTO prompt_set_members VALUES('org','w','set','c');`);
+  sql.exec(readFileSync("migrations/" + migration, "utf8"));
+  assert.equal(sql.prepare("SELECT count(*) AS n FROM prompt_questions").get()?.n, 1);
+  assert.equal(sql.prepare("SELECT count(*) AS n FROM prompt_engines").get()?.n, 2);
+  sql.exec("UPDATE prompts SET text='Revised question' WHERE id='g'");
+  assert.equal(sql.prepare("SELECT text FROM prompts WHERE id='c'").get()?.text, "Revised question");
+  assert.equal(sql.prepare("SELECT prompt_id FROM schedules WHERE id='sched'").get()?.prompt_id, "g");
+  assert.equal(sql.prepare("SELECT prompt_text FROM runs WHERE id='run'").get()?.prompt_text, "Shared question");
+  assert.equal(sql.prepare("SELECT prompt_id FROM prompt_set_members WHERE set_id='set'").get()?.prompt_id, "c");
+  assert.deepEqual(sql.prepare("PRAGMA foreign_key_check").all(), []);
+  sql.close();
 });
