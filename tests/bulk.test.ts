@@ -146,9 +146,11 @@ test('a large schedule is created paused through REST, enabled through MCP, and 
   assignRunLimit(sql, 1200);
   let time = Date.parse('2026-11-21T08:00Z');
   t.mock.method(Date, 'now', () => time);
-  const insert = sql.prepare("INSERT INTO prompts(id,org_id,workspace_id,text,created_at,updated_at) VALUES(?,'org','w',?,0,0)");
+  const insert = sql.prepare("INSERT INTO prompts(id,org_id,workspace_id,text,engine,created_at,updated_at) VALUES(?,'org','w',?,?,0,0)");
   const prompt_ids = Array.from({ length: 600 }, (_, i) => `schedule-prompt-${i}`);
-  for (const id of prompt_ids) insert.run(id, `Question ${id}`);
+  for (const [index, id] of prompt_ids.entries()) {
+    insert.run(id, `Question ${Math.floor(index / 2)}`, index % 2 ? "chatgpt" : "gemini");
+  }
   const { api } = await import('../src/server/api');
   const { mcp } = await import('../src/server/mcp');
   const { hashToken } = await import('../src/server/crypto');
@@ -184,7 +186,7 @@ test('a large schedule is created paused through REST, enabled through MCP, and 
   assert.equal(sql.prepare('SELECT count(*) AS n FROM runs').get()?.n, 0);
   const list = async (query = '') => (await api(new Request('https://example.test/api/v1/schedules?org=org' + query),
     env, context, { userId: 'alice', orgId: 'org' })).json() as Promise<{
-      schedules: { id: string }[]; next_cursor: { before: number; before_id: string } | null;
+      schedules: { id: string; prompt_text: string; engine: string; workspace_id: string }[]; next_cursor: { before: number; before_id: string } | null;
     }>;
   const firstPage = await list();
   assert.equal(firstPage.schedules.length, 500);
@@ -194,6 +196,11 @@ test('a large schedule is created paused through REST, enabled through MCP, and 
   const secondPage = JSON.parse(listed.result.content[0].text) as typeof firstPage;
   assert.equal(secondPage.next_cursor, null);
   assert.deepEqual(new Set([...firstPage.schedules, ...secondPage.schedules].map(schedule => schedule.id)), new Set(replay.schedule_ids));
+
+  for (const page of [firstPage, secondPage]) {
+    assert.deepEqual(new Set(page.schedules.map(schedule => schedule.engine)), new Set(["chatgpt", "gemini"]));
+    assert.ok(page.schedules.every(schedule => schedule.workspace_id === "w" && schedule.prompt_text.startsWith("Question ")));
+  }
 
   const rejected = await tool('update_schedules', { ids: [...replay.schedule_ids, 'foreign'], enabled: true });
   assert.equal(rejected.result.isError, true);

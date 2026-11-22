@@ -1,0 +1,106 @@
+.app-shell .app-section-chooser {
+  display: none;
+}
+
+.workspace-schedule-row .workspace-schedule-description {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.workspace-schedule-description small {
+  color: var(--muted-foreground);
+  display: block;
+  font-size: 0.875rem;
+  line-height: 1.45;
+}
+
+.workspace-schedule-description strong {
+  font-size: 0.9375rem;
+}
+
+.overview-findings h2,
+.overview-setup h2 {
+  margin-bottom: 0.5rem;
+}
+
+.overview-findings p + p {
+  margin-top: 0.5rem;
+}
+
+.overview-findings p a {
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+.overview-scope {
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+}
+
+.overview-setup ol {
+  display: grid;
+  gap: 0.8rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.overview-setup li {
+  align-items: baseline;
+  border-block-start: 1px solid var(--border);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  padding-block-start: 0.8rem;
+}
+
+.overview-setup li a,
+.overview-setup li > span:last-child {
+  margin-inline-start: auto;
+}
+
+@media (max-width: 760px) {
+  .app-shell .app-sidebar .app-nav {
+    display: none;
+  }
+
+  .app-shell .app-section-chooser {
+    display: grid;
+    grid-column: 1 / -1;
+  }
+
+  .app-shell .app-sidebar {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .app-shell .org-switcher {
+    justify-self: end;
+    max-width: 12rem;
+    width: 100%;
+  }
+
+  .app-shell .org-switcher > span {
+    display: block;
+  }
+
+  .app-shell .org-switcher select,
+  .app-shell .app-section-chooser select {
+    font-size: 1rem;
+    min-height: 2.75rem;
+  }
+
+  .workspace-schedule-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+  }
+
+  .workspace-schedule-row .workspace-schedule-description {
+    grid-column: 1 / -1;
+    min-width: 0;
+  }
+
+  .workspace-schedule-row > input + .workspace-schedule-description {
+    grid-column: 2 / -1;
+  }
+}
