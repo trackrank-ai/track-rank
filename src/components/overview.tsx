@@ -126,7 +126,9 @@ export function Overview({ org, workspace, scope, brands, request, revision }: {
   if (result?.error) return <p role="alert">{result.error}</p>;
   if (!result?.data) return <p role="status">Calculating visibility…</p>;
   const data = result.data;
-  if (scope.set && !data.selected_prompts && !scope.tags) return <p className="data-note">This prompt set is empty. Add prompts to see its performance.</p>;
+  if (scope.set && !data.selected_prompts) return <p className="data-note">
+    {scope.tags ? "No prompts in this set match the selected tags." : "This prompt set is empty. Add prompts to see its performance."}
+  </p>;
   const metricLink = (metric?: AnswerMetric, overrides?: AnalyticsScope) => ({
     ...scope, ...overrides, org, workspace, tab: "runs" as const, metric,
   });
