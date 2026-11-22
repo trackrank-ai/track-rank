@@ -12,9 +12,12 @@ function setup(){const f=fixture();f.sql.exec("INSERT INTO workspaces(id,org_id,
 test('paste supports lines or quoted commas; lines preserve natural punctuation and duplicate prompts collapse',()=>{
  assert.deepEqual(parsePromptInput('Best cleaners?\nCleaners, near Seattle?\r\nBest cleaners?'),['Best cleaners?','Cleaners, near Seattle?']);assert.deepEqual(parsePromptInput('Best cleaners?, "Cleaners, near Seattle?"', "commas"),['Best cleaners?','Cleaners, near Seattle?']);assert.deepEqual(parsePromptInput('Cleaners, near Seattle?','lines'),['Cleaners, near Seattle?']);assert.throws(()=>parsePromptInput('"Missing close, quote', "commas"),/Close the quoted/);
 });
-test('batch atomically saves engine variants, reuses exact matches, and rejects cross-tenant edits',async()=>{
+test('batch atomically saves engine variants, reuses exact matches, and rejects cross-tenant saves and legacy edit payloads',async()=>{
  const {env,sql}=setup();const first=await savePromptBatch(env,'org',base);assert.equal(first.saved_combinations,6);assert.equal(sql.prepare('SELECT count(*) AS n FROM prompts').get()?.n,6);await savePromptBatch(env,'org',base);assert.equal(sql.prepare('SELECT count(*) AS n FROM prompts').get()?.n,6);await assert.rejects(savePromptBatch(env,'another',base),/Workspace not found/);
- const source=sql.prepare("SELECT id FROM prompts WHERE engine='gemini' LIMIT 1").get()!;await savePromptBatch(env,'org',{...base,texts:['Updated question?'],engines:['gemini','google'],source_id:source.id});assert.equal(sql.prepare('SELECT engine,text FROM prompts WHERE id=?').get(source.id)?.engine,'gemini');assert.equal(sql.prepare("SELECT count(*) AS n FROM prompts WHERE text='Updated question?'").get()?.n,3);
+ const source=sql.prepare("SELECT id,text FROM prompts WHERE engine='gemini' LIMIT 1").get()!;
+ await assert.rejects(savePromptBatch(env,'org',{...base,texts:['Updated question?'],engines:['gemini','google'],source_id:source.id}), /source_id/);
+ assert.equal(sql.prepare('SELECT text FROM prompts WHERE id=?').get(source.id)?.text,source.text);
+ assert.equal(sql.prepare('SELECT count(*) AS n FROM prompts').get()?.n,6);
 });
 test('bad inputs and more than 500 prompt-engine combinations do not partially save',async()=>{
  const {env,sql}=setup();await assert.rejects(savePromptBatch(env,'org',{...base,texts:['valid question','x']}));assert.equal(sql.prepare('SELECT count(*) AS n FROM prompts').get()?.n,0);await assert.rejects(savePromptBatch(env,'org',{...base,texts:Array.from({length:167},(_,i)=>'Question '+i)}),/Detected 501.*500/);assert.equal(sql.prepare('SELECT count(*) AS n FROM prompts').get()?.n,0);
@@ -175,8 +178,7 @@ test("shared question migration preserves engine and historical references", () 
   sql.exec(readFileSync("migrations/" + migration, "utf8"));
   assert.equal(sql.prepare("SELECT count(*) AS n FROM prompt_questions").get()?.n, 1);
   assert.equal(sql.prepare("SELECT count(*) AS n FROM prompt_engines").get()?.n, 2);
-  sql.exec("UPDATE prompts SET text='Revised question' WHERE id='g'");
-  assert.equal(sql.prepare("SELECT text FROM prompts WHERE id='c'").get()?.text, "Revised question");
+  assert.equal(sql.prepare("SELECT text FROM prompts WHERE id='c'").get()?.text, "Shared question");
   assert.equal(sql.prepare("SELECT prompt_id FROM schedules WHERE id='sched'").get()?.prompt_id, "g");
   assert.equal(sql.prepare("SELECT prompt_text FROM runs WHERE id='run'").get()?.prompt_text, "Shared question");
   assert.equal(sql.prepare("SELECT prompt_id FROM prompt_set_members WHERE set_id='set'").get()?.prompt_id, "c");

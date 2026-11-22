@@ -354,6 +354,8 @@ test('bulk prompt settings route is not intercepted by the single-prompt route a
  assert.equal((await call({ids:['p1','p2'],mode:'priority'})).status,200);
  await assert.rejects(call({ids:['p1','p2'],mode:'standard',enabled:false}),{status:400});
  await assert.rejects(call({ids:['p1','foreign'],mode:'standard'}),/not in this organization/);
+ await assert.rejects(call({ids:['p1','p2'],mode:'standard',location_name:'unsupported location'}),{status:400});
+ await assert.rejects(call({ids:['p1','p2'],text:'Reword the prompt'}),{status:400});
  assert.ok(sql.prepare('SELECT * FROM prompts').all().every(p=>p.mode==='priority'));
 });
 

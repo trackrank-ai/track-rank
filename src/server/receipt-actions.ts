@@ -19,7 +19,7 @@ export const receiptActionSchema = collectionActionFields.extend({
 }).refine(value => value.run_samples || value.schedule, "Choose a collection or schedule action");
 
 export const submitPromptBatchSchema = z.object({
-  prompts: promptBatchSchema.extend({ operation_id: z.uuid() }).omit({ source_id: true }),
+  prompts: promptBatchSchema.extend({ operation_id: z.uuid() }),
   action: collectionActionFields.extend({
     approved: z.array(z.object({
       question: z.number().int().min(0).max(499),

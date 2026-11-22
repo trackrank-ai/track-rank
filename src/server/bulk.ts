@@ -21,7 +21,6 @@ export const bulkRunSchema = z.object({
  expected_workspace_id: z.string().min(1).max(100).optional(),
 }).strict();
 export const bulkScheduleSchema=z.object({prompt_ids:collectionIds,only_unscheduled:z.boolean().default(false),batch_id:z.uuid().optional(),name:z.string().trim().max(100).default('Scheduled prompts'),preset:z.enum(['daily','weekly','mwf','custom']),days:z.array(z.number().int().min(0).max(6)).min(1).max(7),times:z.array(z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/)).min(1).max(8),timezone:z.string().min(1).max(100),repetitions:z.number().int().min(1).max(10).default(1),enabled:z.boolean().default(false)}).strict();
-export const bulkPromptSettingsSchema=z.object({ids,mode:z.enum(["standard","priority","live"])}).strict();
 export async function selectedRows(env:Env,org:string,table:'prompts'|'schedules',selected:string[],limit:number|null=100){
  const unique=[...new Set(selected)];
  if (!unique.length) throw new HttpError(400, 'Choose at least one item');
