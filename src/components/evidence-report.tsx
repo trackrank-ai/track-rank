@@ -8,8 +8,11 @@ type EvidenceSource = {
   domain?: string | null;
 };
 
-export function EvidenceSources({ sources }: { sources: readonly EvidenceSource[] }) {
-  if (!sources.length) return <p className="evidence-report-note">The provider returned no citations.</p>;
+export function EvidenceSources({ sources, illustrative = false }: {
+  sources: readonly EvidenceSource[];
+  illustrative?: boolean;
+}) {
+  if (!sources.length) return <p className="evidence-report-note">{illustrative ? "No example sources." : "The provider returned no citations."}</p>;
 
   return (
     <ul className="evidence-source-list">
@@ -41,18 +44,20 @@ export function EvidenceReport({
   sources,
   emptyAnswer = "No AI answer was recorded.",
   className,
+  illustrative = false,
 }: {
   answer: string | null;
   observations?: readonly { label: string; value: ReactNode }[];
   sources?: readonly EvidenceSource[];
   emptyAnswer?: ReactNode;
   className?: string;
+  illustrative?: boolean;
 }) {
   const id = useId();
   return (
     <div className={["evidence-report", className].filter(Boolean).join(" ")}>
       <section aria-labelledby={`${id}-answer`}>
-        <h3 id={`${id}-answer`}>Recorded answer</h3>
+        <h3 id={`${id}-answer`}>{illustrative ? "Example answer" : "Recorded answer"}</h3>
         {answer ? <p className="evidence-answer">{answer}</p> : <p className="evidence-report-note">{emptyAnswer}</p>}
       </section>
       {(observations || sources) && (
@@ -74,8 +79,8 @@ export function EvidenceReport({
           )}
           {sources && (
             <section aria-labelledby={`${id}-sources`}>
-              <h3 id={`${id}-sources`}>Sources supplied by the provider</h3>
-              <EvidenceSources sources={sources} />
+              <h3 id={`${id}-sources`}>{illustrative ? "Example sources" : "Sources supplied by the provider"}</h3>
+              <EvidenceSources sources={sources} illustrative={illustrative} />
             </section>
           )}
         </div>
