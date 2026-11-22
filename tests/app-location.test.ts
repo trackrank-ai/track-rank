@@ -30,6 +30,7 @@ test("filtered analytics and metric links retain their scope through sign-in", (
     org: "agency", workspace: "client", tab: "runs", set: "local-discovery", tags: "consideration,chicago-market",
     location: "Chicago", engine: "google", from: "2026-11-01", to: "2026-11-20", trackedBrand: "client-brand", compareBrand: "competitor",
     metric: "compare_citation", trendMetric: "citation", evidenceDay: "2026-11-13",
+    reportQuestion: "recorded-run-id", reportEngine: "google",
   });
   const login = new URL(appLoginPath("?" + original, ""), "https://trackrank.invalid");
   const result = new URL(login.searchParams.get("next")!, login).searchParams;

@@ -1,3 +1,4 @@
+import { overviewQuestionsPage } from "./analytics";
 import { bulkPromptSettingsSchema } from "./prompt-settings";
 import { receiptActionSchema, submitPromptBatchSchema } from "./receipt-actions";
 import { bulkPromptTagsSchema, promptTag, promptTags } from "./prompt-tags";
@@ -188,6 +189,10 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
     description: "Compute full-period visibility totals, coverage, brand rates and UTC daily trends. Pass tracked_brand for daily brand statistics and compare_brand for their common cohort.",
     inputSchema: { ...reportingInput, compare_brand: runHistoryFilters.shape.compare_brand },
   }, async args => invoke(filteredPath("/analytics", args)));
+  server.registerTool("get_overview_questions", {
+    description: "Page through per-question and engine counts from the Overview evidence cohort. Pass a row's evidence_run_id as report_evidence_run to list_runs.",
+    inputSchema: { ...reportingInput, compare_brand: runHistoryFilters.shape.compare_brand, page: overviewQuestionsPage.optional() },
+  }, async args => invoke(filteredPath("/analytics/questions", args)));
   server.registerTool("list_collection_locations", {
     description: "List locations recorded on runs in the reporting scope.",
     inputSchema: reportingInput,

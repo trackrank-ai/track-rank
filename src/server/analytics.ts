@@ -1,6 +1,7 @@
+import { z } from "zod";
 import { DAY_MS, utcDay, validDay } from "../lib/analytics-filters";
-import { brandOutcome, brandSnapshot, brandSnapshotId, currentPromptWhere, eligibleAnswer, outcomePredicates, parseHistoryFilters, runConfig, searchableHistoryWhere } from "./run-history";
-import { all, now, type Env } from "./types";
+import { brandOutcome, brandSnapshot, brandSnapshotId, brandTracked, currentPromptWhere, eligibleAnswer, outcomePredicates, parseHistoryFilters, runConfig, searchableHistoryWhere } from "./run-history";
+import { all, HttpError, now, type Env } from "./types";
 
 function reportingPeriod(params: URLSearchParams) {
   const query = new URLSearchParams(params);
@@ -67,7 +68,9 @@ export async function analytics(env: Env, org: string, params: URLSearchParams) 
       GROUP BY domain ORDER BY answers DESC,domain LIMIT 6
     )
     ORDER BY kind,key`, ...bindings, org, ...(filters.workspace ? [filters.workspace] : []),
-    ...(filters.set ? [filters.set] : []), ...selected.bindings, filters.tracked_brand ?? null, filters.compare_brand ?? null, filters.tracked_brand ?? null);
+    ...(filters.set ? [filters.set] : []), ...selected.bindings,
+    filters.tracked_brand ?? null, filters.compare_brand ?? null,
+    filters.tracked_brand ?? null);
   const total = rows.find(row => row.kind === "total")!;
   const unrestricted = await searchableHistoryWhere(env, org, new URLSearchParams(filters.workspace ? { workspace: filters.workspace } : {}));
   const [outcomes, workspaceTotals] = await Promise.all([
@@ -95,6 +98,40 @@ export async function analytics(env: Env, org: string, params: URLSearchParams) 
         ({ day: key, samples, mentions, citations, compare_mentions, compare_citations })),
     daily: rows.filter(row => row.kind === "day").map(({ key, samples, mentions, citations }) => ({ day: key, samples, mentions, citations })),
   };
+}
+
+export const overviewQuestionsPage = z.number().int().min(1).max(1_000_000);
+const questionPageSize = 20;
+
+export async function overviewQuestions(env: Env, org: string, params: URLSearchParams) {
+  const parsedPage = overviewQuestionsPage.safeParse(Number(params.get("page") ?? 1));
+  if (!parsedPage.success) throw new HttpError(400, "Invalid question breakdown page");
+  const page = parsedPage.data;
+  const { query, filters } = reportingPeriod(params);
+  const { conditions, bindings } = await searchableHistoryWhere(env, org, query);
+  const brands = [filters.tracked_brand, filters.compare_brand].filter(brand => brand !== undefined);
+  const cohort = brands.map(() => brandTracked);
+  const rows = await all<{
+    evidence_run_id: string;
+    workspace_id: string;
+    question: string;
+    engine: string | null;
+    eligible_answers: number;
+    mentions: number;
+    citations: number;
+    compare_mentions: number;
+    compare_citations: number;
+  }>(env, `SELECT min(runs.id) AS evidence_run_id, runs.workspace_id, runs.prompt_text AS question,
+      json_extract(${runConfig},'$.engine') AS engine, count(*) AS eligible_answers,
+      sum(${brandOutcome("?", "mentioned")}) AS mentions, sum(${brandOutcome("?", "cited")}) AS citations,
+      sum(${brandOutcome("?", "mentioned")}) AS compare_mentions, sum(${brandOutcome("?", "cited")}) AS compare_citations
+    FROM runs WHERE ${[...conditions, eligibleAnswer, ...cohort].join(" AND ")}
+    GROUP BY runs.workspace_id, runs.prompt_text, engine
+    ORDER BY eligible_answers DESC, question COLLATE NOCASE, evidence_run_id
+    LIMIT ? OFFSET ?`,
+    filters.tracked_brand ?? null, filters.tracked_brand ?? null, filters.compare_brand ?? null, filters.compare_brand ?? null,
+    ...bindings, ...brands, questionPageSize + 1, (page - 1) * questionPageSize);
+  return { questions: rows.slice(0, questionPageSize), next_page: rows.length > questionPageSize ? page + 1 : null };
 }
 
 export async function researchSummary(env: Env, org: string, params: URLSearchParams) {

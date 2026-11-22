@@ -355,6 +355,7 @@ function App() {
     ...((nextTab === "overview" || nextTab === "runs") ? { trendMetric: search.trendMetric } : {}),
     ...(nextTab === "runs" && tab === "runs" ? { metric: search.metric, evidenceDay: search.evidenceDay,
       q: search.q, outcome: search.outcome, status: search.status, brand: search.brand,
+      reportQuestion: search.reportQuestion, reportEngine: search.reportEngine,
       researchGroup: search.researchGroup, researchType: search.researchType, researchValue: search.researchValue } : {}),
   });
   const scheduleScope = { org, workspace, set: search.set, trackingView: search.trackingView };
@@ -1419,7 +1420,7 @@ function App() {
                   onChange={scope => void navigate({ search: { org, workspace, tab, ...scope,
                     researchGroup: tab === "research" ? researchGroup : undefined, researchType: search.researchType, researchValue: search.researchValue, trendMetric: search.trendMetric } })}
                 />;
-                return tab === "research" ? filters : <Overview org={org} workspace={workspace} workspaceName={workspaceName}
+                return tab === "research" ? filters : <Overview org={org} workspace={workspace} workspaceName={workspaceName} workspaceNames={workspaceNames}
                   scope={reportScope} sets={promptSets} engines={engines} brands={scopeBrands as { id: string; name: string }[]}
                   hasTrackedBrand={allWorkspaces ? workspaces.some(w => brandIds(w.id).length > 0) : trackedBrandIds.size > 0}
                   brandWorkspace={workspaceId || workspaces[0]?.id || workspace}

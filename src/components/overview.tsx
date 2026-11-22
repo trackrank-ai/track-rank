@@ -12,6 +12,19 @@ type RequestData = (path: string) => Promise<Item>;
 type Brand = { id: string; name: string };
 type Counts = { samples: number; mentions: number; citations: number };
 type Day = Counts & { day: string; compare_mentions?: number; compare_citations?: number };
+type QuestionBreakdownRow = {
+  evidence_run_id: string;
+  workspace_id: string;
+  question: string;
+  engine: AnalyticsScope["engine"] | null;
+  eligible_answers: number;
+  mentions: number;
+  citations: number;
+  compare_mentions: number;
+  compare_citations: number;
+};
+type EvidenceLink = (metric?: AnswerMetric, day?: string, row?: { evidence_run_id: string; engine: AnalyticsScope["engine"] }) => AppSearch;
+
 type OverviewData = {
   from: string;
   to: string;
@@ -43,7 +56,7 @@ export function useReport<T>(path: string, request: RequestData, revision: unkno
   return result?.path === path && result.request === request ? result : undefined;
 }
 
-export function OverviewFilters({ scope, org, workspace, workspaceNames, sets, brands, engines, request, revision, onChange, showBrand = true, summarize = true }: {
+export function OverviewFilters({ scope, org, workspace, workspaceNames, sets, brands, engines, request, revision, onChange, showBrand = true, summarize = true, lockSet = false }: {
   scope: AnalyticsScope;
   org: string;
   workspace: string;
@@ -56,6 +69,7 @@ export function OverviewFilters({ scope, org, workspace, workspaceNames, sets, b
   onChange: (scope: AnalyticsScope) => void;
   summarize?: boolean;
   showBrand?: boolean;
+  lockSet?: boolean;
 }) {
   const [error, setError] = useState("");
   const locationQuery = analyticsQuery({ ...scope, location: undefined, trackedBrand: undefined, compareBrand: undefined }, workspace);
@@ -77,7 +91,7 @@ export function OverviewFilters({ scope, org, workspace, workspaceNames, sets, b
       const tags = splitPromptTags(String(data.tags ?? ""));
       if (tags.length > MAX_PROMPT_TAGS || tags.some(tag => !validPromptTag(tag)))
         throw new Error("Enter up to 20 tags of 1–50 characters each.");
-      onChange(analyticsScope({ ...data, compareBrand: scope.compareBrand, tags: tags.join(",") }));
+      onChange(analyticsScope({ ...data, set: lockSet ? scope.set : data.set, compareBrand: scope.compareBrand, tags: tags.join(",") }));
       setError("");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Invalid tags");
@@ -93,13 +107,13 @@ export function OverviewFilters({ scope, org, workspace, workspaceNames, sets, b
         <label className="app-field"><span>Through (UTC)</span>
           <input name="to" type="date" required defaultValue={scope.to} />
         </label>
-        <label className="app-field"><span>Prompt set</span>
+        {!lockSet && <label className="app-field"><span>Prompt set</span>
           <select name="set" defaultValue={scope.set ?? ""}>
             <option value="">All prompts</option>
             {scope.set && !activeSet && <option value={scope.set}>Selected set</option>}
             {sets.map(set => <option key={set.id} value={set.id}>{set.name}{workspace === "all" ? ` · ${workspaceNames[set.workspace_id]}` : ""}</option>)}
           </select>
-        </label>
+        </label>}
         <label className="app-field"><span>Tags · match all</span>
           <input name="tags" defaultValue={scope.tags} maxLength={1020} placeholder="consideration, chicago-market" />
           <small>Up to {MAX_PROMPT_TAGS} comma-separated tags.</small>
@@ -124,9 +138,9 @@ export function OverviewFilters({ scope, org, workspace, workspaceNames, sets, b
       </div>
       <div className="form-actions">
         <Button type="submit">Apply filters</Button>
-        <Button type="button" variant="outline" onClick={event => { event.currentTarget.form?.reset(); setError(""); onChange({}); }}>Clear filters</Button>
+        <Button type="button" variant="outline" onClick={event => { event.currentTarget.form?.reset(); setError(""); onChange(lockSet ? { set: scope.set } : {}); }}>Clear filters</Button>
       </div>
-      {activeSet && <Link className="small-link" to="/app" search={{ org, workspace: activeSet.workspace_id, tab: "prompts", set: activeSet.id }}>View prompts in {activeSet.name}</Link>}
+      {!lockSet && activeSet && <Link className="small-link" to="/app" search={{ org, workspace: activeSet.workspace_id, tab: "prompts", set: activeSet.id }}>View prompts in {activeSet.name}</Link>}
       {error && <p role="alert">{error}</p>}
     </form>
   </details>;
@@ -134,7 +148,7 @@ export function OverviewFilters({ scope, org, workspace, workspaceNames, sets, b
 
 export function Overview({
   org, workspace, workspaceName, scope, brands, sets, engines, hasTrackedBrand, brandWorkspace, credentialsConnected, canWrite,
-  canManageCredentials, request, revision, filters, trendMetric = "mention",
+  canManageCredentials, request, revision, filters, trendMetric = "mention", reportLink, evidenceLink, reviewCollectionsLink, workspaceNames, emptyScope,
 }: {
   org: string;
   workspace: string;
@@ -152,12 +166,18 @@ export function Overview({
   revision: unknown;
   filters: ReactNode;
   trendMetric?: TrendMetric;
+  reportLink?: (scope: AnalyticsScope, trendMetric: TrendMetric) => AppSearch;
+  evidenceLink?: EvidenceLink;
+  reviewCollectionsLink?: AppSearch;
+  workspaceNames?: Record<string, string>;
+  emptyScope?: ReactNode;
 }) {
   const result = useReport<OverviewData>("/analytics?" + analyticsQuery(scope, workspace), request, revision);
   if (result?.error) return <><p role="alert">{result.error}</p>{filters}</>;
   if (!result?.data) return <p role="status">Calculating visibility…</p>;
   const data = result.data;
   if (!data.workspace_has_runs) {
+    if (emptyScope) return <>{emptyScope}{filters}</>;
     const next = !hasTrackedBrand ? "brands" : !data.workspace_prompts ? "prompts"
       : !credentialsConnected ? "settings" : "collect";
     const steps = [
@@ -197,10 +217,17 @@ export function Overview({
   const scopeLabel = [workspaceName, `${dateLabel} (UTC)`, scope.engine ? engines[scope.engine] : "All engines",
     selectedBrand ?? "No tracked brand", scope.set && (setName || "Selected prompt set"), scope.location,
     scope.tags && `Tags ${scope.tags}`].filter(Boolean).join(" · ");
-  const overviewLink = { ...scope, org, workspace, tab: "overview" as const, trendMetric };
-  const metricLink = (metric?: AnswerMetric, day?: string): AppSearch => ({
+  const toReport = (nextScope: AnalyticsScope, nextMetric = trendMetric): AppSearch =>
+    reportLink?.(nextScope, nextMetric) ?? { ...nextScope, org, workspace, tab: "overview", trendMetric: nextMetric };
+  const metricLink: EvidenceLink = evidenceLink ?? ((metric, day, row) => ({
     ...scope, org, workspace, tab: "runs", metric, trendMetric, evidenceDay: day,
+    reportQuestion: row?.evidence_run_id, reportEngine: row?.engine,
+  }));
+  const availableHistory = toReport({
+    set: scope.set, trackedBrand: scope.trackedBrand,
+    from: data.workspace_first_run === null ? undefined : utcDay(data.workspace_first_run), to: utcDay(Date.now()),
   });
+  const reviewCollections = reviewCollectionsLink ?? metricLink();
   const days = scope.compareBrand ? data.comparison_daily : data.daily;
   const totals = days.reduce((total, day) => ({
     samples: total.samples + day.samples,
@@ -223,7 +250,7 @@ export function Overview({
     <Card><CardContent className="overview-findings">
       <h2>Visibility findings</h2>
       <p className="overview-scope">{scopeLabel}</p>
-      {!data.total_runs && <p>No collections match these filters. <Link to="/app" search={{ org, workspace, tab: "overview", from: data.workspace_first_run === null ? undefined : utcDay(data.workspace_first_run) }}>Show available history</Link></p>}
+      {!data.total_runs && (emptyScope ?? <p>No collections match these filters. <Link to="/app" search={availableHistory}>Show available history</Link></p>)}
       {filters}
       {selectedBrand && <>
         <p className="data-note">Eligible answers come from successful collections that recorded an AI answer and tracked {selectedBrand}
@@ -248,22 +275,27 @@ export function Overview({
       <div className="panel-title"><div><h2>Visibility over time</h2><p>Daily rates and underlying answers in UTC.</p></div>
         <div className="app-inline-form overview-trend-controls" aria-label="Trend metric">
           {metrics.map(({ metric, label }) => <Button key={metric} size="sm" variant="outline" asChild>
-            <Link to="/app" search={{ ...overviewLink, trendMetric: metric }} aria-current={trendMetric === metric ? "true" : undefined}>{label}</Link>
+            <Link to="/app" search={toReport(scope, metric)} aria-current={trendMetric === metric ? "true" : undefined}>{label}</Link>
           </Button>)}
         </div>
       </div>
       {(comparisonName || brands.some(brand => brand.id !== scope.trackedBrand)) && <div className="app-inline-form">
         {comparisonName ? <>
           <p className="data-note">Comparing with {comparisonName} on answers that tracked both brands.</p>
-          <Link to="/app" search={{ ...overviewLink, compareBrand: undefined }}>Remove comparison</Link>
+          <Link to="/app" search={toReport({ ...scope, compareBrand: undefined })}>Remove comparison</Link>
         </> : <details><summary>Compare with another brand</summary><ul>
           {brands.filter(brand => brand.id !== scope.trackedBrand).map(brand =>
-            <li key={brand.id}><Link to="/app" search={{ ...overviewLink, compareBrand: brand.id }}>{brand.name}</Link></li>)}
+            <li key={brand.id}><Link to="/app" search={toReport({ ...scope, compareBrand: brand.id })}>{brand.name}</Link></li>)}
         </ul></details>}
       </div>}
       {!days.length ? <p className="data-note">{comparisonName ? "No eligible answers tracked both brands." : "No eligible answers in this period."}</p>
         : <DailyTrend days={days} from={data.from} to={data.to} metric={trendMetric} brand={selectedBrand} comparison={comparisonName} link={metricLink} />}
     </CardContent></Card>}
+    <QuestionBreakdown key={JSON.stringify([org, workspace, scope])} scope={scope} workspace={workspace} request={request} revision={revision}
+      totalRuns={data.total_runs} eligibleAnswers={data.eligible_answers}
+      engines={engines} workspaceNames={workspaceNames} showWorkspace={workspace === "all"} brand={selectedBrand} comparison={comparisonName}
+      link={metricLink} availableHistory={availableHistory} reviewCollections={reviewCollections}
+      singleBrand={toReport({ ...scope, compareBrand: undefined })} />
     <Card><CardContent>
       <div className="panel-title"><div><h2>Collection coverage</h2><p>All runs in this scope, regardless of which brands they tracked.</p></div></div>
       <div className="app-inline-form overview-outcomes" aria-label="Collection outcomes">
@@ -285,6 +317,79 @@ export function Overview({
       </div>) : <p className="data-note">No cited domains in this view.</p>}
     </CardContent></Card>
   </>;
+}
+
+function QuestionBreakdown({ scope, workspace, request, revision, totalRuns, eligibleAnswers, engines, workspaceNames, showWorkspace, brand, comparison, link, availableHistory, reviewCollections, singleBrand }: {
+  scope: AnalyticsScope;
+  workspace: string;
+  request: RequestData;
+  revision: unknown;
+  totalRuns: number;
+  eligibleAnswers: number;
+  engines: Record<string, string>;
+  workspaceNames?: Record<string, string>;
+  showWorkspace: boolean;
+  brand?: string;
+  comparison?: string;
+  link: EvidenceLink;
+  availableHistory: AppSearch;
+  reviewCollections: AppSearch;
+  singleBrand: AppSearch;
+}) {
+  const [page, setPage] = useState(1);
+  const query = analyticsQuery(scope, workspace);
+  query.set("page", String(page));
+  const result = useReport<{ questions: QuestionBreakdownRow[]; next_page: number | null }>(
+    "/analytics/questions?" + query, request, revision,
+  );
+  const rows = result?.data?.questions ?? [];
+  const columns: { label: string; field: keyof Pick<QuestionBreakdownRow, "eligible_answers" | "mentions" | "citations" | "compare_mentions" | "compare_citations">; metric: AnswerMetric }[] = [
+    { label: "Eligible answers", field: "eligible_answers", metric: brand ? "brand" : "eligible" },
+  ];
+  if (brand) columns.push(
+    { label: comparison ? `${brand} mentions` : "Brand mentions", field: "mentions", metric: "mention" },
+    { label: comparison ? `${brand} website citations` : "Website citations", field: "citations", metric: "citation" },
+  );
+  if (comparison) columns.push(
+    { label: `${comparison} mentions`, field: "compare_mentions", metric: "compare_mention" },
+    { label: `${comparison} website citations`, field: "compare_citations", metric: "compare_citation" },
+  );
+  return <Card><CardContent>
+    <h2>Contributing questions</h2>
+    {result?.error ? <p role="alert">{result.error}</p>
+      : !result?.data ? <p role="status">Loading contributing questions…</p>
+      : page === 1 && !rows.length ? <p className="data-note">
+      {!totalRuns ? <>No collections match this view. <Link to="/app" search={availableHistory}>Broaden the report filters</Link>.</>
+        : !eligibleAnswers ? <>Matching collections recorded zero eligible AI answers. <Link to="/app" search={reviewCollections}>Review collection outcomes</Link>.</>
+        : comparison ? <>No eligible answers tracked both brands. <Link to="/app" search={singleBrand}>Remove the comparison</Link>.</>
+        : <>No eligible answers tracked {brand}. <Link to="/app" search={reviewCollections}>Review matching collections</Link>.</>}
+    </p> : <>
+      {comparison && <p className="data-note">Only answers that tracked both brands contribute to these counts.</p>}
+      <ul className="divide-y">
+        {rows.map(row => <li key={row.evidence_run_id} className="grid gap-3 py-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+          <div className="min-w-0">
+            <h3 className="break-words text-sm font-semibold">{row.question}</h3>
+            <p className="data-note">{row.engine ? engines[row.engine] ?? row.engine : "Engine unavailable"}
+              {showWorkspace && workspaceNames?.[row.workspace_id] && ` · ${workspaceNames[row.workspace_id]}`}</p>
+          </div>
+          <dl className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,7rem),1fr))] gap-x-4 gap-y-2 text-sm">
+            {columns.map(({ label, field, metric }) => <div key={field} className="min-w-0">
+              <dt className="break-words text-xs text-muted-foreground">{label}</dt>
+              <dd className="tabular-nums">
+                <Link to="/app" className="inline-flex min-h-8 items-center min-w-8 font-semibold underline! underline-offset-2 hover:text-primary pointer-coarse:min-h-11"
+                  aria-label={`${row[field]} ${label.toLowerCase()} for ${row.question} on ${row.engine ? engines[row.engine] ?? row.engine : "the recorded engine"}`}
+                  search={link(metric, undefined, { evidence_run_id: row.evidence_run_id, engine: row.engine ?? undefined })}>{row[field].toLocaleString()}</Link>
+              </dd>
+            </div>)}
+          </dl>
+        </li>)}
+      </ul>
+      {(page > 1 || result.data.next_page) && <div className="form-actions" aria-label="Contributing question pages">
+        <Button size="sm" variant="outline" disabled={page === 1} onClick={() => setPage(page - 1)}>Previous questions</Button>
+        <Button size="sm" variant="outline" disabled={!result.data.next_page} onClick={() => setPage(page + 1)}>Next questions</Button>
+      </div>}
+    </>}
+  </CardContent></Card>;
 }
 
 function DailyTrend({ days, from, to, metric, brand, comparison, link }: {

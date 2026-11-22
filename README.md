@@ -46,7 +46,7 @@ In **Prompts**, use **Prompt settings** to add comma-separated tags when creatin
 
 Use **Prompt sets** in **Prompts** to group a selection from one workspace. Select all matching prompts across pages, name the set, and open **View performance**. A prompt can belong to several sets. Renaming or deleting a set preserves its prompts and collection history.
 
-**Overview** starts with **All prompts**. Filter by set, intersect tags, and choose a recorded collection location, engine, brand and UTC date range. Copy the URL to share that view. The server computes the entire searchable period, and metric links open the contributing runs. Rates show sample fractions, and coverage shows how many selected prompts had an eligible answer. Set membership and tags reflect the current prompt library. Moving a prompt clears its set memberships and keeps earlier runs in their original workspace.
+**Overview** starts with **All prompts**. Filter by set, intersect tags, and choose a recorded collection location, engine, brand and UTC date range. Copy the URL to share that view. The server computes the entire searchable period, and metric links open the contributing runs. **Contributing questions** breaks down the same eligible-answer cohort by recorded question and engine. Open any count to inspect the matching evidence and return to the report. Rates show sample fractions, and coverage shows how many selected prompts had an eligible answer. Set membership and tags reflect the current prompt library. Moving a prompt clears its set memberships and keeps earlier runs in their original workspace.
 
 ## Local development — clean checkout
 

@@ -15,6 +15,8 @@ export type AppSearch = AnalyticsScope & {
   metric?: AnswerMetric;
   trendMetric?: TrendMetric;
   evidenceDay?: string;
+  reportQuestion?: string;
+  reportEngine?: AnalyticsScope["engine"];
   org?: string;
   workspace?: string;
   tab?: AppTab;
@@ -63,6 +65,7 @@ export function parseAppSearch(search: Record<string, unknown>): AppSearch {
     ? (["overview", "questions", "answers", "settings"] as const).find(value => value === search.trackingView) : undefined;
   const historyContext = tab === "runs" || (tab === "tracking" && trackingView === "answers");
   const evidenceDay = historyContext && trendMetric ? analyticsScope({ from: search.evidenceDay }).from : undefined;
+  const reportQuestion = historyContext ? resourceId(search.reportQuestion) : undefined;
   const questionContext = tab === "prompts" || (tab === "runs" && !!resourceId(search.run));
   const question = questionContext ? resourceId(search.question) : undefined;
   const libraryContext = tab === "prompts" || !!question;
@@ -73,6 +76,8 @@ export function parseAppSearch(search: Record<string, unknown>): AppSearch {
     ...(historyContext && metric && (!metric.startsWith("compare_") || scope.compareBrand) ? { metric } : {}),
     trendMetric: (!tab || tab === "overview" || historyContext || tab === "tracking") ? trendMetric : undefined,
     evidenceDay: evidenceDay && (!scope.from || evidenceDay >= scope.from) && (!scope.to || evidenceDay <= scope.to) ? evidenceDay : undefined,
+    reportQuestion,
+    reportEngine: reportQuestion ? analyticsScope({ engine: search.reportEngine }).engine : undefined,
     org: resourceId(search.org),
     workspace: resourceId(search.workspace),
     tab,

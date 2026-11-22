@@ -1,7 +1,7 @@
 import { promptQuestionText } from "./prompt-questions";
 import { applyReceiptAction, readReceiptAction, receiptActionSchema, submitPromptBatch, submitPromptBatchSchema } from "./receipt-actions";
 import { promptSetPredicate, promptSetsRoute, requirePromptSet, setId } from "./prompt-sets";
-import { analytics, collectionLocations, researchSummary } from "./analytics";
+import { analytics, collectionLocations, overviewQuestions, researchSummary } from "./analytics";
 import { bulkPromptTagsSchema, decodePrompt, promptTags, updatePromptTags } from "./prompt-tags";
 import { bulkPromptSettingsSchema, promptSettingsSchema, updatePromptSettings } from "./prompt-settings";
 import { body } from "./request-body";
@@ -332,6 +332,7 @@ export async function api(
   if (path === "/prompt-sets" || path.startsWith("/prompt-sets/")) return promptSetsRoute(req, env, org, path, u.searchParams);
   if (method === "GET") {
     if (path === "/analytics") return json(await analytics(env, org, u.searchParams));
+    if (path === "/analytics/questions") return json(await overviewQuestions(env, org, u.searchParams));
     if (path === "/analytics/locations") return json(await collectionLocations(env, org, u.searchParams));
     if (path === "/research") return json(await researchSummary(env, org, u.searchParams));
   }

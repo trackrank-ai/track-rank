@@ -183,6 +183,7 @@ One organization has one account/subscription. Plan allowances and user roles ar
 | DELETE | `/prompt-sets/:id` | Delete the set and memberships. Prompts, schedules, runs and evidence remain. |
 | PATCH | `/prompt-sets/:id/members` | Update with `{action: "add" or "remove", prompt_ids}`. |
 | GET | `/analytics` | Full-period run and eligible-answer totals, prompt coverage, per-brand counts, selected-brand daily trends and optional common-cohort comparison. |
+| GET | `/analytics/questions?page=1` | Up to 20 question and engine counts from the Overview evidence cohort, sorted by eligible answers, question and evidence run ID. Follow `next_page` when present. |
 | GET | `/analytics/locations` | Up to 500 recorded collection locations in scope, ignoring the active location filter. |
 | GET | `/research` | Eligible answer total and up to 100 matching domains, pages, queries and detected brands per kind, ranked by distinct answers. A repeated domain, page, or query counts once per eligible answer. |
 
@@ -198,9 +199,11 @@ Analytics, research, run history and export share `workspace`, `set`, `tags` (co
 
 Pass a distinct `compare_brand` with `tracked_brand` to get `comparison_daily`. Each day reports `samples` (eligible answers that tracked both brands at collection time), `mentions` and `citations` for the selected brand, and `compare_mentions` and `compare_citations` for the comparison brand. Days without a shared eligible answer are omitted. `daily`, `brands`, and collection outcomes keep their original cohorts. In history and export, use both brand parameters with `metric=brand` for the shared denominator, `metric=mention|citation` for the selected brand’s numerators, or `metric=compare_mention|compare_citation` for the comparison brand’s numerators. Use the report dates or an individual UTC day when following a trend point. A zero numerator with a positive denominator measures 0%; an empty denominator represents no eligible answers.
 
+Each entry in `questions` represents one recorded question and engine in one workspace. It includes `workspace_id`, `question`, `engine`, `eligible_answers`, `mentions`, `citations`, `compare_mentions` and `compare_citations`. Counts represent distinct eligible answers. With a tracked brand, the denominator uses the recorded brand snapshot. With a comparison brand, it requires both brands. With neither, the denominator includes all eligible answers and the brand counts are zero. To retrieve a row’s evidence, keep the report scope, pass its opaque `evidence_run_id` as `report_evidence_run` to history or export, and choose the corresponding metric described above. The opaque ID references a recorded run and resolves to its recorded workspace, question wording and engine, including after a prompt moves. An anchor outside the caller’s organization or selected workspace returns 404.
+
 The Overview `organic` outcome links to `outcome=organic` for completed runs that recorded organic results without an AI answer. Its `no_answer` outcome links to `outcome=no_evidence` for completed runs with neither.
 
-MCP mirrors these endpoints with `list_prompt_sets`, `get_prompt_set`, `create_prompt_set`, `rename_prompt_set`, `delete_prompt_set`, `update_prompt_set_members`, `get_overview`, `list_collection_locations`, `get_research_summary`, `list_runs` and `export_runs`. MCP uses `workspace_id` for workspace, `set` for the set filter, `set_id` for mutations and a string array for `tags`. Confirm with the user before deleting a set.
+MCP mirrors these endpoints with `list_prompt_sets`, `get_prompt_set`, `create_prompt_set`, `rename_prompt_set`, `delete_prompt_set`, `update_prompt_set_members`, `get_overview`, `get_overview_questions`, `list_collection_locations`, `get_research_summary`, `list_runs` and `export_runs`. MCP uses `workspace_id` for workspace, `set` for the set filter, `set_id` for mutations and a string array for `tags`. Confirm with the user before deleting a set.
 
 ## Prompt review, receipts and collection batches
 

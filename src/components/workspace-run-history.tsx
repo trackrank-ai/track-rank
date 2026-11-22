@@ -41,7 +41,7 @@ export function RunStatus({ value }: { value: string }) {
   return <Badge variant="outline" className={"run-status status-" + value}>{value}</Badge>;
 }
 
-export function WorkspaceRunHistory({ org, workspace, workspaceName, workspaceNames, runPrompt, prompts, brands, engines, request, refresh, canWrite, scope, metric, trendMetric, evidenceDay, researchType, researchValue, filters, onChange }: {
+export function WorkspaceRunHistory({ org, workspace, workspaceName, workspaceNames, runPrompt, prompts, brands, engines, request, refresh, canWrite, scope, metric, trendMetric, evidenceDay, researchType, researchValue, filters, onChange, historyLink, backLink }: {
   org: string;
   workspace: string;
   workspaceName: string;
@@ -59,7 +59,9 @@ export function WorkspaceRunHistory({ org, workspace, workspaceName, workspaceNa
   evidenceDay?: string;
   researchType?: ResearchType;
   researchValue?: string;
-  filters: Pick<AppSearch, "q" | "status" | "brand" | "outcome" | "run">;
+  filters: Pick<AppSearch, "q" | "status" | "brand" | "outcome" | "run" | "reportQuestion" | "reportEngine">;
+  historyLink?: (patch: Partial<AppSearch>) => AppSearch;
+  backLink?: AppSearch;
   onChange: (patch: Partial<AppSearch>) => void;
 }) {
   const { q: keyword = "", status = "", brand = "", outcome } = filters;
@@ -78,10 +80,11 @@ export function WorkspaceRunHistory({ org, workspace, workspaceName, workspaceNa
   if (status) query.set("status", status);
   if (outcome) query.set("outcome", outcome);
   if (brand) query.set("brand_id", brand);
+  if (filters.reportQuestion) query.set("report_evidence_run", filters.reportQuestion);
   if (runPrompt) query.set("prompt_id", runPrompt);
   const path = "/runs?" + query;
   const current = page?.key === path ? page : null;
-  const narrowed = Boolean(keyword.trim() || status || brand || outcome || runPrompt || metric || researchType || Object.values(scope).some(Boolean));
+  const narrowed = Boolean(keyword.trim() || status || brand || outcome || runPrompt || filters.reportQuestion || metric || researchType || Object.values(scope).some(Boolean));
   const [runPrompts, setRunPrompts] = useState(new Map<string, HistoryPrompt>());
   const promptOptions = new Map(runPrompts);
   for (const prompt of prompts) {
@@ -135,6 +138,8 @@ export function WorkspaceRunHistory({ org, workspace, workspaceName, workspaceNa
     }
   }
 
+  const overviewLink = backLink ?? (trendMetric ? { ...scope, org, workspace: workspace || "all", tab: "overview" as const, trendMetric } : undefined);
+  const clearLink = historyLink?.({}) ?? { org, workspace: workspace || "all", tab: "runs" as const };
   return (
     <Card><CardContent>
       <div className="panel-title">
@@ -142,7 +147,7 @@ export function WorkspaceRunHistory({ org, workspace, workspaceName, workspaceNa
           <h2>Collection history</h2>
           <p>{workspace ? `Runs recorded in ${workspaceName}.` : "Runs across all workspaces."}</p>
         </div>
-        {trendMetric && !filters.run && <Link className="small-link" to="/app" search={{ ...scope, org, workspace: workspace || "all", tab: "overview", trendMetric }}>Back to Overview</Link>}
+        {overviewLink && !filters.run && <Link className="small-link" to="/app" search={overviewLink}>{backLink ? "Back to tracking overview" : "Back to Overview"}</Link>}
         {(!!current?.runs.length || (trendMetric && current && !current.error)) && <a className="small-link" href={"/api/v1/export?" + new URLSearchParams({ ...Object.fromEntries(query), org })}
           title="Export up to 1,000 matching runs">
           <Download size={14} /> Export CSV
@@ -150,11 +155,12 @@ export function WorkspaceRunHistory({ org, workspace, workspaceName, workspaceNa
       </div>
       {narrowed && <div className="app-inline-form" aria-label="Active filters">
         {Object.entries({
+          reportQuestion: filters.reportQuestion ? `Recorded question · ${engines[filters.reportEngine ?? ""] ?? "Recorded engine"}` : undefined,
           engine, q: keyword, status, outcome, brand, runPrompt, metric, researchValue,
           set: scope.set, tags: scope.tags, location: scope.location, from: scope.from, to: scope.to, trackedBrand: scope.trackedBrand,
           compareBrand: query.get("compare_brand"), evidenceDay,
         }).filter(([, value]) => value).map(([key, value]) => {
-          const labels: Record<string, string> = { q: "Search", runPrompt: "Prompt variant", trackedBrand: "Tracked brand", compareBrand: "Comparison brand", evidenceDay: "Evidence day", researchValue: "Research", set: "Prompt set" };
+          const labels: Record<string, string> = { reportQuestion: "Question breakdown", q: "Search", runPrompt: "Prompt variant", trackedBrand: "Tracked brand", compareBrand: "Comparison brand", evidenceDay: "Evidence day", researchValue: "Research", set: "Prompt set" };
           const displayed = key === "engine" ? engines[value!] : key === "brand" || key === "trackedBrand" || key === "compareBrand"
             ? brands.find(item => item.id === value)?.name ?? value : key === "runPrompt" ? optionLabels.get(value!) : key === "metric" && metric ? metricLabels[metric] : value;
           return <Button type="button" variant="outline" size="sm" key={key}
@@ -165,7 +171,7 @@ export function WorkspaceRunHistory({ org, workspace, workspaceName, workspaceNa
             {labels[key] ?? key} · {displayed} ×
           </Button>;
         })}
-        <Link to="/app" search={{ org, workspace: workspace || "all", tab: "runs" }}>Clear filters</Link>
+        <Link to="/app" search={clearLink}>Clear filters</Link>
       </div>}
       {!firstRun && <div className="form-grid prompt-filters">
         <label className="app-field"><span>Search run history</span>
@@ -173,7 +179,7 @@ export function WorkspaceRunHistory({ org, workspace, workspaceName, workspaceNa
             placeholder="Search prompt text or answers" />
         </label>
         <label className="app-field"><span>Engine</span>
-          <select value={engine} onChange={e => onChange({ engine: (e.target.value || undefined) as AppSearch["engine"] })}>
+          <select value={filters.reportQuestion ? filters.reportEngine ?? "" : engine} disabled={!!filters.reportQuestion} onChange={e => onChange({ engine: (e.target.value || undefined) as AppSearch["engine"] })}>
             <option value="">All engines</option>
             {Object.entries(engines).map(([id, name]) => <option key={id} value={id}>{name}</option>)}
           </select>
@@ -207,13 +213,13 @@ export function WorkspaceRunHistory({ org, workspace, workspaceName, workspaceNa
           ? "Save or select questions in Prompts, choose engines, and start a collection. Runs appear here as soon as they’re queued."
           : "Runs appear here once a teammate starts a collection."}</p>
         {canWrite && <div><Button asChild>
-          <Link to="/app" search={{ org, workspace: workspace || "all", tab: "prompts" }}>Go to Prompts</Link>
+          <Link to="/app" search={historyLink?.({}) ?? { org, workspace: workspace || "all", tab: "prompts" }}>{historyLink ? "Review tracking answers" : "Go to Prompts"}</Link>
         </Button></div>}
       </div>}
       {narrowed && current && !current.error && !current.runs.length &&
         <p className="data-note">No runs match these filters. Try a different keyword or clear a filter.</p>}
       {current?.runs.map(run => (
-        <Link key={run.id} className="run-row" to="/app" search={{ ...scope, org, workspace: workspace || "all", tab: "runs", run: run.id, runPrompt, metric, trendMetric, evidenceDay, q: filters.q, status: filters.status, outcome, brand, researchType, researchValue }}>
+        <Link key={run.id} className="run-row" to="/app" search={historyLink?.({ run: run.id }) ?? { ...scope, org, workspace: workspace || "all", tab: "runs", run: run.id, runPrompt, metric, trendMetric, evidenceDay, q: filters.q, status: filters.status, outcome, brand, researchType, researchValue, reportQuestion: filters.reportQuestion, reportEngine: filters.reportEngine }}>
           <span><strong>{run.prompt_text}</strong><small>
             {collectionVariantLabel(run.config?.engine, workspaceNames[run.workspace_id] ?? "", engines)}
             {" · "}{new Date(run.created_at).toLocaleString()} · {run.config?.mode}
