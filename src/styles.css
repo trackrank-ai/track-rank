@@ -2708,7 +2708,8 @@ form.app-inline-form,
     max-width: 120px;
   }
   .app-topbar > .topbar-actions {
-    flex: none;
+    max-width: 100%;
+    flex-wrap: wrap;
     margin-inline-start: auto;
   }
   .app-topbar svg {
