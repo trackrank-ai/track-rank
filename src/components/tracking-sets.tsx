@@ -104,7 +104,7 @@ export function TrackingSetDetail({ org, set, search, workspaceName, engines, ch
   children: ReactNode;
 }) {
   const view = search.trackingView ?? "overview";
-  return <section className="form-stack">
+  return <section className="form-stack tracking-detail">
     <div><Link className="small-link" to="/app" search={{ org, workspace: set.workspace_id, tab: "tracking" }}>Back to tracking sets</Link></div>
     <div className="app-page-heading">
       <div><h1>{set.name}</h1><p>{workspaceName}{set.engines.length > 0 && <> · {set.engines.map(engine => engines[engine] ?? engine).join(", ")}</>}</p></div>

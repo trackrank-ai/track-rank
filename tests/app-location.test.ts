@@ -73,3 +73,18 @@ test("schedule selection and recurring setup restore the chosen workspace after 
     assert.deepEqual(Object.fromEntries(restored), Object.fromEntries(new URLSearchParams(query)));
   }
 });
+
+test("tracking links retain workspace, view and evidence scope through sign-in", () => {
+  for (const parameters of [
+    { tab: "tracking", trackingView: "answers", metric: "mention", trackedBrand: "brand", trendMetric: "mention", evidenceDay: "2026-11-22" },
+    { tab: "runs", trackingView: "answers", run: "recorded-run", evidence: "citations" },
+    { tab: "prompts", trackingView: "questions", promptView: "create" },
+    { tab: "schedules", trackingView: "settings" },
+  ] as Record<string, string>[]) {
+    const search = { org: "org", workspace: "workspace", set: "named-set", ...parameters };
+    const login = new URL(appLoginPath("?" + new URLSearchParams(search), ""), "https://example.test");
+    const next = new URL(appReturnPath(login.searchParams.get("next")), login);
+    assert.deepEqual(Object.fromEntries(next.searchParams), search);
+  }
+  assert.equal(parseAppSearch({ tab: "tracking", trackingView: "settings" }).trackingView, undefined);
+});
