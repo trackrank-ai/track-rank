@@ -20,7 +20,7 @@ export async function admitDueSchedules(env: Env, time: number) {
   const brands = new Map<string, Row[]>();
   const existing = await all(env, `
     SELECT s.* FROM schedules s JOIN prompts p ON p.org_id=s.org_id AND p.id=s.prompt_id
-    WHERE s.enabled=1 AND p.enabled=1 AND p.archived_at IS NULL AND s.next_due_at IS NULL
+    WHERE s.enabled=1 AND p.archived_at IS NULL AND s.next_due_at IS NULL
     ORDER BY s.id LIMIT 1600
   `);
   if (existing.length) {
@@ -40,7 +40,7 @@ export async function admitDueSchedules(env: Env, time: number) {
         SELECT s.*,p.workspace_id,p.text,p.engine,p.mode,p.location_name,p.language_code,o.resolve_poisoned_results,
           ROW_NUMBER() OVER(PARTITION BY s.org_id ORDER BY s.next_due_at,s.id) AS tenant_position
         FROM schedules s JOIN prompts p ON p.org_id=s.org_id AND p.id=s.prompt_id JOIN organizations o ON o.id=s.org_id
-        WHERE s.enabled=1 AND p.enabled=1 AND p.archived_at IS NULL AND s.next_due_at<=? AND s.retry_at<=?
+        WHERE s.enabled=1 AND p.archived_at IS NULL AND s.next_due_at<=? AND s.retry_at<=?
       ) ORDER BY tenant_position,next_due_at,id LIMIT 100
     `, time, time);
     if (!rows.length) break;
@@ -91,7 +91,7 @@ export async function admitDueSchedules(env: Env, time: number) {
       writes.push(env.DB.prepare(`
         UPDATE schedules SET next_due_at=?,last_slot=?,retry_at=0
         WHERE id=? AND enabled=1 AND next_due_at=? AND days=? AND times_json=? AND timezone=? AND repetitions=?
-        AND EXISTS(SELECT 1 FROM prompts p WHERE p.org_id=schedules.org_id AND p.id=schedules.prompt_id AND p.enabled=1 AND p.archived_at IS NULL)
+        AND EXISTS(SELECT 1 FROM prompts p WHERE p.org_id=schedules.org_id AND p.id=schedules.prompt_id AND p.archived_at IS NULL)
       `).bind(next, slot, row.id, due, row.days, row.times_json, row.timezone, repetitions));
     }
     await env.DB.batch(writes);

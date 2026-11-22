@@ -9,7 +9,6 @@ type Schedule = {
   timezone: string;
   repetitions: number;
   enabled: number;
-  prompt_enabled: number;
 };
 
 const presets = { daily: "Every day", weekly: "Weekly", mwf: "Monday, Wednesday, Friday", custom: "Custom weekdays" };
@@ -32,7 +31,7 @@ export function ScheduleBulkEditor({ rows, busy, save, cancel }: {
   }
   function weekly(settings: SchedulePatch) {
     return rows.reduce((sum, row) => {
-      if (!row.enabled || !row.prompt_enabled) return sum;
+      if (!row.enabled) return sum;
       const days = settings.days ?? JSON.parse(row.days) as number[];
       const slots = editedScheduleTimes(JSON.parse(row.times_json), settings);
       return sum + scheduleDays(settings.preset ?? row.preset, days).length * slots.length * (settings.repetitions ?? row.repetitions);

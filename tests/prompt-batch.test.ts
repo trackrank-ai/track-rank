@@ -48,15 +48,15 @@ test("saved prompt filters combine keyword, engine, schedule, and client across 
     new Request('https://example.test/api/v1/prompts?org=org&workspace=space&view=library&' + query),
     env,{waitUntil:()=>{}} as any,{userId:'owner',orgId:'org'},
   )).json() as Promise<{prompts:{id:string; actively_scheduled:number}[];next_cursor:{before:number;before_id:string}|null}>;
-  const insert = sql.prepare("INSERT INTO prompts(id,org_id,workspace_id,brand_id,text,engine,enabled,created_at,updated_at) VALUES(?,'org','space',?,?,?,?,10,10)");
-  for (let i = 0; i < 105; i++) insert.run("p"+String(i).padStart(3,"0"),null,"Test keyword "+i,"google",1);
-  insert.run("explicit-other","other","Test keyword other","google",1);
-  insert.run("disabled",null,"Test keyword disabled","google",0);
-  insert.run("wrong-engine",null,"Test keyword another engine","gemini",1);
+  const insert = sql.prepare("INSERT INTO prompts(id,org_id,workspace_id,brand_id,text,engine,created_at,updated_at) VALUES(?,'org','space',?,?,?,10,10)");
+  for (let i = 0; i < 105; i++) insert.run("p"+String(i).padStart(3,"0"),null,"Test keyword "+i,"google");
+  insert.run("explicit-other","other","Test keyword other","google");
+  insert.run("paused",null,"Test keyword paused","google");
+  insert.run("wrong-engine",null,"Test keyword another engine","gemini");
   sql.exec(`INSERT INTO schedules(id,org_id,prompt_id,preset,days,times_json,timezone,enabled,created_at,batch_id)
     VALUES('on','org','p000','daily','[1]','["09:00"]','UTC',1,0,'on-batch'),
       ('off','org','p001','daily','[1]','["09:00"]','UTC',0,0,'off-batch'),
-      ('disabled-prompt','org','disabled','daily','[1]','["09:00"]','UTC',1,0,'disabled-batch')`);
+      ('paused-prompt','org','paused','daily','[1]','["09:00"]','UTC',0,0,'paused-batch')`);
   const query = "q=KEYWORD&engine=google&brand=client";
   const page = await list(query);
   assert.equal(page.prompts.length,100);
@@ -73,13 +73,13 @@ test("preview and operation receipt identify exact combinations and separate pau
   const { previewPromptBatch, getPromptReceipt } = await import("../src/server/prompt-batch");
   const question = "For a small agency, which reporting tools work best?";
   const input = { workspace_id: "space", texts: [question, question], engines: ["chatgpt", "gemini"] };
-  const first = await savePromptBatch(env, "org", { ...input, engines: ["chatgpt"], enabled: false, tags: ["preserve"] });
+  const first = await savePromptBatch(env, "org", { ...input, engines: ["chatgpt"], tags: ["preserve"] });
   const existing = first.prompts[0].id;
   sql.prepare(`INSERT INTO schedules(id,org_id,prompt_id,preset,days,times_json,timezone,enabled,created_at)
     VALUES('schedule','org',?,'weekly','[1]','["09:00"]','UTC',0,0)`).run(existing);
   const preview = await previewPromptBatch(env, "org", input);
-  assert.deepEqual(preview.prompts.map(row => [row.engine, row.outcome, row.enabled, row.monitoring]),
-    [["chatgpt", "reused", 0, "paused"], ["gemini", "new", null, "none"]]);
+  assert.deepEqual(preview.prompts.map(row => [row.engine, row.outcome, row.monitoring]),
+    [["chatgpt", "reused", "paused"], ["gemini", "new", "none"]]);
   const operation_id = crypto.randomUUID();
   const saved = await savePromptBatch(env, "org", { ...input, operation_id });
   assert.deepEqual(saved.prompts.map(row => row.outcome), ["reused", "created"]);
@@ -88,7 +88,7 @@ test("preview and operation receipt identify exact combinations and separate pau
   await savePromptBatch(env, "org", { ...input, texts: ["A different question"] });
   assert.deepEqual(await getPromptReceipt(env, "org", operation_id), saved);
   assert.deepEqual(await savePromptBatch(env, "org", { ...input, operation_id }), saved);
-  await assert.rejects(savePromptBatch(env, "org", { ...input, operation_id, enabled: false }), { status: 409 });
+  await assert.rejects(savePromptBatch(env, "org", { ...input, operation_id, mode: "priority" }), { status: 409 });
   await assert.rejects(getPromptReceipt(env, "other", operation_id), { status: 404 });
   assert.equal(sql.prepare("SELECT tags FROM prompts WHERE id=?").get(existing)?.tags, '["preserve"]');
 });

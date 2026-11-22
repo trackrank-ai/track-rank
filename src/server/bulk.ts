@@ -21,7 +21,7 @@ export const bulkRunSchema = z.object({
  expected_workspace_id: z.string().min(1).max(100).optional(),
 }).strict();
 export const bulkScheduleSchema=z.object({prompt_ids:collectionIds,only_unscheduled:z.boolean().default(false),batch_id:z.uuid().optional(),name:z.string().trim().max(100).default('Scheduled prompts'),preset:z.enum(['daily','weekly','mwf','custom']),days:z.array(z.number().int().min(0).max(6)).min(1).max(7),times:z.array(z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/)).min(1).max(8),timezone:z.string().min(1).max(100),repetitions:z.number().int().min(1).max(10).default(1),enabled:z.boolean().default(false)}).strict();
-export const bulkToggleSchema=z.object({ids,enabled:z.boolean().optional(),mode:z.enum(["standard","priority","live"]).optional()}).strict().refine(b=>b.enabled!==undefined||b.mode!==undefined,"Choose settings to update");
+export const bulkPromptSettingsSchema=z.object({ids,mode:z.enum(["standard","priority","live"])}).strict();
 export async function selectedRows(env:Env,org:string,table:'prompts'|'schedules',selected:string[],limit:number|null=100){
  const unique=[...new Set(selected)];
  if (!unique.length) throw new HttpError(400, 'Choose at least one item');
@@ -51,7 +51,7 @@ export async function collectionReadiness(env: Env, org: string, input: unknown)
  }
  const available = Math.max(0, plan.limits.runs_per_month - (usage?.monthly ?? 0));
  const optionProblems = new Map<string, string | null>();
- const combinations = await Promise.all(prompts.map(async ({id, text, engine, location_name, language_code, mode, brand_id, enabled}) => {
+ const combinations = await Promise.all(prompts.map(async ({id, text, engine, location_name, language_code, mode, brand_id}) => {
   const key = JSON.stringify([engine, location_name, language_code]);
   let problem = optionProblems.get(key);
   if (problem === undefined) {
@@ -68,7 +68,7 @@ export async function collectionReadiness(env: Env, org: string, input: unknown)
    id: schedule.id, weekly_checks: (JSON.parse(schedule.days) as number[]).length
     * (JSON.parse(schedule.times_json) as string[]).length * schedule.repetitions,
   })) : [];
-  return { id, text, engine, location_name, language_code, mode, brand_id, enabled,
+  return { id, text, engine, location_name, language_code, mode, brand_id,
    monitoring, paused_schedules: pausedSchedules, eligibility_error: problem };
  }));
  return { workspace, brands, combinations, available, requested: prompts.length * b.repetitions,
@@ -120,7 +120,6 @@ export async function createBulkRuns(env:Env,org:string,input:unknown){
  let workspace = prior?.workspace_id ?? null;
  if (needed > 0) {
   const rows=await selectedRows(env,org,'prompts',selected,null);
-  if(rows.some(p=>!p.enabled))throw new HttpError(409,'Enable all selected prompts before running them');
   const plan=await organizationPlan(env,org);
   const periods = runUsagePeriods(now());
   const usage = await runUsage(env, org, periods);
@@ -185,7 +184,6 @@ export async function createBulkSchedules(env:Env,org:string,input:unknown){
  if (b.enabled && existing.length < scheduleIds.length) {
   const provider = await credentials(env, org);
   if (!provider.login || !provider.password) throw new HttpError(409, "Connect DataForSEO before starting monitoring");
-  if (rows.some(prompt => !prompt.enabled)) throw new HttpError(409, "Enable the selected prompts before starting monitoring");
  }
  const nextDue = b.enabled ? nextScheduleSlot({days,times,timezone:b.timezone},t) : null;
  const items = rows.map((prompt, index) => ({ prompt: prompt.id, id: scheduleIds[index] }));
@@ -208,8 +206,7 @@ export async function updateBulkSchedules(env:Env,org:string,input:unknown){
  if (b.enabled && rows.some(row => !row.enabled)) {
   const provider = await credentials(env, org);
   if (!provider.login || !provider.password) throw new HttpError(409, "Connect DataForSEO before resuming monitoring");
-  const prompts = await selectedRows(env, org, "prompts", rows.map(row => String(row.prompt_id)), null);
-  if (prompts.some(prompt => !prompt.enabled)) throw new HttpError(409, "Enable the selected prompts before resuming monitoring");
+  await selectedRows(env, org, "prompts", rows.map(row => String(row.prompt_id)), null);
  }
  if(b.timezone)try{new Intl.DateTimeFormat('en',{timeZone:b.timezone}).format();}catch{throw new HttpError(400,'Choose a valid timezone');}
  const changedTiming = b.first_time !== undefined || b.times !== undefined || b.timezone !== undefined || b.days !== undefined || b.preset !== undefined;

@@ -91,11 +91,11 @@ export async function createRun(
   const p = required(
     await one<Row>(
       env,
-      "SELECT * FROM prompts WHERE org_id=? AND id=? AND enabled=1 AND archived_at IS NULL",
+      "SELECT * FROM prompts WHERE org_id=? AND id=? AND archived_at IS NULL",
       orgId,
       promptId,
     ),
-    "Enabled prompt not found",
+    "Prompt not found",
   );
   await assertProviderOptions([p.engine as Engine], String(p.location_name), String(p.language_code));
   const c = await credentials(env, orgId);
@@ -127,7 +127,7 @@ export async function createRun(
   }, periods, plan).run();
   const result = await replay();
   if (!result) {
-    if (!await one(env, "SELECT id FROM prompts WHERE org_id=? AND id=? AND workspace_id=? AND enabled=1 AND archived_at IS NULL", orgId, promptId, p.workspace_id))
+    if (!await one(env, "SELECT id FROM prompts WHERE org_id=? AND id=? AND workspace_id=? AND archived_at IS NULL", orgId, promptId, p.workspace_id))
       throw new HttpError(409, "The prompt changed before it could be queued. Refresh and try again.");
     const usage = await runUsage(env, orgId, periods);
     if (usage?.plan_version_id !== plan.version)

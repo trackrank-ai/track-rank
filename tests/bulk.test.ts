@@ -243,6 +243,41 @@ test('schedule migration recovers admitted daily slots and leaves canonical batc
   sql.close();
 });
 
+test('removing prompt pauses preserves schedule state and stops previously blocked monitoring', () => {
+  const sql = new DatabaseSync(':memory:');
+  const migration = '0026_remove_prompt_enabled.sql';
+  for (const file of readdirSync('migrations').filter(file => file.endsWith('.sql') && file < migration).sort()) {
+    sql.exec(readFileSync('migrations/' + file, 'utf8'));
+  }
+  sql.exec(`INSERT INTO organizations(id,name,created_at) VALUES('org','Organization',0);
+    INSERT INTO workspaces(id,org_id,name,created_at) VALUES('workspace','org','Workspace',0);
+    INSERT INTO prompts(id,org_id,workspace_id,text,enabled,created_at,updated_at)
+      VALUES('paused','org','workspace','Paused question',0,0,0),('ready','org','workspace','Ready question',1,0,0);
+    INSERT INTO schedules(id,org_id,prompt_id,preset,days,times_json,timezone,enabled,created_at,next_due_at,retry_at,last_slot)
+      VALUES('blocked','org','paused','daily','[1]','["09:00"]','UTC',1,0,100,110,'2026-11-20@09:00'),
+        ('active','org','ready','daily','[1]','["09:00"]','UTC',1,0,100,110,NULL);`);
+  sql.exec(readFileSync('migrations/' + migration, 'utf8'));
+  const schedules = sql.prepare('SELECT id,enabled,next_due_at,retry_at,last_slot FROM schedules ORDER BY id').all();
+  assert.deepEqual(schedules.map(Object.values), [
+    ['active',1,100,110,null], ['blocked',0,null,0,'2026-11-20@09:00'],
+  ]);
+  assert.equal(sql.prepare("SELECT count(*) AS n FROM prompts WHERE archived_at IS NULL").get()?.n, 2);
+  assert.deepEqual(sql.prepare('PRAGMA foreign_key_check').all(), []);
+  sql.close();
+});
+
+test('manual runs are available while a schedule is paused', async () => {
+  const { env, sql } = await setup();
+  const schedule = await createBulkSchedules(env, 'org', {
+    prompt_ids: ['p1'], preset: 'daily', days: [1], times: ['09:00'], timezone: 'UTC',
+  });
+  await createRun(env, 'org', 'p1', 'manual-while-paused');
+  await createBulkRuns(env, 'org', { prompt_ids: ['p1'], batch_key: 'bulk-while-paused' });
+  await admitDueSchedules(env, Date.now());
+  assert.equal(sql.prepare('SELECT count(*) AS n FROM runs WHERE prompt_id=?').get('p1')?.n, 2);
+  assert.equal(sql.prepare('SELECT enabled FROM schedules WHERE id=?').get(schedule.schedule_ids[0])?.enabled, 0);
+});
+
 test('bulk pause and enable preserve the last collected slot', async (t) => {
   t.mock.method(Date, 'now', () => Date.parse('2026-11-21T18:00Z'));
   const { env, sql } = await setup();
@@ -317,10 +352,9 @@ test('bulk prompt settings route is not intercepted by the single-prompt route a
  const {api}=await import('../src/server/api');
  const call=(data:unknown,p={userId:'owner',orgId:'org'})=>api(new Request('https://test.example/api/v1/prompts/bulk-settings?org=org',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}),env,{waitUntil:()=>{}} as any,p);
  assert.equal((await call({ids:['p1','p2'],mode:'priority'})).status,200);
- await call({ids:['p1','p2'],enabled:false});
- assert.ok(sql.prepare('SELECT * FROM prompts').all().every(p=>p.enabled===0 && p.mode==='priority'));
- await assert.rejects(call({ids:['p1','foreign'],enabled:true}),/not in this organization/);
- assert.ok(sql.prepare('SELECT * FROM prompts').all().every(p=>p.enabled===0));
+ await assert.rejects(call({ids:['p1','p2'],mode:'standard',enabled:false}),{status:400});
+ await assert.rejects(call({ids:['p1','foreign'],mode:'standard'}),/not in this organization/);
+ assert.ok(sql.prepare('SELECT * FROM prompts').all().every(p=>p.mode==='priority'));
 });
 
 test('a busy sweep admits 1500 due slots while 100 earlier non-due schedules remain untouched', async (t) => {

@@ -673,9 +673,7 @@ function App() {
     const result = await changeSelectedPrompts(savedSelection, path, "PATCH", changes, "updated");
     if (result === null) return;
     await load();
-    if (activeWorkspace.current === workspaceKey && (
-      (promptScheduleFilter && "enabled" in changes) || (search.tag && "action" in changes && changes.action === "remove")
-    )) setPromptSelection(new Map());
+    if (activeWorkspace.current === workspaceKey && search.tag && "action" in changes && changes.action === "remove") setPromptSelection(new Map());
     setNotice(message);
   }
   function removePrompts(ids: string[]) {
@@ -733,7 +731,6 @@ function App() {
   const draftAvailable = typeof settings.plan?.limits?.runs_per_month === "number" && typeof settings.monthly_usage?.runs === "number"
     ? Math.max(0, settings.plan.limits.runs_per_month - settings.monthly_usage.runs) : undefined;
   const draftRunError = !settings.dataforseo_configured ? "Connect DataForSEO to run now or start monitoring."
-    : draftReview && !JSON.parse(draftReview.payload).enabled ? "Enable the new prompts to run or start monitoring."
     : draftAvailable !== undefined && previewNew * timing.repetitions > draftAvailable ? "The requested checks exceed your remaining monthly allowance." : "";
 
   const research = useReport<{ answers: number; items: { kind: string; value: string; title: string; count: number }[] }>(
@@ -1382,8 +1379,7 @@ function App() {
                           <>
                             <p>{linkedPrompt.text}</p>
                             <p className="data-note">
-                              {engines[linkedPrompt.engine]} · {linkedPrompt.location_name} · {linkedPrompt.language_code} ·{" "}
-                              {linkedPrompt.enabled ? "Enabled" : "Paused"}
+                              {engines[linkedPrompt.engine]} · {linkedPrompt.location_name} · {linkedPrompt.language_code}
                             </p>
                             {!!linkedPrompt.tags?.length && <div className="flex flex-wrap gap-1">
                               {(linkedPrompt.tags as string[]).map(tag => <Badge key={tag} variant="secondary">{tag}</Badge>)}
@@ -1517,7 +1513,7 @@ function App() {
                               const payload = {
                                 workspace_id: savingWorkspace, brand_id: f.get("brand_id") || null,
                                 texts, engines: ordered, tags: splitPromptTags(f.get("tags")), ...(editPrompt ? { source_id: editPrompt.id } : {}),
-                                mode: f.get("mode"), location_name: f.get("location_name"), language_code: f.get("language_code"), enabled: f.get("enabled") === "on",
+                                mode: f.get("mode"), location_name: f.get("location_name"), language_code: f.get("language_code"),
                               };
                               const serialized = JSON.stringify(payload);
                               if (!editPrompt && (intent === "review" || draftReview?.payload !== serialized)) {
@@ -1645,16 +1641,6 @@ function App() {
                               </select>
                             </FormField>
                             </div></details>
-                            <label className="check-field">
-                              <input
-                                type="checkbox"
-                                name="enabled"
-                                defaultChecked={
-                                  editPrompt ? !!editPrompt.enabled : true
-                                }
-                              />{" "}
-                              Allow manual & scheduled runs <HelpTip label="allow runs" text="When checked, this prompt can be run manually or by an enabled schedule. Unchecking pauses future runs without deleting the prompt or its history. This does not start a run or create a schedule." />
-                            </label>
                           </div>
                           {draftReview && !editPrompt && <section className="form-stack">
                             <h3>Review combinations</h3>
@@ -1663,7 +1649,7 @@ function App() {
                               <summary>Engine-by-engine matches</summary>
                               <ul>{draftReview.data.prompts.map((row: Item) => (
                                 <li key={JSON.stringify([row.text, row.engine])}>{row.text} · {engines[row.engine]} · {row.outcome === "new"
-                                  ? "New" : `Already saved · ${row.monitoring === "none" ? "No schedule" : row.monitoring === "paused" ? "Paused schedule" : "Active schedule"}${row.enabled ? "" : " · Prompt paused"}`}</li>
+                                  ? "New" : `Already saved · ${row.monitoring === "none" ? "No schedule" : row.monitoring === "paused" ? "Paused schedule" : "Active schedule"}`}</li>
                               ))}</ul>
                             </details>
                             <CollectionDetails org={org} workspaceId={savingWorkspace} workspace={draftReview.data.workspace.name}
@@ -1683,7 +1669,7 @@ function App() {
                             <details><summary>Other collection options</summary>
                               <div className="form-actions">
                                 <Button value="run" variant="outline" disabled={busy || !previewNew || !!draftRunError}>Run once</Button>
-                                <Button value="monitor" variant="outline" disabled={busy || !previewNew || !draftProjection.valid || !settings.dataforseo_configured || !JSON.parse(draftReview.payload).enabled}>Start monitoring only</Button>
+                                <Button value="monitor" variant="outline" disabled={busy || !previewNew || !draftProjection.valid || !settings.dataforseo_configured}>Start monitoring only</Button>
                               </div>
                             </details>
                           </section>}
@@ -1834,10 +1820,6 @@ function App() {
                         <Button disabled={bulkBusy || !!pendingRun || !savedSelection.length || mixedWorkspaceSelection} onClick={() => queuePromptBatch(savedSelection, runSamples)}>Run selected — {selectedRunCount} runs</Button>
                         <Button variant="outline" disabled={bulkBusy || !savedSelection.length || mixedWorkspaceSelection}
                           onClick={() => reviewCollection(savedSelection, 1, "schedule")}>Schedule selected</Button>
-                        <Button variant="outline" disabled={bulkBusy || !savedSelection.length} onClick={() => action(() =>
-                          updateSelectedPrompts("/prompts/bulk-settings", { enabled: true }, "Selected prompts enabled."))}>Enable selected</Button>
-                        <Button variant="outline" disabled={bulkBusy || !savedSelection.length} onClick={() => action(() =>
-                          updateSelectedPrompts("/prompts/bulk-settings", { enabled: false }, "Selected prompts paused. History retained."))}>Pause selected</Button>
                         <Button variant="outline" disabled={bulkBusy || !savedSelection.length}
                           onClick={() => removePrompts(savedSelection)}>Delete selected prompts</Button>
                         {savedSelection.length > 0 && workspaces.length > 1 && (
@@ -1902,7 +1884,7 @@ function App() {
                                   {allWorkspaces && workspaceNames[p.workspace_id] && `${workspaceNames[p.workspace_id]} · `}
                                    {p.location_name} ·{" "}
                                   {p.language_code} · {p.mode}{" "}
-                                  {!p.enabled ? "· Paused" : p.actively_scheduled ? "· Scheduled" : ""}
+                                  {p.actively_scheduled ? "· Scheduled" : ""}
                                 </small>
                                 {!!p.tags?.length && <div className="flex flex-wrap gap-1">
                                   {(p.tags as string[]).map(tag => <Badge key={tag} variant="secondary">{tag}</Badge>)}

@@ -34,7 +34,7 @@ export function prepareRunAdmission(env: Env, run: {
     FROM organizations o JOIN organization_plans a ON a.org_id=o.id
     LEFT JOIN run_usage monthly ON monthly.org_id=o.id AND monthly.period=?
     WHERE o.id=? AND a.plan_version_id=?
-      AND EXISTS (SELECT 1 FROM prompts p WHERE p.org_id=o.id AND p.id=? AND p.workspace_id=? AND p.enabled=1 AND p.archived_at IS NULL)
+      AND EXISTS (SELECT 1 FROM prompts p WHERE p.org_id=o.id AND p.id=? AND p.workspace_id=? AND p.archived_at IS NULL)
       AND coalesce(monthly.runs,0)<?
       ${schedule ? `AND EXISTS(SELECT 1 FROM schedules WHERE id=? AND org_id=o.id AND enabled=1
         AND next_due_at=? AND days=? AND times_json=? AND timezone=? AND repetitions=?)` : ""}`).bind(
