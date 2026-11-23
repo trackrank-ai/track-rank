@@ -243,7 +243,7 @@ export function Overview({
   return <>
     <Card><CardContent className="overview-findings">
       <div className="panel-title"><div><h2>Visibility</h2><p className="overview-scope">{scopeLabel}</p></div></div>
-      {(!selectedBrand || !totals.samples) && filters}
+      {filters}
       {!data.total_runs ? <p>No collections match these filters. <Link to="/app" search={availableHistory}>Show available history</Link>.</p>
         : !data.eligible_answers ? <p>No AI answers were recorded in these collections. <a href="#overview-collection-coverage">Review collection outcomes</a>.</p>
         : !selectedBrand ? <p>No brand is selected. <Link to="/app" search={metricLink("eligible")}>{collectedAnswersLabel(data.eligible_answers)}</Link></p>
@@ -262,7 +262,6 @@ export function Overview({
               <span>{totals[count].toLocaleString()}{comparisonName && ` / ${totals[comparisonCount].toLocaleString()}`} of {answerCount(totals.samples)}</span>
             </Link>)}
           </nav>
-          {filters}
           <p className="data-note">
             {trendMetric === "mention" ? `Answers that mention ${selectedBrand}` : `Answers that cite ${selectedBrand}’s website`}
             {comparisonName && ` or ${comparisonName}`}. Rates use successful AI answers that tracked {comparisonName ? "both brands" : selectedBrand}.
