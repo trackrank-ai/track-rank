@@ -26,7 +26,7 @@ import { TrialBanner } from "@/components/trial-banner";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { ProviderCredentialsCard } from "@/components/provider-credentials-card";
 import { ResearchDrilldown } from "@/components/research-drilldown";
-import { ResearchResults, type ResearchSummary } from "@/components/research-results";
+import { ResearchResults, SourcePagination, type ResearchSummary } from "@/components/research-results";
 import { RunStatus, WorkspaceRunHistory } from "@/components/workspace-run-history";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
@@ -356,18 +356,24 @@ function App() {
     ...linkScope, org, workspace, tab: "tracking", set: search.set, trackingView: view,
     trendMetric: search.trendMetric, ...patch,
   });
+  const sourceContext = {
+    researchGroup, sourceSort: search.sourceSort, sourceDirection: search.sourceDirection,
+    sourceSearch: search.sourceSearch, sourcePage: search.sourcePage, sourceDetailPage: search.sourceDetailPage, sourceBrandPage: search.sourceBrandPage,
+    sourceView: search.sourceView, sourceQuestion: search.sourceQuestion, sourceDomain: search.sourceDomain, sourceDomainPage: search.sourceDomainPage,
+    sourceBackRun: search.sourceBackRun,
+  };
   const sectionSearch = (nextTab: Tab) => ({
     ...((nextTab === "overview" || nextTab === "research" || nextTab === "runs") && (reportTab || isScopedHistory)
       ? reportTab ? reportScope : linkScope : {}),
     org: org || undefined, workspace, tab: nextTab,
     ...(nextTab === "prompts" && tab === "prompts" ? { promptView: selectingForSchedule ? "schedule" as const : undefined, tag: search.tag, set: search.set, brand: search.brand, from: search.from, to: search.to,
       q: search.q, promptEngine: search.promptEngine, promptSchedule: search.promptSchedule, promptBrand: search.promptBrand, trackingView: search.trackingView } : {}),
-    ...(nextTab === "research" && tab === "research" ? { researchGroup } : {}),
+    ...(nextTab === "research" && (tab === "research" || tab === "runs") ? sourceContext : {}),
     ...((nextTab === "overview" || nextTab === "runs") ? { trendMetric: search.trendMetric } : {}),
     ...(nextTab === "runs" && tab === "runs" ? { metric: search.metric, evidenceDay: search.evidenceDay,
       q: search.q, outcome: search.outcome, status: search.status, brand: search.brand,
       reportQuestion: search.reportQuestion, reportEngine: search.reportEngine,
-      researchGroup: search.researchGroup, researchType: search.researchType, researchValue: search.researchValue } : {}),
+      ...sourceContext, researchType: search.researchType, researchValue: search.researchValue } : {}),
   });
   const scheduleScope = { org, workspace, set: search.set, trackingView: search.trackingView };
   useEffect(() => {
@@ -886,12 +892,28 @@ function App() {
     : setupSchedules ? firstCheck ? "Start tracking and run first check" : "Start tracking"
     : "Check once";
 
-  const research = useReport<ResearchSummary>(
-    workspaceReady && !unavailableWorkspace && tab === "research" && !search.researchValue
-      ? "/research?" + analyticsQuery(reportScope, workspace) : "", request, prompts,
-  );
-  const discovered = research?.data?.items.filter(item => item.kind === "brand")
-    .map(item => item.value).filter(name => !brands.some(brand => brand.name.toLowerCase() === name.toLowerCase())) ?? [];
+  const sourceQuery = analyticsQuery(reportScope, workspace);
+  sourceQuery.set("group", researchGroup);
+  if (search.sourceSearch) sourceQuery.set("source_search", search.sourceSearch);
+  if (search.sourceSort) sourceQuery.set("sort", search.sourceSort);
+  if (search.sourceDirection) sourceQuery.set("direction", search.sourceDirection);
+  if (search.sourcePage) sourceQuery.set("page", search.sourcePage);
+  const listSources = workspaceReady && !unavailableWorkspace && tab === "research" && !search.researchValue;
+  const research = useReport<ResearchSummary>(listSources ? "/research?" + sourceQuery : "", request, prompts);
+  const discoveryQuery = analyticsQuery(reportScope, workspace);
+  discoveryQuery.set("group", "brand");
+  if (search.sourceBrandPage) discoveryQuery.set("page", search.sourceBrandPage);
+  const discovery = useReport<ResearchSummary>(listSources ? "/research?" + discoveryQuery : "", request, prompts);
+  const discovered = discovery?.data?.items.map(item => item.value)
+    .filter(name => !brands.some(brand => brand.name.toLowerCase() === name.toLowerCase())) ?? [];
+  const sourceForRun = (url: string): AppSearch => ({
+    ...sectionSearch("research"), ...reportScope,
+    ...(!linkScope.from && !linkScope.to && selectedRun && selectedRun.created_at < Date.parse(reportScope.from ?? "")
+      ? defaultPeriod(selectedRun.created_at) : {}),
+    trackedBrand: undefined, compareBrand: undefined,
+    researchGroup: search.researchGroup ?? "page", researchType: "page", researchValue: url,
+    sourceBackRun: selectedRun?.id, sourceQuestion: undefined, sourceDetailPage: undefined, sourceView: undefined,
+  });
   async function savePendingRun(batch: PendingRunBatch | null, progressOnly = false) {
     if (batch && progressOnly) {
       const { batch_key, accepted, nextPrompt } = batch;
@@ -1475,7 +1497,7 @@ function App() {
                   org={org} workspace={workspace} workspaceNames={workspaceNames} scope={reportScope} sets={promptSets} summarize={tab === "research"} showBrand={tab !== "research"}
                   brands={scopeBrands as { id: string; name: string }[]} engines={engines} request={request} revision={prompts}
                   onChange={scope => void navigate({ search: { org, workspace, tab, ...scope,
-                    researchGroup: tab === "research" ? researchGroup : undefined, researchType: search.researchType, researchValue: search.researchValue, trendMetric: search.trendMetric } })}
+                    ...(tab === "research" ? { ...sourceContext, sourcePage: undefined, sourceDetailPage: undefined, sourceBrandPage: undefined, sourceQuestion: undefined } : {}), researchType: search.researchType, researchValue: search.researchValue, trendMetric: search.trendMetric } })}
                 />;
                 return tab === "research" ? filters : <Overview org={org} workspace={workspace} workspaceName={workspaceName} workspaceNames={workspaceNames}
                   scope={reportScope} sets={promptSets} engines={engines} brands={scopeBrands as { id: string; name: string }[]}
@@ -2286,14 +2308,15 @@ function App() {
               )}
               {tab === "research" && (search.researchType && search.researchValue ? (
                 <ResearchDrilldown
-                  key={JSON.stringify([org, workspace, reportScope, search.researchType, search.researchValue])}
-                  org={org} workspace={workspace} scope={reportScope} group={researchGroup} type={search.researchType} value={search.researchValue}
+                  key={JSON.stringify([org, workspace, reportScope, search.researchType, search.researchValue, search.sourceQuestion])}
+                  search={{ ...sectionSearch("research"), researchType: search.researchType, researchValue: search.researchValue }} type={search.researchType} value={search.researchValue}
                   engines={engines} workspaceNames={workspaceNames} request={request}
                 />
-              ) : research?.error ? <p role="alert">{research.error}</p>
-                : !research?.data ? <p role="status">Loading research…</p> : (
+              ) : (
                 <>
-                  <ResearchResults data={research.data} group={researchGroup} search={sectionSearch("research")} />
+                  <ResearchResults key={search.sourceSearch ?? ""} data={research?.data} error={research?.error}
+                    group={researchGroup} search={sectionSearch("research")}
+                    onSearch={value => void navigate({ search: { ...sectionSearch("research"), sourceSearch: value || undefined, sourcePage: undefined } })} />
                   <Card>
                     <CardContent>
                       <div className="panel-title">
@@ -2305,7 +2328,7 @@ function App() {
                           </p>
                         </div>
                       </div>
-                      {discovered.length ? (
+                      {discovery?.error ? <p role="alert">{discovery.error}</p> : !discovery?.data ? <p role="status">Loading detected brands…</p> : discovered.length ? (
                         discovered.map((n) => (
                           <div className="simple-row" key={n}>
                             <span>{n}</span>
@@ -2338,6 +2361,7 @@ function App() {
                           No untracked entities found in this view.
                         </p>
                       )}
+                      {discovery?.data && <SourcePagination data={discovery.data} search={sectionSearch("research")} field="sourceBrandPage" />}
                     </CardContent>
                   </Card>
                 </>
@@ -2403,17 +2427,6 @@ function App() {
                           )}
                           {selectedRun.status === "succeeded" && (
                             <>
-                              <a
-                                className="small-link"
-                                href={
-                                  "/api/v1/runs/" +
-                                  selectedRun.id +
-                                  "/raw?org=" +
-                                  org
-                                }
-                              >
-                                <Download size={13} /> Raw JSON
-                              </a>
                               {canWrite && (
                                 <Button
                                   size="sm"
@@ -2468,6 +2481,7 @@ function App() {
                                 value: `${mention.mentioned ? "Mentioned" : "Not mentioned"}${mention.cited ? " · Cited" : ""}`,
                               }))}
                               sources={selectedRun.citations || []}
+                              researchLink={sourceForRun}
                               emptyAnswer={selectedRun.status === "succeeded"
                                 ? "No AI answer / AI Overview was present in this collection."
                                 : selectedRun.status === "failed" || selectedRun.status === "uncertain"
@@ -2477,7 +2491,13 @@ function App() {
                           </TabsContent>
                           <TabsContent value="citations">
                             <h3>Sources supplied by the provider</h3>
-                            <EvidenceSources sources={selectedRun.citations || []} />
+                            <EvidenceSources sources={selectedRun.citations || []} researchLink={sourceForRun} />
+                            {selectedRun.status === "succeeded" && <details className="mt-4">
+                              <summary>Advanced evidence</summary>
+                              <a className="small-link mt-2" href={`/api/v1/runs/${selectedRun.id}/raw?org=${org}`}>
+                                <Download size={13} /> Download raw JSON
+                              </a>
+                            </details>}
                           </TabsContent>
                           <TabsContent value="queries">
                             <ul className="query-list">

@@ -26,8 +26,12 @@ export async function searchableHistoryWhere(env: Env, org: string, params: URLS
       `SELECT workspace_id, prompt_text, json_extract(${runConfig},'$.engine') AS engine FROM runs WHERE org_id=? AND id=?` +
         (filters.workspace ? " AND workspace_id=?" : ""),
       org, filters.report_evidence_run, ...(filters.workspace ? [filters.workspace] : [])));
-    where.conditions.push("runs.workspace_id=?", "runs.prompt_text=?", `json_extract(${runConfig},'$.engine') IS ?`);
-    where.bindings.push(question.workspace_id, question.prompt_text, question.engine);
+    where.conditions.push("runs.workspace_id=?", "runs.prompt_text=?");
+    where.bindings.push(question.workspace_id, question.prompt_text);
+    if (!filters.report_question_all_engines) {
+      where.conditions.push(`json_extract(${runConfig},'$.engine') IS ?`);
+      where.bindings.push(question.engine);
+    }
   }
   const { limits } = await organizationPlan(env, org);
   if (limits.searchable_history_days !== undefined) {
@@ -52,6 +56,7 @@ export const runHistoryFilters = scopeFilters.extend({
   metric: z.enum(answerMetrics).optional(),
   question_id: setId.optional(),
   report_evidence_run: setId.optional(),
+  report_question_all_engines: z.enum(["true"]).optional(),
   prompt_schedule: z.enum(["active", "inactive"]).optional(),
   prompt_brand: setId.optional(),
   prompt_id: z.string().min(1).max(100).optional(),
@@ -72,6 +77,7 @@ export function parseHistoryFilters(params: URLSearchParams) {
   const filters = parsed.data;
   if (filters.from && filters.to && filters.from > filters.to)
     throw new HttpError(400, "The start date must be on or before the end date");
+  if (filters.report_question_all_engines && !filters.report_evidence_run) throw new HttpError(400, "Choose a recorded question");
   if (!!filters.research_type !== !!filters.research_value) throw new HttpError(400, "Choose a research item");
   if ((filters.prompt_schedule || filters.prompt_brand) && !filters.question_id)
     throw new HttpError(400, "Choose a question before filtering its variants");

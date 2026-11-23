@@ -438,13 +438,16 @@ test("full-period analytics reconciles with paged run history, research, and CSV
   const csv = await (await call("/export?" + filters + "&metric=brand")).text();
   assert.equal(csv.split("\r\n").length, 103);
   assert.doesNotMatch(csv, /untracked|no-answer|elsewhere|other-workspace/);
-  const summary = await get("/research?" + filters);
+  const summary = await get("/research?" + filters + "&group=query");
   assert.equal(summary.answers, 103);
   assert.equal(summary.items.find((item: any) => item.kind === "query").count, 103);
   const sourceMatches = filters + "&research_type=domain&research_value=example.test";
   const firstSourcePage = await get("/runs?" + sourceMatches);
   const lastSourcePage = await get("/runs?" + sourceMatches + `&before=${firstSourcePage.next_before}&before_id=${firstSourcePage.next_before_id}`);
-  const domainCount = summary.items.find((item: any) => item.kind === "domain" && item.value === "example.test").count;
+  const detail = await get("/research?" + sourceMatches);
+  const domainCount = detail.detail.count;
+  assert.equal(detail.items.length, 2);
+  assert.equal(detail.detail.daily.reduce((sum: number, day: any) => sum + day.answers, 0), 103);
   assert.equal(firstSourcePage.runs.length, 100);
   assert.equal(firstSourcePage.runs.length + lastSourcePage.runs.length, domainCount);
   assert.equal(firstSourcePage.total_matches, domainCount);
@@ -651,4 +654,91 @@ test("tracking sets summarize distinct variants and filter schedules within thei
   assert.ok(filtered.next_cursor);
   assert.equal((await (await call(`/schedules?set=${empty}`)).json() as any).total, 0);
   await assert.rejects(call(`/schedules?workspace=target&set=${id}&selection=1`), { status: 404 });
+});
+
+test("sources search the full eligible cohort and preserve question evidence across REST and MCP", async () => {
+  const { sql, env, call } = setup();
+  const { mcp } = await import("../src/server/mcp");
+  const { hashToken } = await import("../src/server/crypto");
+  const key = "trk_sources_fixture";
+  const noReadKey = "trk_sources_without_read";
+  const keyInsert = sql.prepare(`INSERT INTO api_keys(id,org_id,user_id,name,prefix,token_hash,scopes,expires_at,created_at)
+    VALUES(?,'org','owner','Agent','trk',?,?,?,0)`);
+  keyInsert.run("sources-key", await hashToken(key), '["read"]', Date.now() + 60000);
+  keyInsert.run("sources-write-key", await hashToken(noReadKey), '["write"]', Date.now() + 60000);
+  const now = Date.now();
+  const earlier = now - 86400000;
+  const insert = sql.prepare(`INSERT INTO runs(id,org_id,prompt_id,workspace_id,prompt_text,config,status,
+    has_answer,citations,grounding_queries,idempotency_key,created_at,updated_at)
+    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+  const source = (host: string, page = "", title?: string) => ({ domain: host, url: `https://${host}/${page}`, title });
+  const hosts = Array.from({ length: 105 }, (_, index) => source("site-" + String(index).padStart(3, "0") + ".test"));
+  const common = source("site-000.test");
+  const otherPage = source("site-000.test", "deep", "Rare headline");
+  const foreignCitation = source("another.test", "deep");
+  const record = (id: string, sources: object[], { time = now, workspace = "source",
+    question = "Shared workspace question", engine = "google", eligible = 1 } = {}) =>
+    insert.run(id, workspace === "foreign" ? "other" : "org", workspace === "foreign" ? "foreign-prompt" : "prompt",
+      workspace, question, JSON.stringify({ engine }), "succeeded", eligible, JSON.stringify(sources),
+      JSON.stringify(["duplicate query", "duplicate query"]), id, time, time);
+  record("source-first", [...hosts, common, otherPage, foreignCitation], { time: earlier });
+  record("source-second", [common, otherPage, otherPage], { engine: "gemini" });
+  record("source-third", [common], { question: "Another question" });
+  record("source-none", [source("ineligible.test")], { eligible: 0 });
+  record("source-foreign", [source("foreign.test"), common], { workspace: "foreign" });
+
+  const get = async (params: Record<string, string | number>, path = "/research") => (await call(path + "?" +
+    new URLSearchParams(Object.entries({ workspace: "source", ...params }).map(([k, v]) => [k, String(v)])),
+    undefined, "viewer")).json() as Promise<any>;
+  const tool = async (name: string, args: Record<string, string | number>, token = key) => {
+    const response = await mcp(new Request("https://example.test/mcp", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: { workspace_id: "source", ...args } } }),
+    }), env, { waitUntil() {} } as any);
+    const payload = await response.json() as any;
+    return { error: payload.result.isError, data: JSON.parse(payload.result.content[0].text) };
+  };
+
+  const first = await get({ group: "domain" });
+  assert.equal(first.answers, 3);
+  assert.equal(first.total, 106);
+  assert.equal(first.items[0].value, common.domain);
+  assert.equal(first.items[0].count, 3);
+  assert.equal(first.items[0].questions, 2);
+  assert.equal(first.items[0].share, 1);
+  assert.equal(first.items[0].last_seen, now);
+  const later = await get({ group: "domain", page: 5, sort: "value", direction: "asc" });
+  assert.equal(later.items.at(-1).value, "site-104.test");
+  assert.equal(later.next_page, null);
+  const reversed = await get({ group: "domain", sort: "value", direction: "desc" });
+  assert.equal(reversed.items[0].value, later.items.at(-1).value);
+  const search = { group: "page", source_search: "rare HEADLINE" };
+  const pages = await get(search);
+  assert.equal(pages.total, 1);
+  assert.deepEqual(pages.items.map((item: any) => [item.value, item.count, item.questions]), [[otherPage.url, 2, 1]]);
+  assert.deepEqual(await tool("get_research_summary", search), { error: false, data: pages });
+  assert.equal((await get({ group: "query" })).items[0].count, 3);
+
+  const match = { research_type: "domain", research_value: common.domain };
+  const detail = await get(match);
+  assert.deepEqual(detail.items.map((item: any) => item.value), [common.url, otherPage.url]);
+  assert.equal(detail.detail.count, 3);
+  assert.equal(detail.detail.daily.reduce((sum: number, day: any) => sum + day.answers, 0), 3);
+  const questionView = { research_type: "page", research_value: otherPage.url, view: "questions" };
+  const questions = await get(questionView);
+  assert.equal(questions.detail.count, 2);
+  assert.equal(questions.detail.questions, 1);
+  assert.deepEqual(await tool("get_research_summary", questionView), { error: false, data: questions });
+  const evidence = { research_type: "page", research_value: otherPage.url,
+    report_evidence_run: questions.items[0].evidence_run_id, report_question_all_engines: "true" };
+  const evidenceRuns = await get(evidence, "/runs");
+  assert.deepEqual(evidenceRuns.runs.map((run: any) => run.id), ["source-second", "source-first"]);
+  assert.deepEqual(await tool("list_runs", evidence), { error: false, data: evidenceRuns });
+  assert.equal((await get({ ...evidence, engine: "gemini" }, "/runs")).total_matches, 1);
+  assert.equal((await tool("get_research_summary", { workspace_id: "foreign" })).data.status, 404);
+  assert.equal((await tool("get_research_summary", {}, noReadKey)).data.status, 403);
+  await assert.rejects(get({ workspace: "foreign" }), { status: 404 });
+  await assert.rejects(get({ sort: "invalid" }), { status: 400 });
+  await assert.rejects(get({ research_type: "page" }), { status: 400 });
 });

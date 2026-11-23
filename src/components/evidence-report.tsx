@@ -1,3 +1,5 @@
+import { Link } from "@tanstack/react-router";
+import type { AppSearch } from "@/lib/app-location";
 import { ExternalLink } from "lucide-react";
 import { useId, type ReactNode } from "react";
 import "./evidence-report.css";
@@ -8,9 +10,10 @@ type EvidenceSource = {
   domain?: string | null;
 };
 
-export function EvidenceSources({ sources, illustrative = false }: {
+export function EvidenceSources({ sources, illustrative = false, researchLink }: {
   sources: readonly EvidenceSource[];
   illustrative?: boolean;
+  researchLink?: (url: string) => AppSearch;
 }) {
   if (!sources.length) return <p className="evidence-report-note">{illustrative ? "No example sources." : "The provider returned no citations."}</p>;
 
@@ -25,7 +28,15 @@ export function EvidenceSources({ sources, illustrative = false }: {
         </>;
         return (
           <li key={`${url || name}-${index}`}>
-            {url && /^https?:\/\//i.test(url) ? (
+            {researchLink && url && /^https?:\/\//i.test(url) ? (
+              <div className="evidence-source-actions">
+                <span>{content}</span>
+                <div>
+                  <Link to="/app" search={researchLink(url)}>Research this page</Link>
+                  <a href={url} target="_blank" rel="noreferrer">Open original <ExternalLink size={13} aria-hidden="true" /></a>
+                </div>
+              </div>
+            ) : url && /^https?:\/\//i.test(url) ? (
               <a href={url} target="_blank" rel="noreferrer">
                 <span>{content}</span>
                 <ExternalLink size={16} aria-hidden="true" />
@@ -45,6 +56,7 @@ export function EvidenceReport({
   emptyAnswer = "No AI answer was recorded.",
   className,
   illustrative = false,
+  researchLink,
 }: {
   answer: string | null;
   observations?: readonly { label: string; value: ReactNode }[];
@@ -52,6 +64,7 @@ export function EvidenceReport({
   emptyAnswer?: ReactNode;
   className?: string;
   illustrative?: boolean;
+  researchLink?: (url: string) => AppSearch;
 }) {
   const id = useId();
   return (
@@ -80,7 +93,7 @@ export function EvidenceReport({
           {sources && (
             <section aria-labelledby={`${id}-sources`}>
               <h3 id={`${id}-sources`}>{illustrative ? "Example sources" : "Sources supplied by the provider"}</h3>
-              <EvidenceSources sources={sources} illustrative={illustrative} />
+              <EvidenceSources sources={sources} illustrative={illustrative} researchLink={researchLink} />
             </section>
           )}
         </div>

@@ -1,4 +1,4 @@
-import { overviewQuestionsPage } from "./analytics";
+import { overviewQuestionsPage, researchReportInput } from "./analytics";
 import { bulkPromptSettingsSchema } from "./prompt-settings";
 import { receiptActionSchema, submitPromptBatchSchema } from "./receipt-actions";
 import { bulkPromptTagsSchema, promptTag, promptTags } from "./prompt-tags";
@@ -198,8 +198,8 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
     inputSchema: reportingInput,
   }, async args => invoke(filteredPath("/analytics/locations", args)));
   server.registerTool("get_research_summary", {
-    description: "Summarize cited domains, pages, grounding queries and detected brands across the reporting scope.",
-    inputSchema: reportingInput,
+    description: "Search and page through cited domains, pages or grounding queries by group. Pass research_type and research_value for complete-cohort source metrics and pages or questions.",
+    inputSchema: { ...reportingInput, ...researchReportInput },
   }, async args => invoke(filteredPath("/research", args)));
   const historyInput = { ...runHistoryFilters.omit({ workspace: true }).shape, ...workspaceInput };
   server.registerTool("export_runs", {
