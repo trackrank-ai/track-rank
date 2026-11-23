@@ -65,14 +65,14 @@ export async function operations(req: Request, env: Env) {
   if (path === "/api/operations/test-alert") {
     if (!env.BILLING_ALERT_EMAIL || !env.RESEND_API_KEY || !env.EMAIL_FROM) throw new HttpError(503, "Alert email configuration incomplete");
     const id = `delivery-drill:${crypto.randomUUID()}`;
-    await billingAlert(env, id, null, "delivery_drill", "production-readiness", "Benign TrackRank billing readiness drill. No payment, customer data or credentials are included.");
+    await billingAlert(env, id, null, "delivery_drill", "production-readiness", "Benign Trackrank AI billing readiness drill. No payment, customer data or credentials are included.");
     const message_ids = await deliverBillingAlerts(env);
     const record = await one(env, "SELECT notified_at FROM billing_alerts WHERE id=?", id);
     return json({ id, provider_accepted: !!record?.notified_at, message_ids });
   }
   if (path === "/api/operations/test-support") {
     if (!env.RESEND_API_KEY || !env.EMAIL_FROM || !env.PUBLIC_SUPPORT_EMAIL) throw new HttpError(503, "Support email configuration incomplete");
-    const r = await fetch("https://api.resend.com/emails", { method: "POST", signal: AbortSignal.timeout(10000), headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, "Content-Type": "application/json" }, body: JSON.stringify({ from: env.EMAIL_FROM, to: [env.PUBLIC_SUPPORT_EMAIL], subject: "TrackRank support delivery verification", text: `Benign support readiness drill ${now()}. No payment, customer data or credentials are included.` }) });
+    const r = await fetch("https://api.resend.com/emails", { method: "POST", signal: AbortSignal.timeout(10000), headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, "Content-Type": "application/json" }, body: JSON.stringify({ from: env.EMAIL_FROM, to: [env.PUBLIC_SUPPORT_EMAIL], subject: "Trackrank AI support delivery verification", text: `Benign support readiness drill ${now()}. No payment, customer data or credentials are included.` }) });
     if (!r.ok) throw new HttpError(502, "Support message was not accepted");
     const data = await r.json() as { id: string };
     return json({ id: data.id, provider_accepted: true });

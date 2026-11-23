@@ -4,7 +4,7 @@ export const Route = createFileRoute("/setup")({ component: Setup });
 function Setup() {
   return (
     <main className="setup-page shell">
-      <Link to="/">← TrackRank home</Link>
+      <Link to="/">← Trackrank AI home</Link>
       <p className="section-eyebrow">OPERATOR SETUP</p>
       <h1>Connect authentication.</h1>
       <p>
@@ -26,7 +26,7 @@ function Setup() {
             and create or select a project.
           </li>
           <li>
-            Configure branding as TrackRank, an External audience, and the
+            Configure branding as Trackrank AI, an External audience, and the
             support/developer email. If in Testing, add your email and the users who need test access.
           </li>
           <li>
@@ -78,7 +78,7 @@ function Setup() {
           <li>
             Add <code>RESEND_API_KEY</code> as a Worker Secret and{" "}
             <code>EMAIL_FROM</code> as{" "}
-            <code>TrackRank &lt;login@mail.trackrank.ai&gt;</code>.
+            <code>Trackrank AI &lt;login@mail.trackrank.ai&gt;</code>.
           </li>
           <li>
             Set <code>SIGNUP_ENABLED</code> to <code>true</code> after the

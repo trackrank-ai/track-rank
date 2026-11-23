@@ -10,7 +10,7 @@
   ],
   "vars": {
     "BASE_URL": "https://trackrank-staging.edninodel.workers.dev",
-    "PUBLIC_OPERATOR_NAME": "TrackRank Staging",
+    "PUBLIC_OPERATOR_NAME": "Trackrank AI Staging",
     "PUBLIC_SUPPORT_EMAIL": "info@trackrank.ai",
     "SIGNUP_ENABLED": "false",
     "BILLING_ENABLED": "true",

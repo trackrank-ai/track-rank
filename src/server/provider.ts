@@ -441,7 +441,7 @@ export async function analyzeRun(env: Env, orgId: string, runId: string) {
       Authorization: `Bearer ${c.openrouter_key}`,
       "Content-Type": "application/json",
       "HTTP-Referer": env.BASE_URL,
-      "X-Title": "TrackRank",
+      "X-Title": "Trackrank AI",
     },
     body: JSON.stringify({
       model: c.openrouter_model,

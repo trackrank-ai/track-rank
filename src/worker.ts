@@ -124,7 +124,7 @@ const appWorker = {
         return response;
       }
       console.error(
-        "TrackRank request failed",
+        "Trackrank AI request failed",
         u.pathname,
         e instanceof Error ? e.name : "unknown",
       );

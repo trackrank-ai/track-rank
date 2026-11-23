@@ -46,16 +46,16 @@ export const competitors: Competitor[] = [
     "migration": "Copy the exact prompt wording, model selections, locations and tags from your Peec project into a local list; retain existing reports separately.",
     "faqs": [
       [
-        "Will TrackRank replace every Peec workflow?",
+        "Will Trackrank AI replace every Peec workflow?",
         "No. Start with prompt monitoring and evidence review. Validate any sentiment, action or integration workflow separately before cancelling Peec."
       ],
       [
         "Is the $10 plan comparable to a $95 Peec subscription?",
-        "Not by subscription price alone. TrackRank adds your provider bill; use the workload table and your actual provider rate."
+        "Not by subscription price alone. Trackrank AI adds your provider bill; use the workload table and your actual provider rate."
       ]
     ],
     "checkedAt": "2026-11-23",
-    "description": "TrackRank vs Peec AI: compare open-source control, your own provider credentials, self-hosting, workload costs and the trade-offs before switching.",
+    "description": "Trackrank AI vs Peec AI: compare open-source control, your provider credentials, self-hosting, workload costs and the trade-offs before switching.",
     "altDescription": "Peec AI alternatives for teams that want open-source control, their own provider credentials or managed monitoring. Compare costs, strengths and trade-offs.",
     "trackrankFacts": [
       {
@@ -117,31 +117,31 @@ export const competitors: Competitor[] = [
     ],
     "winSource": "https://ahrefs.com/brand-radar",
     "tradeoff": "A broad discovery index is a different product from collecting your own prompt set.",
-    "migration": "Copy your Custom Prompts wording, platform choices and cadence from Brand Radar. Keep any index research separately: TrackRank does not import or reproduce the Ahrefs index.",
+    "migration": "Copy your Custom Prompts wording, platform choices and cadence from Brand Radar. Keep any index research separately: Trackrank AI does not import or reproduce the Ahrefs index.",
     "faqs": [
       [
-        "Does TrackRank replace the Ahrefs SEO suite?",
-        "No. TrackRank monitors chosen AI questions; it is not a backlink index, keyword database or full Ahrefs replacement."
+        "Does Trackrank AI replace the Ahrefs SEO suite?",
+        "No. Trackrank AI monitors chosen AI questions; it is not a backlink index, keyword database or full Ahrefs replacement."
       ],
       [
-        "Are Ahrefs checks equivalent to TrackRank runs?",
-        "Not universally. Ahrefs has platform-specific check accounting; a TrackRank run is one prompt × one engine × one sample."
+        "Are Ahrefs checks equivalent to Trackrank AI runs?",
+        "Not universally. Ahrefs has platform-specific check accounting; a Trackrank AI run is one prompt × one engine × one sample."
       ]
     ],
     "checkedAt": "2026-11-23",
-    "description": "TrackRank vs Ahrefs Brand Radar: compare open-source control, your own provider credentials, self-hosting, workload costs and the trade-offs before switching.",
+    "description": "Trackrank AI vs Ahrefs Brand Radar: compare open-source control, your provider credentials, self-hosting, workload costs and the trade-offs before switching.",
     "altDescription": "Ahrefs Brand Radar alternatives: compare open-source tracking, provider credentials, self-hosting and managed monitoring, with sourced pricing and trade-offs.",
     "trackrankFacts": [
       {
         "questions": 50
       },
-      "TrackRank collects questions you supply. It does not include an Ahrefs-style answer index.",
-      "Self-hosting requires no TrackRank subscription or Ahrefs subscription.",
+      "Trackrank AI collects questions you supply. It does not include an Ahrefs-style answer index.",
+      "Self-hosting requires no Trackrank AI subscription or Ahrefs subscription.",
       {
         "questions": 5,
         "profile": "chatgpt"
       },
-      "TrackRank collects ChatGPT, Gemini and Google AI Overviews, not Claude."
+      "Trackrank AI collects ChatGPT, Gemini and Google AI Overviews, not Claude."
     ],
     "alternativeHeading": "Ahrefs Brand Radar alternatives for custom question tracking",
     "alternativeVerdict": "Ahrefs connects custom question tracking with an existing AI-answer index.",
@@ -183,16 +183,16 @@ export const competitors: Competitor[] = [
     ],
     "wins": [
       "Your procurement requires the published SSO/SAML and SOC 2 offering.",
-      "You need more engine coverage than TrackRank's ChatGPT, Gemini and Google AI Overviews.",
+      "You need more engine coverage than Trackrank AI's ChatGPT, Gemini and Google AI Overviews.",
       "You need dedicated support and an enterprise marketing-agent workflow."
     ],
     "winSource": "https://www.tryprofound.com/pricing",
     "tradeoff": "Enterprise controls and services are not interchangeable with a lean tracking tool.",
-    "migration": "Retain your Profound CSV/JSON exports as historical records. Extract a reviewed question list, engine list and regions from the project; do not treat exported metrics as TrackRank run history.",
+    "migration": "Retain your Profound CSV/JSON exports as historical records. Extract a reviewed question list, engine list and regions from the project; do not treat exported metrics as Trackrank AI run history.",
     "faqs": [
       [
         "Can you quantify savings against Profound?",
-        "Not from a public custom quote. Compare your actual quote with TrackRank hosting plus provider usage, and account for the enterprise features you need."
+        "Not from a public custom quote. Compare your actual quote with Trackrank AI hosting plus provider usage, and account for the enterprise features you need."
       ],
       [
         "Is self-hosting equivalent to enterprise compliance?",
@@ -200,7 +200,7 @@ export const competitors: Competitor[] = [
       ]
     ],
     "checkedAt": "2026-11-23",
-    "description": "TrackRank vs Profound: compare open-source control, your own provider credentials, self-hosting, workload costs and the trade-offs before switching.",
+    "description": "Trackrank AI vs Profound: compare open-source control, your provider credentials, self-hosting, workload costs and the trade-offs before switching.",
     "altDescription": "Profound alternatives for teams that want open-source control, their own provider credentials or managed monitoring. Compare costs, strengths and trade-offs.",
     "trackrankFacts": [
       {
@@ -256,19 +256,19 @@ export const competitors: Competitor[] = [
     ],
     "winSource": "https://promptwatch.com/pricing",
     "tradeoff": "Model coverage and content workflows can matter more than raw collection volume.",
-    "migration": "Copy prompt wording, country settings and model choices from your Promptwatch project. Flag any models not supported by TrackRank before recreating monitoring.",
+    "migration": "Copy prompt wording, country settings and model choices from your Promptwatch project. Flag any models not supported by Trackrank AI before recreating monitoring.",
     "faqs": [
       [
-        "Does TrackRank support all Promptwatch models?",
-        "No. TrackRank currently collects ChatGPT, Gemini and Google AI Overviews through DataForSEO. Check coverage before switching."
+        "Does Trackrank AI support all Promptwatch models?",
+        "No. Trackrank AI currently collects ChatGPT, Gemini and Google AI Overviews through DataForSEO. Check coverage before switching."
       ],
       [
         "Does bringing my own key mean my OpenAI API key?",
-        "For TrackRank collection, it means your own DataForSEO credentials. Optional OpenRouter analysis uses a separate credential. It is not a generic arbitrary-model API-key connector."
+        "For Trackrank AI collection, it means your own DataForSEO credentials. Optional OpenRouter analysis uses a separate credential. It is not a generic arbitrary-model API-key connector."
       ]
     ],
     "checkedAt": "2026-11-23",
-    "description": "TrackRank vs Promptwatch: compare open-source control, your own provider credentials, self-hosting, workload costs and the trade-offs before switching.",
+    "description": "Trackrank AI vs Promptwatch: compare open-source control, your provider credentials, self-hosting, workload costs and the trade-offs before switching.",
     "altDescription": "Promptwatch alternatives for teams that want open-source control, their own provider credentials or managed monitoring. Compare costs, strengths and trade-offs.",
     "trackrankFacts": [
       {
@@ -323,7 +323,7 @@ export const competitors: Competitor[] = [
     ],
     "wins": [
       "A small daily-monitoring package meets your needs without provider-account setup.",
-      "You need its published engine selection beyond TrackRank's three collection engines.",
+      "You need its published engine selection beyond Trackrank AI's three collection engines.",
       "You want its managed optimization and onboarding workflow."
     ],
     "winSource": "https://otterly.ai/pricing",
@@ -331,16 +331,16 @@ export const competitors: Competitor[] = [
     "migration": "Copy your search prompts, countries, chosen engines and tracking frequency from OtterlyAI. Keep existing brand reports separately and identify engine gaps before collecting.",
     "faqs": [
       [
-        "Is €29 more expensive than TrackRank?",
+        "Is €29 more expensive than Trackrank AI?",
         "Not necessarily. Currencies, credit weights, engine coverage and provider usage differ; this page makes no currency conversion or blanket savings claim."
       ],
       [
-        "Are Otterly credits the same as TrackRank runs?",
-        "No. Check Otterly's current engine-credit rules. TrackRank counts one prompt × one engine × one sample as one run."
+        "Are Otterly credits the same as Trackrank AI runs?",
+        "No. Check Otterly's current engine-credit rules. Trackrank AI counts one prompt × one engine × one sample as one run."
       ]
     ],
     "checkedAt": "2026-11-23",
-    "description": "TrackRank vs OtterlyAI: compare open-source control, your own provider credentials, self-hosting, workload costs and the trade-offs before switching.",
+    "description": "Trackrank AI vs OtterlyAI: compare open-source control, your provider credentials, self-hosting, workload costs and the trade-offs before switching.",
     "altDescription": "OtterlyAI alternatives for teams that want open-source control, their own provider credentials or managed monitoring. Compare costs, strengths and trade-offs.",
     "trackrankFacts": [
       {

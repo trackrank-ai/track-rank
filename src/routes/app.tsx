@@ -1321,7 +1321,7 @@ function App() {
               />
             </svg>
           </span>
-          trackrank<span className="brand-suffix">.ai</span>
+          Trackrank<span className="brand-suffix"> AI</span>
         </Link>
         <details className="compact-account" key={org + workspace + tab}>
           <summary>Account &amp; actions</summary>
@@ -2206,7 +2206,7 @@ function App() {
                                 {setupSchedules && setupProjection.valid && ` · ${countLabel(scheduleEnabled ? setupProjection.weekly ?? 0 : 0, "check")} per scheduled week`}</p>
                               {setupSchedules && scheduleEnabled && approvedRows.length > 0 && setupProjection.next && <p>First scheduled check {setupProjection.next}</p>}
                               <p className="data-note">{immediateChecks || (setupSchedules && scheduleEnabled && approvedRows.length)
-                                ? "Each check counts toward your TrackRank allowance. DataForSEO bills separately at your provider rates."
+                                ? "Each check counts toward your Trackrank AI allowance. DataForSEO bills separately at your provider rates."
                                 : "Saving without collection uses no checks or provider credits."}</p>
                             </div>
                             {setupError && <p role="status">{setupError}</p>}

@@ -1015,7 +1015,7 @@ test("Google-first duplicate signup cannot install a password; mailbox reset add
   assert.equal(sql.prepare("SELECT COUNT(*) AS n FROM account WHERE userId=? AND providerId='credential'").get(uid)!.n,0);
   // Deliver the real request-reset flow to a fake mail transport, never an external inbox.
   const original=globalThis.fetch;let resetUrl='';
-  env.RESEND_API_KEY='test-mail-key'; env.EMAIL_FROM='TrackRank <test@example.test>';
+  env.RESEND_API_KEY='test-mail-key'; env.EMAIL_FROM='Trackrank AI <test@example.test>';
   globalThis.fetch=(async(input:unknown,init?:RequestInit)=>{
     assert.equal(String(input),'https://api.resend.com/emails');
     const mail=JSON.parse(String(init?.body)); resetUrl=mail.text.split('\n').find((line:string)=>line.startsWith('https://'));

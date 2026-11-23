@@ -145,7 +145,7 @@ function Login() {
     <main className="auth-page">
       <div className="auth-theme"><ThemeToggle /></div>
       <Link to="/" className="auth-back">
-        <ArrowLeft size={14} /> TrackRank home
+        <ArrowLeft size={14} /> Trackrank AI home
       </Link>
       <div className="auth-brand">
         <span className="brand-mark">
@@ -173,7 +173,7 @@ function Login() {
               ? trialSignup
                 ? "Start your 14-day free trial. No payment card required."
                 : "Create an account to set up your workspace."
-              : "Use Google or your TrackRank password. Signed up with Google? Set a password using the link below—not your Google password."}
+              : "Use Google or your Trackrank AI password. Signed up with Google? Set a password using the link below—not your Google password."}
           </p>
           {config?.local_auth && (
             <p className="auth-intro">Local development: email verification is skipped. Use a test email and password.</p>

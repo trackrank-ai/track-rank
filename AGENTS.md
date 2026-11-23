@@ -41,6 +41,8 @@ Local account creation and UI exploration need no paid provider credentials. Rea
 
 ## Implementation conventions
 
+- Brand display name is **Trackrank AI**, never TrackRank or TrackRank AI. Keep technical identifiers, domains, storage keys and repository URLs unchanged.
+
 - Ship every new, changed, or removed user-facing capability across the UI, REST API, and MCP in the same change. Every action a user can perform in the UI needs an equivalent agent workflow, including reads, writes, bulk operations, and management actions. Add or update the REST routes, discoverable MCP tools and schemas, and `docs/API.md` before calling the feature complete.
 - Reuse the same server operations and validation across these surfaces. Apply equivalent organization scope, roles, entitlements, and usage limits. Give privileged agent actions explicit authorization scopes and preserve any required user confirmation or verified handoff.
 - Reuse existing server helpers, schemas and UI primitives. Prefer small cohesive modules over adding more unrelated logic to the main app/API files. Keep secrets and server-only imports out of browser bundles.

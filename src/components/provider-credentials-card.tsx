@@ -55,7 +55,7 @@ export function ProviderCredentialsCard({ provider, configured, model, busy, onS
   }
 
   function remove() {
-    if (confirm(`Remove ${name} credentials from TrackRank? ${removal} To revoke access at the source, manage the credentials in your ${name} account.`)) {
+    if (confirm(`Remove ${name} credentials from Trackrank AI? ${removal} To revoke access at the source, manage the credentials in your ${name} account.`)) {
       void apply(onRemove, `${name} credentials removed. ${provider === "dataforseo" ? "Collection schedules paused." : ""}`.trim());
     }
   }
@@ -71,7 +71,7 @@ export function ProviderCredentialsCard({ provider, configured, model, busy, onS
         </div>
         <p className="data-note">{usage}</p>
         <p className="data-note">{configured
-          ? "Credentials are saved securely in TrackRank. Open Replace credentials to enter new ones."
+          ? "Credentials are saved securely in Trackrank AI. Open Replace credentials to enter new ones."
           : `Add credentials from your ${name} account to use this provider.`}</p>
         {configured && provider === "openrouter" && <p className="data-note">Model {model || "not set"}</p>}
         {status && <p className="data-note" role="status">{status}</p>}

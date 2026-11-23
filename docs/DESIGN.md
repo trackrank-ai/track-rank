@@ -1,8 +1,12 @@
-# TrackRank design system
+# Trackrank AI design system
 
 The [November 2026 technical audit](design-audit-2026-11-22.md) records measured contrast, spacing and responsive behavior across the public site and authenticated app.
 
 The [Promptwatch walkthrough and TrackRank release record](plans/promptwatch-ux-review.md) connects the reference screens to the shipped question library, evidence links, research navigation and organization settings.
+
+## Brand name
+
+Use **Trackrank AI** (lowercase r) consistently in wordmarks, titles and product copy. Domains, repository URLs and technical identifiers remain unchanged.
 
 ## Foundation
 
