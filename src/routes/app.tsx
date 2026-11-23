@@ -71,17 +71,25 @@ export const Route = createFileRoute("/app")({ validateSearch: parseAppSearch, c
 // API JSON has heterogeneous result shapes; keep server secrets out of the client contract.
 type Item = Record<string, any>;
 const ALL_WORKSPACES = "all";
-const nav: { id: Tab; label: string; Icon: typeof BarChart3 }[] = [
-  { id: "overview", label: "Overview", Icon: BarChart3 },
-  { id: "tracking", label: "Tracking", Icon: ListChecks },
-  { id: "prompts", label: "Prompts", Icon: MessageSquare },
-  { id: "research", label: "Sources & research", Icon: Link2 },
-  { id: "runs", label: "Run history", Icon: BookOpen },
-  { id: "brands", label: "Brands", Icon: Fingerprint },
-  { id: "schedules", label: "Schedules", Icon: CalendarClock },
-  { id: "settings", label: "Settings", Icon: Settings2 },
-  { id: "agents", label: "API & agents", Icon: KeyRound },
+type NavigationItem = { id: Tab; label: string; Icon: typeof BarChart3 };
+const navigationGroups: { label: string; items: NavigationItem[] }[] = [
+  { label: "", items: [{ id: "overview", label: "Overview", Icon: BarChart3 }] },
+  { label: "Monitoring", items: [
+    { id: "prompts", label: "Prompts", Icon: MessageSquare },
+    { id: "tracking", label: "Tracking sets", Icon: ListChecks },
+    { id: "schedules", label: "Schedules", Icon: CalendarClock },
+  ] },
+  { label: "Evidence", items: [
+    { id: "research", label: "Sources", Icon: Link2 },
+    { id: "runs", label: "Run history", Icon: BookOpen },
+  ] },
+  { label: "Management", items: [
+    { id: "brands", label: "Brands", Icon: Fingerprint },
+    { id: "settings", label: "Settings", Icon: Settings2 },
+    { id: "agents", label: "API & agents", Icon: KeyRound },
+  ] },
 ];
+const nav = navigationGroups.flatMap(group => group.items);
 const engines: Record<string, string> = {
   chatgpt: "ChatGPT scraper",
   gemini: "Gemini scraper",
@@ -1169,24 +1177,28 @@ function App() {
         )}
         {workspaceReady && <Link className="workspace-management-link" to="/app" search={sectionSearch("workspaces")}>Manage workspaces</Link>}
         <nav className="app-nav" aria-label="Application">
-          {nav.map(({ id, label, Icon }) => (
-            <Link
-              key={id}
-              to="/app"
-              search={{ ...sectionSearch(id), promptView: undefined }}
-              className={(id === "settings" ? settingsTab : tab === id) ? "active" : ""}
-              onClick={() => setError("")}
-              aria-current={(id === "settings" ? settingsTab : tab === id) ? "page" : undefined}
-            >
-              <Icon size={17} />
-              <span>{label}</span>
-            </Link>
+          {navigationGroups.map(group => (
+            <div className="app-nav-group" key={group.label} role={group.label ? "group" : undefined} aria-label={group.label || undefined}>
+              {group.label && <span className="app-nav-label" aria-hidden="true">{group.label}</span>}
+              {group.items.map(({ id, label, Icon }) => (
+                <Link key={id} to="/app" search={{ ...sectionSearch(id), promptView: undefined }}
+                  className={(id === "settings" ? settingsTab : tab === id) ? "active" : ""}
+                  aria-current={(id === "settings" ? settingsTab : tab === id) ? "page" : undefined}
+                  onClick={() => setError("")}>
+                  <Icon size={17} aria-hidden="true" />
+                  <span>{label}</span>
+                </Link>
+              ))}
+            </div>
           ))}
         </nav>
         <label className="app-field app-section-chooser">
           <span>Section</span>
           <select value={settingsTab ? "settings" : tab} onChange={event => { setError(""); setTab(event.target.value as Tab); }}>
-            {nav.map(({ id, label }) => <option key={id} value={id}>{label}</option>)}
+            {navigationGroups.map(group => {
+              const choices = group.items.map(({ id, label }) => <option key={id} value={id}>{label}</option>);
+              return group.label ? <optgroup key={group.label} label={group.label}>{choices}</optgroup> : choices;
+            })}
             <option value="workspaces">Workspaces</option>
           </select>
         </label>

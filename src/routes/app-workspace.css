@@ -1,3 +1,25 @@
+.app-shell .app-nav {
+  gap: 0.875rem;
+}
+
+.app-nav-group {
+  display: grid;
+  gap: 0.125rem;
+}
+
+.app-nav-label {
+  margin: 0 0.75rem 0.125rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--muted-foreground);
+}
+
+@media (min-width: 761px) {
+  .app-shell .app-sidebar {
+    overflow-y: auto;
+  }
+}
+
 .app-shell .app-section-chooser {
   display: none;
 }
