@@ -145,3 +145,7 @@ Collection cost presets live in `src/lib/provider-pricing.ts`, with dated offici
 ### Comparison copy review
 
 Edwin requires an `unslop-seo` pass for comparison and alternatives pages. Audit facts and matched comparison dimensions before editing style. Keep direct recommendations in the opening, link the top alternative there, add buyer-question H2s with direct answers, and give each alternative a self-contained verdict, fit, trade-off and price. Run the skill's checker to zero hits and retain receipts under `seo/`; do not erase sourced costs or competitor strengths to simplify copy.
+
+### Dollar-first comparisons
+
+Lead commercial comparisons with the customer's monthly dollar budget, including managed hosting and modeled provider consumption. A quota such as 31,500 runs is context, not a price. Use `src/lib/comparison-cost.ts` and the live catalog for each named workload; show Standard/Priority/Live totals or an explicitly labeled range. Preserve workload, history, coverage, conditional-charge/refund and excluded-cost assumptions. Keep self-hosted provider budgets separate from unmeasured infrastructure. Never invent a numeric range for a competitor's custom quote.

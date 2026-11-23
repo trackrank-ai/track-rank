@@ -172,3 +172,5 @@ Apply migration `0028_question_type.sql` to the target D1 database before deploy
 Collection cost presets live in `src/lib/provider-pricing.ts`, with dated official DataForSEO sources. Choose engine profile and execution mode; do not apply ChatGPT prices to Google. Google presets budget async-overview and poisoned-result extras, and disclose possible refunds, excluded operator charges and the $50 prepaid top-up. Custom blended rates remain user assumptions, not provider quotes. These public calculations do not change actual execution settings.
 
 Comparison-page editorial receipts: [Unslop SEO pass](seo/unslop-pass.md). New comparison copy follows the same source-grounding and direct-answer checks.
+
+Comparison articles display hosted monthly cost ranges and per-mode totals through `src/lib/comparison-cost.ts`. They include the live subscription and modeled provider charges for the stated question count, engines, daily samples and history. See [cost assumptions and examples](seo/competitors/dataforseo-pricing.md#dollar-first-article-budgets).

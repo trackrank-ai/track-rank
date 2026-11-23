@@ -1,0 +1,114 @@
+{
+  "checkedAt": "2026-11-23",
+  "location_code": 2840,
+  "language": "en",
+  "device": "desktop",
+  "queries": [
+    {
+      "query": "DataForSEO LLM Scraper ChatGPT Gemini pricing",
+      "status": 20000,
+      "check_url": "https://www.google.com/search?q=DataForSEO%20LLM%20Scraper%20ChatGPT%20Gemini%20pricing&hl=en&gl=US&ie=UTF-8&uule=w+CAIQIFISCQs2MuSEtepUEUK33kOSuTsc",
+      "cost": 0.002,
+      "results": [
+        {
+          "title": "Google API Pricing: Compare Models & Endpoints | LLMPrice",
+          "url": null,
+          "rank": 1
+        },
+        {
+          "title": "LLM API Cost Calculator \u2014 Compare Claude, GPT, Gemini ...",
+          "url": null,
+          "rank": 2
+        },
+        {
+          "title": "Best AI API for Data Extraction: Cost Comparison 2026",
+          "url": null,
+          "rank": 3
+        },
+        {
+          "title": "LLM API Cost Calculator \u2014 compare GPT-4o, Claude, Gemini ...",
+          "url": null,
+          "rank": 4
+        },
+        {
+          "title": "LLM API Pricing Comparison - CloudQuell",
+          "url": null,
+          "rank": 5
+        },
+        {
+          "title": "DataForSEO: A Cost-Effective API for SEO Insights",
+          "url": null,
+          "rank": 6
+        },
+        {
+          "title": "DataForSEO Pricing 2026",
+          "url": null,
+          "rank": 7
+        },
+        {
+          "title": "LLM API Pricing \u2013 Compare Every Model per 1M Tokens",
+          "url": null,
+          "rank": 8
+        },
+        {
+          "title": "Alternatives to expensive Google SERP scraping APIs?",
+          "url": null,
+          "rank": 9
+        }
+      ]
+    },
+    {
+      "query": "DataForSEO Google Organic AI Overview resolve poisoned results pricing",
+      "status": 20000,
+      "check_url": "https://www.google.com/search?q=DataForSEO%20Google%20Organic%20AI%20Overview%20resolve%20poisoned%20results%20pricing&hl=en&gl=US&ie=UTF-8&uule=w+CAIQIFISCQs2MuSEtepUEUK33kOSuTsc",
+      "cost": 0.002,
+      "results": [
+        {
+          "title": "Google Organic SERP API Critical Updates | Nick Chernets",
+          "url": null,
+          "rank": 1
+        },
+        {
+          "title": "Hi @everyone, I cross-checked DataForSEO's fix for ...",
+          "url": null,
+          "rank": 2
+        },
+        {
+          "title": "Historical Rank Overview",
+          "url": null,
+          "rank": 3
+        },
+        {
+          "title": "DataForSEO \u2014 Review, Pricing & Features",
+          "url": null,
+          "rank": 4
+        },
+        {
+          "title": "Go Live With DataForSEO API: Real-Time Results With No ...",
+          "url": null,
+          "rank": 5
+        },
+        {
+          "title": "Explore the History of Website's Rankings and Traffic from ...",
+          "url": null,
+          "rank": 6
+        },
+        {
+          "title": "Google lowers prices for Organic SERP API, simplifies billing",
+          "url": null,
+          "rank": 7
+        },
+        {
+          "title": "dataforseo_labs/google/top_searches/live",
+          "url": null,
+          "rank": 8
+        },
+        {
+          "title": "Anyone see conflated prices in organic search results? ...",
+          "url": null,
+          "rank": 9
+        }
+      ]
+    }
+  ]
+}
