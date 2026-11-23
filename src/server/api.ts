@@ -16,7 +16,7 @@ import { listSavedPrompts, listPageLimit } from "./prompt-library";
 import { historyReportCounts, searchableHistoryWhere } from "./run-history";
 import { answerPreview } from "./answer-preview";
 import { requireWorkspaceBrand } from "./workspace-brands";
-import { archivePrompts, archiveWorkspace, deleteBrand } from "./resource-archive";
+import { archivePrompts, archiveWorkspace, deleteBrand, previewPromptDeletion } from "./resource-archive";
 import { createOrganization } from "./organization-create";
 import { billingRoute } from "./billing";
 import { localAuthEnabled } from "./local-auth";
@@ -162,7 +162,7 @@ export async function api(
     return json({ org_id: i.org_id });
   }
   const scope =
-    (method === "GET" || path === "/collection/readiness")
+    (method === "GET" || path === "/collection/readiness" || (method === "POST" && path === "/prompts/deletion-preview"))
       ? "read"
       : path.includes("/run") || path.includes("/analyze")
         ? "run"
@@ -353,7 +353,7 @@ export async function api(
   if (path === "/prompts" && method === "GET") {
     const w = u.searchParams.get("workspace");
     if (w) await belongs(env, "workspaces", org, w);
-    if (u.searchParams.get("view") === "library" || u.searchParams.has("tag") || u.searchParams.has("set") || u.searchParams.has("question_id"))
+    if (u.searchParams.get("view") === "library" || u.searchParams.has("tag") || u.searchParams.has("set") || u.searchParams.has("outside_set") || u.searchParams.has("question_id"))
       return json(await listSavedPrompts(env, org, u.searchParams));
     return json({
       prompts: (await all(
@@ -371,11 +371,16 @@ export async function api(
   const receiptMatch = path.match(/^\/prompts\/receipts\/([\w-]+)$/);
   if (receiptMatch && method === "GET") {
     const receipt = await getPromptReceipt(env, org, receiptMatch[1]);
-    const [action, batches] = await Promise.all([
+    const [action, batches, scheduleBatch] = await Promise.all([
       readReceiptAction(env, org, receiptMatch[1]),
       all(env, "SELECT batch_key,workspace_id,requested FROM run_batches WHERE org_id=? AND receipt_id=? ORDER BY created_at DESC,batch_key", org, receiptMatch[1]),
+      one<{ total: number; active: number; next_due_at: number | null }>(env, `SELECT count(*) AS total,
+        count(CASE WHEN s.enabled=1 THEN 1 END) AS active,min(CASE WHEN s.enabled=1 THEN s.next_due_at END) AS next_due_at
+        FROM schedules s JOIN prompts p ON p.id=s.prompt_id AND p.org_id=s.org_id
+        WHERE s.org_id=? AND p.workspace_id=? AND s.batch_id=? AND p.archived_at IS NULL
+        AND p.id IN (SELECT value FROM json_each(?))`, org, receipt.workspace.id, receiptMatch[1], JSON.stringify(receipt.prompts.map(row => row.id))),
     ]);
-    return json({ ...receipt, action, batches });
+    return json({ ...receipt, action, batches, schedule_batch: scheduleBatch });
   }
   if (receiptMatch && method === "POST") {
     const input = await body(req, receiptActionSchema, MAX_BULK_SELECTION_REQUEST_BYTES);
@@ -391,6 +396,10 @@ export async function api(
     return json(await previewPromptBatch(env, org, await body(req, promptBatchSchema, MAX_PROMPT_BATCH_BYTES)));
   if (path === "/prompts/bulk" && method === "POST")
     return json(await savePromptBatch(env, org, await body(req, promptBatchSchema, MAX_PROMPT_BATCH_BYTES)), 201);
+  if (path === "/prompts/deletion-preview" && method === "POST") {
+    const { ids } = await body(req, bulkPromptIdsSchema);
+    return json(await previewPromptDeletion(env, org, ids));
+  }
   if (path === "/prompts/bulk" && method === "DELETE") {
     const b = await body(req, bulkPromptIdsSchema);
     const rows = await selectedRows(env, org, "prompts", b.ids);
@@ -610,6 +619,8 @@ export async function api(
     if (workspace) await belongs(env, "workspaces", org, workspace);
     const parsed = z.object({
       set: setId.optional(),
+      schedule_id: id.optional(),
+      batch_id: id.optional(),
       before: z.coerce.number().int().nonnegative().optional(),
       before_id: id.optional(),
       limit: z.coerce.number().pipe(listPageLimit.max(500)).optional(),
@@ -617,17 +628,17 @@ export async function api(
     }).refine(filters => (filters.before === undefined) === (filters.before_id === undefined))
       .safeParse(Object.fromEntries(u.searchParams));
     if (!parsed.success) throw new HttpError(400, "Invalid schedule filters or cursor");
-    const { before, before_id, limit, selection, set } = parsed.data;
+    const { before, before_id, limit, selection, set, schedule_id, batch_id } = parsed.data;
     if (set) await requirePromptSet(env, org, set, workspace ?? undefined);
     const pageSize = selection ? 1000 : limit ?? 500;
     const source = `FROM schedules s
        JOIN prompts p ON p.org_id=s.org_id AND p.id=s.prompt_id
        WHERE s.org_id=? AND p.archived_at IS NULL${workspace ? " AND p.workspace_id=?" : ""}
-       ${set ? " AND " + promptSetPredicate("p") : ""}`;
-    const scope = [org, ...(workspace ? [workspace] : []), ...(set ? [set] : [])];
+       ${set ? " AND " + promptSetPredicate("p") : ""}${schedule_id ? " AND s.id=?" : ""}${batch_id ? " AND s.batch_id=?" : ""}`;
+    const scope = [org, ...(workspace ? [workspace] : []), ...(set ? [set] : []), ...(schedule_id ? [schedule_id] : []), ...(batch_id ? [batch_id] : [])];
     const columns = selection
       ? "s.id,s.created_at,s.preset,s.days,s.times_json,s.timezone,s.repetitions,s.enabled"
-      : "s.*,p.workspace_id,p.text AS prompt_text,p.engine";
+      : "s.*,p.workspace_id,p.question_id,p.text AS prompt_text,p.engine";
     const [rows, count] = await Promise.all([
       all(env,
         `SELECT ${columns} ${source}${before === undefined ? "" : " AND (s.created_at,s.id)<(?,?)"}

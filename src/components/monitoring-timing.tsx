@@ -1,3 +1,4 @@
+import { countLabel } from "@/lib/collection-labels";
 import { useId } from "react";
 import { Button } from "@/components/ui/button";
 import { parseSampleCount, sampleCountError, scheduleDays, type SchedulePreset } from "@/lib/schedule-settings";
@@ -89,6 +90,6 @@ export function MonitoringEditor({ timing, change, count, expanded = false, show
         </details>
       </div>
     </details>
-    {showProjection && projection.weekly !== null && <p className="data-note">{projection.weekly} checks per scheduled week{projection.next && ` · First occurrence ${projection.next}`}</p>}
+    {showProjection && projection.weekly !== null && <p className="data-note">{countLabel(projection.weekly, "check")} per scheduled week{projection.next && ` · First occurrence ${projection.next}`}</p>}
   </div>;
 }

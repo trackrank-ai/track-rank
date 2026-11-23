@@ -56,7 +56,7 @@ Local account creation and UI exploration need no paid provider credentials. Rea
 - Apply the global workspace selection to research drill-downs. Match domains, URLs and grounding queries against stored evidence from eligible AI answers. Link each match to its run and show brand mentions from the run snapshot.
 - Keep provider credentials, organization management and hosted billing in Settings. Use organization-scoped Settings links for Providers, Team & access, and Billing. Keep billing accessible when workspace access is paused. Show credential status and add, replace and remove actions per provider. Removing DataForSEO pauses collection schedules. Removing OpenRouter preserves collection schedules and stored briefs. Report reads, previews, brand matching and citations must work from recorded evidence without an inference key.
 
-- Use the workspace-owned prompt set for the **Tracking** list and detail. Preserve the set’s organization, workspace, and active view when linking to questions, schedules, or evidence. Summarize schedule state per variant. If a variant has multiple schedules, any enabled schedule makes the variant scheduled.
+- Build tracking sets from saved questions in the Tracking sets section. Offer new wording in the same flow and keep **Add to tracking set** alongside the library’s other bulk actions. Count selected questions separately from their engine variants. Use the workspace-owned prompt set for the **Tracking** list and detail. Preserve the set’s organization, workspace, and active view when linking to questions, schedules, or evidence. Summarize schedule state per variant. If a variant has multiple schedules, any enabled schedule makes the variant scheduled.
 
 ## Durable execution and data changes
 

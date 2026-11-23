@@ -62,7 +62,7 @@ Active hosted trials show a nondismissible sticky accent banner above the app to
 
 ## Tracking sets
 
-Use a named tracking set as the home for a collection of questions. The set name and workspace stay visible across Overview, Questions, Answers and Settings. Show active, paused and unscheduled engine variants separately, along with the last completed check and next scheduled check. A question can run on multiple engines with different schedules.
+Start set creation in Tracking sets with a workspace, name and searchable library. Offer writing new questions in the same flow. In a set, offer remaining saved variants and a direct writing action. In the library, place tracking set membership beside bulk Run and Schedule and distinguish selected question count from engine variant count. Use a named tracking set as the home for a collection of questions. The set name and workspace stay visible across Overview, Questions, Answers and Settings. Show active, paused and unscheduled engine variants separately, along with the last completed check and next scheduled check. A question can run on multiple engines with different schedules.
 
 Ask whether the user wants to save questions, check once or track on a schedule before the review. Show timing for recurring checks. An immediate check alongside a new schedule requires its own opt-in. The review should state which new and existing variants will be affected, checks now, recurring checks and separate provider charges. Return to the same set after saving.
 
@@ -88,3 +88,5 @@ The redesign shipped to production from `main` at `ce82463` without a database m
 **Verification.** Live desktop and phone browsers exercised the homepage, example source link, pricing offers, calculator, navigation and dark mode. Authenticated checks used local fixtures to exercise REST, MCP, evidence links and schedule edits. Changing one Gemini schedule left the three other schedules in the two-question, two-engine batch untouched. Build and typecheck passed, with 108 tests passing and one skipped. Paid provider collection and checkout were outside this release check.
 
 For a populated workspace, use the compact question list and show measured questions before unanswered ones. Give a reported rate its counts and an evidence link. Competitive reports identify the brands and engines in the cohort. When opening a source or recorded answer, retain the comparison and both time windows through Back and reload. Show verified name and alias passages with their recorded wording. Workspace monitoring settings should show future brand assignment, upcoming checks and historical engine coverage separately.
+
+Show coverage and sources before the paginated question breakdown on Overview. Render recorded Markdown as readable text, lists, and links with an original-text view. Use a time zone on run timestamps alongside UTC reporting windows.

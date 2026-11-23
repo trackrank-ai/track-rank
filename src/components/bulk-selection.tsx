@@ -108,7 +108,7 @@ export function changeSelection(selection: Selection, rows: Row[], checked: bool
 }
 
 export function BulkSelection({
-  rows, selected, onChange, pages, disabled, members, selectionLabel = "Selected",
+  rows, selected, onChange, pages, disabled, members, selectionLabel = "Selected", selectionSummary,
 }: {
   rows: Row[];
   selected: Selection;
@@ -117,6 +117,7 @@ export function BulkSelection({
   disabled?: boolean;
   members?: (row: Row) => Row[];
   selectionLabel?: string;
+  selectionSummary?: string;
 }) {
   const pageMembers = members ? rows.flatMap(members) : rows;
   const count = pageMembers.filter(row => selected.has(row.id)).length;
@@ -136,7 +137,7 @@ export function BulkSelection({
           onChange={event => onChange(pageMembers, event.target.checked)} />
         Select all on page
       </label>
-      <span role="status">{selectionLabel}: {selected.size.toLocaleString()}</span>
+      <span role="status">{selectionSummary ?? `${selectionLabel}: ${selected.size.toLocaleString()}`}</span>
       {wholePage && pages?.current && pages.current.total > PAGE_SIZE && !allMatching && (
         <Button type="button" variant="outline" size="sm"
           disabled={disabled || pages.loading || pages.selecting}

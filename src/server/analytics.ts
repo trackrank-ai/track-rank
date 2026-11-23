@@ -1,3 +1,5 @@
+import { citationPageKey } from "../lib/citation-page";
+import { citationPageSql } from "./citation-page";
 import { z } from "zod";
 import { DAY_MS, utcDay, validDay } from "../lib/analytics-filters";
 import { brandOutcome, brandSnapshot, brandSnapshotId, brandTracked, currentPromptWhere, eligibleAnswer, outcomePredicates, parseHistoryFilters, runConfig, runHistoryFilters, searchableHistoryWhere } from "./run-history";
@@ -204,11 +206,15 @@ async function previousBrandPeriod(env: Env, org: string, query: URLSearchParams
 }
 
 export const overviewQuestionsPage = z.number().int().min(1).max(1_000_000);
+export const overviewQuestionSort = z.enum(["answers", "mentions", "citations"]);
 const questionPageSize = 20;
 
 export async function overviewQuestions(env: Env, org: string, params: URLSearchParams) {
   const parsedPage = overviewQuestionsPage.safeParse(Number(params.get("page") ?? 1));
   if (!parsedPage.success) throw new HttpError(400, "Invalid question breakdown page");
+  const sort = overviewQuestionSort.safeParse(params.get("sort") ?? "answers");
+  if (!sort.success) throw new HttpError(400, "Invalid question breakdown sort");
+  const rank = sort.data === "answers" ? "" : sort.data + " DESC, ";
   const page = parsedPage.data;
   const { query, filters } = reportingPeriod(params);
   const { conditions, bindings } = await searchableHistoryWhere(env, org, query);
@@ -230,7 +236,7 @@ export async function overviewQuestions(env: Env, org: string, params: URLSearch
       sum(${brandOutcome("?", "mentioned")}) AS compare_mentions, sum(${brandOutcome("?", "cited")}) AS compare_citations
     FROM runs WHERE ${[...conditions, eligibleAnswer, ...cohort].join(" AND ")}
     GROUP BY runs.workspace_id, runs.prompt_text, engine
-    ORDER BY eligible_answers DESC, question COLLATE NOCASE, evidence_run_id
+    ORDER BY ${rank}eligible_answers DESC, question COLLATE NOCASE, evidence_run_id
     LIMIT ? OFFSET ?`,
     filters.tracked_brand ?? null, filters.tracked_brand ?? null, filters.compare_brand ?? null, filters.compare_brand ?? null,
     ...bindings, ...brands, questionPageSize + 1, (page - 1) * questionPageSize);
@@ -267,7 +273,7 @@ export async function researchSummary(env: Env, org: string, params: URLSearchPa
     SELECT id, workspace_id, prompt_text, created_at, citations, grounding_queries, discovered_brands
     FROM runs WHERE ${conditions.join(" AND ")} AND ${eligibleAnswer}
   )`;
-  const citationValues = (kind: "domain" | "page") => kind === "domain" ? citationDomain : "json_extract(citation.value,'$.url')";
+  const citationValues = (kind: "domain" | "page") => kind === "domain" ? citationDomain : citationPageSql("json_extract(citation.value,'$.url')");
   const sourceValues = (kind: "domain" | "page" | "query" | "brand", from: string, restrictDomain = false) => kind === "brand"
     ? `SELECT runs.*, json_extract(j.value,'$.name') AS value, NULL AS title FROM ${from} runs,
         json_each(CASE WHEN json_valid(discovered_brands) THEN discovered_brands ELSE '[]' END) j WHERE j.type='object'`
@@ -298,7 +304,7 @@ export async function researchSummary(env: Env, org: string, params: URLSearchPa
       WHERE typeof(value)='text' AND value<>'' GROUP BY value`;
   const order = { answers: "count", questions: "questions", last_seen: "last_seen", value: "value COLLATE NOCASE" }[sort];
   const pageSize = 25;
-  const scopedBindings = research_type ? [...bindings, research_value] : bindings;
+  const scopedBindings = research_type ? [...bindings, research_type === "page" ? citationPageKey(research_value!) : research_value] : bindings;
   const domainReport = kind === "domain";
   const rows = await all<{
     value: string; title: string | null; count: number; questions: number; last_seen: number | null;
@@ -334,7 +340,23 @@ export async function researchSummary(env: Env, org: string, params: URLSearchPa
     const canonical = String(brand.domain || "").toLowerCase().replace(/^www\./, "");
     return canonical && (domain === canonical || domain.endsWith("." + canonical));
   }).map(({ id, name, kind }) => ({ id, name, kind }));
+  const primary = query.get("tracked_brand");
+  const comparison = query.get("compare_brand");
+  let comparisonCoverage;
+  if (primary && comparison && !research_type && group !== "brand") {
+    const coverageQuery = new URLSearchParams(query);
+    coverageQuery.delete("overlap");
+    coverageQuery.delete("metric");
+    const base = await searchableHistoryWhere(env, org, coverageQuery);
+    const [counts] = await all<{ primary_answers: number; comparison_answers: number; shared_answers: number }>(
+      env, `WITH measured AS MATERIALIZED (SELECT ${brandTracked} AS a, ${brandTracked} AS b FROM runs
+        WHERE ${base.conditions.join(" AND ")} AND ${eligibleAnswer})
+        SELECT count(*) FILTER (WHERE a) AS primary_answers, count(*) FILTER (WHERE b) AS comparison_answers,
+          count(*) FILTER (WHERE a AND b) AS shared_answers FROM measured`, primary, comparison, ...base.bindings);
+    comparisonCoverage = { primary, comparison, ...counts };
+  }
   return {
+    comparison_coverage: comparisonCoverage,
     domain_trends: rows.filter(row => row.row_type === "domain_day")
       .map(row => ({ domain: row.value, day: row.title!, answers: row.count })),
     answers, total, page, next_page: page * pageSize < total ? page + 1 : null,

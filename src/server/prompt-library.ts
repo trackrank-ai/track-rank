@@ -24,6 +24,7 @@ const libraryFilters = z.object({
   brand: z.string().min(1).max(100).optional(),
   tag: promptTag.optional(),
   set: setId.optional(),
+  outside_set: setId.optional(),
   limit: z.coerce.number().pipe(listPageLimit.max(100)).optional(),
   selection: z.literal("1").optional(),
   sort: z.enum(promptLibrarySortKeys).default("newest"),
@@ -57,6 +58,12 @@ export async function listSavedPrompts(env: Env, org: string, params: URLSearchP
     conditions.push(promptSetPredicate("p"));
     values.push(filters.set);
   }
+  if (filters.outside_set) {
+    if (filters.set) throw new HttpError(400, "Choose either set or outside_set");
+    const destination = await requirePromptSet(env, org, filters.outside_set, filters.workspace);
+    conditions.push("p.workspace_id=?", "NOT " + promptSetPredicate("p"));
+    values.push(destination.workspace_id, filters.outside_set);
+  }
   const tagScope = conditions.join(" AND ");
   const tagValues = [...values];
   if (filters.tag) {
@@ -80,6 +87,7 @@ export async function listSavedPrompts(env: Env, org: string, params: URLSearchP
   const scope = conditions.join(" AND ");
   const sort = filters.selection ? "newest" : filters.sort;
   const sortKey = {
+    monitoring: "matching.schedule_priority",
     newest: "matching.created_at",
     last_checked: "coalesce(last_checked_at,0)",
     never_checked: "CASE WHEN last_checked_at IS NULL THEN 1 ELSE 0 END",
@@ -132,8 +140,16 @@ export async function listSavedPrompts(env: Env, org: string, params: URLSearchP
   const evidenceParams = filters.selection ? [] : [start, end, start, end, ...(filters.tracked_brand
     ? [filters.tracked_brand, filters.tracked_brand, filters.tracked_brand] : []), historyFloor];
   const columns = filters.selection
-    ? "p.id, p.workspace_id, p.created_at"
+    ? "p.id, p.workspace_id, p.question_id, p.engine, p.created_at"
     : `p.*, (${activePromptSchedule}) AS actively_scheduled,
+       (SELECT count(*) FROM schedules s WHERE s.org_id=p.org_id AND s.prompt_id=p.id) AS schedule_count,
+       ${filters.question_id ? `(SELECT json_group_array(json_object('id',s.id,'enabled',s.enabled,'preset',s.preset,
+         'days',s.days,'times_json',s.times_json,'timezone',s.timezone)) FROM
+         (SELECT * FROM schedules WHERE org_id=p.org_id AND prompt_id=p.id ORDER BY enabled DESC,created_at,id) s) AS schedules,
+       (SELECT json_group_array(json_object('id',t.id,'name',t.name)) FROM
+         (SELECT t.id,t.name FROM prompt_set_members m JOIN prompt_sets t ON t.id=m.set_id AND t.org_id=m.org_id
+          AND t.workspace_id=m.workspace_id WHERE m.prompt_id=p.id AND m.org_id=p.org_id AND m.workspace_id=p.workspace_id
+          ORDER BY t.name,t.id) t) AS tracking_sets,` : ""}
        (SELECT json_object('id',id,'status',status,'has_answer',has_answer,'has_organic',json_array_length(organic_results)>0,'created_at',created_at)
         FROM runs WHERE ${runScope} AND created_at>=? ORDER BY created_at DESC,id DESC LIMIT 1) AS latest_collection,
        (SELECT updated_at FROM runs WHERE ${runScope} AND status='succeeded' AND created_at>=?
@@ -149,7 +165,10 @@ export async function listSavedPrompts(env: Env, org: string, params: URLSearchP
   const pageMetrics = filters.selection ? "" : ", page.last_checked_at, page.checks, page.eligible_answers, page.mentions, page.citations";
   const [rows, tags, count] = await Promise.all([
     all<Row>(env, `WITH matching AS (
-          SELECT p.*, row_number() OVER (PARTITION BY question_id ORDER BY created_at DESC,id DESC) AS variant_rank
+          SELECT p.*, ${sort === "monitoring" ? `max(CASE WHEN ${activePromptSchedule} THEN 0
+            WHEN EXISTS(SELECT 1 FROM schedules s WHERE s.org_id=p.org_id AND s.prompt_id=p.id) THEN 1 ELSE 2 END)
+            OVER (PARTITION BY p.question_id) AS schedule_priority,` : ""}
+            row_number() OVER (PARTITION BY question_id ORDER BY created_at DESC,id DESC) AS variant_rank
           FROM prompts p WHERE ${scope}
         ) ${checkedGroups} ${evidence}, ranked AS (
           SELECT matching.id,matching.question_id,matching.text,matching.created_at, ${sortKey} AS sort_key ${groupMetrics}
@@ -169,9 +188,10 @@ export async function listSavedPrompts(env: Env, org: string, params: URLSearchP
     total,
   ]);
   function variant(row: Row) {
-    if (filters.selection) return { id: row.id, workspace_id: row.workspace_id };
+    if (filters.selection) return { id: row.id, question_id: row.question_id, workspace_id: row.workspace_id, engine: row.engine };
     return {
       ...decodePrompt(row),
+      ...(filters.question_id ? { schedules: JSON.parse(String(row.schedules)), tracking_sets: JSON.parse(String(row.tracking_sets)) } : {}),
       latest_collection: row.latest_collection ? JSON.parse(String(row.latest_collection)) : null,
       brand_period: row.brand_period ? JSON.parse(String(row.brand_period)) : null,
     };

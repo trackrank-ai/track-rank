@@ -111,3 +111,15 @@
   text-decoration: underline;
   text-underline-offset: .2em;
 }
+
+.formatted-answer { white-space: normal; }
+.formatted-answer > * + * { margin-block-start: .75rem; }
+.formatted-answer :is(h1,h2,h3,h4,h5,h6) { font-size: 1.05em; font-weight: 650; }
+.formatted-answer ol, .formatted-answer ul { padding-inline-start: 1.6em; }
+.formatted-answer ol { list-style: decimal; }
+.formatted-answer ul { list-style: disc; }
+.formatted-answer a { text-decoration: underline; }
+.formatted-answer blockquote { border-inline-start: 2px solid var(--border); padding-inline-start: .8em; }
+.raw-answer { margin-block-start: 1rem; font-size: .875rem; }
+.raw-answer summary { cursor: pointer; }
+.formatted-answer pre, .raw-answer pre { white-space: pre-wrap; overflow-wrap: anywhere; }

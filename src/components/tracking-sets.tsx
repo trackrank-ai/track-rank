@@ -32,7 +32,7 @@ function CheckTime({ value, fallback }: { value: number | null; fallback: string
 
 function SetSummary({ set }: { set: TrackingSet }) {
   return <dl className="tracking-summary">
-    <div><dt>Variants</dt><dd>{set.member_count.toLocaleString()}</dd></div>
+    <div><dt>Engine variants</dt><dd>{set.member_count.toLocaleString()}</dd></div>
     <div><dt>Monitoring</dt><dd>
       {set.scheduled_count.toLocaleString()} scheduled · {set.paused_count.toLocaleString()} paused · {set.unscheduled_count.toLocaleString()} unscheduled
     </dd></div>
@@ -59,7 +59,7 @@ export function TrackingSetList({ org, workspace, workspaceName, workspaceNames,
     <div className="app-page-heading">
       <div><h1>Tracking sets</h1><p>{workspaceName}</p></div>
       {canWrite && <Button asChild>
-        <Link to="/app" search={{ org, workspace, tab: "prompts", promptView: "create", setupFrom: "tracking" }}>
+        <Link to="/app" search={{ org, workspace, tab: "tracking", setAction: "choose" }}>
           <Plus size={16} aria-hidden /> Create tracking set
         </Link>
       </Button>}
@@ -91,7 +91,6 @@ export function TrackingSetList({ org, workspace, workspaceName, workspaceNames,
     ) : <div className="tracking-empty">
       <h2>No tracking sets yet</h2>
       <p>{canWrite ? "Create a named set to group questions and review their monitoring and recorded answers together." : "Tracking sets in this workspace will appear here."}</p>
-      {canWrite && <Link className="small-link" to="/app" search={{ org, workspace, tab: "prompts" }}>Choose from saved prompts</Link>}
     </div>}
   </section>;
 }

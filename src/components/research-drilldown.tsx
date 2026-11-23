@@ -1,4 +1,7 @@
-import { analyticsQuery, analyticsScope, DAY_MS, utcDay } from "@/lib/analytics-filters";
+import { collectionTimestamp } from "@/lib/collection-labels";
+import { citationPageKey } from "@/lib/citation-page";
+import { sourceReportQuery } from "@/lib/source-report";
+import { DAY_MS, utcDay } from "@/lib/analytics-filters";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -27,14 +30,14 @@ export function ResearchDrilldown({ search, type, value, engines, workspaceNames
   const [busy, setBusy] = useState(false);
   const view = search.sourceView === "pages" && type !== "domain" ? "questions"
     : search.sourceView ?? (type === "domain" ? "pages" : "questions");
-  const query = analyticsQuery(analyticsScope(search), search.workspace ?? "all");
+  const query = sourceReportQuery(search);
   query.set("research_type", type);
   query.set("research_value", value);
   const reportQuery = new URLSearchParams(query);
   reportQuery.set("view", view === "pages" ? "pages" : "questions");
   if (view !== "answers" && search.sourceDetailPage) reportQuery.set("page", search.sourceDetailPage);
   const report = useReport<ResearchSummary>("/research?" + reportQuery, request, null);
-  if (search.sourceQuestion) {
+  if (search.sourceQuestion && !query.has("report_evidence_run")) {
     query.set("report_evidence_run", search.sourceQuestion);
     query.set("report_question_all_engines", "true");
   }
@@ -75,7 +78,7 @@ export function ResearchDrilldown({ search, type, value, engines, workspaceNames
   const runs = page?.runs ?? [];
   const selectedQuestion = runs[0]?.prompt_text;
   const listSearch: AppSearch = { ...search, researchType: undefined, researchValue: undefined, sourceView: undefined,
-    sourceDetailPage: undefined, sourceQuestion: undefined, sourceDomain: undefined, sourceDomainPage: undefined, sourceBackRun: undefined };
+    sourceDetailPage: undefined, sourceQuestion: undefined, sourceDomain: undefined, sourceDomainPage: undefined };
   const backSearch: AppSearch = search.sourceDomain
     ? { ...listSearch, researchType: "domain", researchValue: search.sourceDomain, sourceDetailPage: search.sourceDomainPage }
     : listSearch;
@@ -95,7 +98,7 @@ export function ResearchDrilldown({ search, type, value, engines, workspaceNames
   return (
     <Card><CardContent>
       <Link className="small-link" to="/app" search={backSearch}>{search.sourceDomain ? "Back to cited domain" : "Back to sources"}</Link>
-      {search.sourceBackRun && <Link className="small-link ml-4" to="/app"
+      {search.sourceBackRun && !search.sourceReturn && <Link className="small-link ml-4" to="/app"
         search={{ ...listSearch, tab: "runs", run: search.sourceBackRun, evidence: "citations" }}>Back to answer</Link>}
       <header className="research-detail-value my-4">
         <p className="data-note">{researchNames[type]}</p>
@@ -159,17 +162,17 @@ export function ResearchDrilldown({ search, type, value, engines, workspaceNames
             Export {page!.total_matches > 1000 ? "latest 1,000 matches" : "matching answers"} as CSV
           </a>
           {runs.map(run => {
-            const citations = (run.citations ?? []).filter((citation: Item) => type === "domain" ? citation.domain === value : type === "page" && citation.url === value);
+            const citations = (run.citations ?? []).filter((citation: Item) => type === "domain" ? citation.domain === value : type === "page" && typeof citation.url === "string" && citationPageKey(citation.url) === citationPageKey(value));
             const labels = (run.mentions ?? []).filter((brand: Item) => brand.mentioned).map((brand: Item) => brand.name).filter(Boolean);
             const runSearch = { ...search, tab: "runs" as const, run: run.id };
             return <article className="question-answer" key={run.id}>
               <div>
                 <Link ref={restoreFocus} data-evidence-run={run.id} className="small-link" to="/app" search={runSearch}><strong>{run.prompt_text}</strong></Link>
-                <p className="data-note">{engines[run.config?.engine] ?? "Unknown engine"} · {workspaceNames[run.workspace_id] ?? "Unavailable workspace"} · {new Date(run.created_at).toLocaleString()}</p>
+                <p className="data-note">{engines[run.config?.engine] ?? "Unknown engine"} · {workspaceNames[run.workspace_id] ?? "Unavailable workspace"} · {collectionTimestamp(run.created_at)}</p>
                 <AnswerPreview excerpt={run.answer_excerpt} passage={run.brand_passage} />
                 {!!labels.length && <p className="data-note">Brands mentioned · {labels.join(", ")}</p>}
                 {!!citations.length && <ul className="preview-citations" aria-label="Matching cited pages">{citations.map((citation: Item, index: number) =>
-                  <li key={index}><Link to="/app" search={{ ...runSearch, evidence: "citations" }}>{citation.title || citation.domain || citation.url}</Link></li>)}</ul>}
+                  <li key={index}><Link to="/app" search={{ ...runSearch, evidence: "citations" }}>{citation.title || citation.domain || citation.url}</Link>{citation.url && <small className="block break-all">{citation.url}</small>}</li>)}</ul>}
               </div>
               <Link className="small-link" to="/app" search={runSearch}>Open answer</Link>
             </article>;

@@ -1,5 +1,5 @@
 import { analyticsQuery, type AnalyticsScope, type AnswerMetric } from "@/lib/analytics-filters";
-import { collectionVariantLabel } from "@/lib/collection-labels";
+import { collectionTimestamp, collectionVariantLabel } from "@/lib/collection-labels";
 import type { AppSearch, ResearchType } from "@/lib/app-location";
 import { Link } from "@tanstack/react-router";
 import { ArrowUpRight, Download } from "lucide-react";
@@ -41,7 +41,7 @@ const metricLabels: Record<AnswerMetric, string> = {
 };
 
 export function RunStatus({ value }: { value: string }) {
-  return <Badge variant="outline" className={"run-status status-" + value}>{value}</Badge>;
+  return <Badge variant="outline" className={"run-status status-" + value}>{statuses.find(([id]) => id === value)?.[1] ?? value}</Badge>;
 }
 
 export function WorkspaceRunHistory({ org, workspace, workspaceName, workspaceNames, runPrompt, prompts, brands, engines, request, refresh, canWrite, scope, metric, trendMetric, evidenceDay, researchType, researchValue, filters, onChange, restoreFocus, historyLink, recordLink, backLink, primaryHeading = false, lockSet = false }: {
@@ -107,8 +107,12 @@ export function WorkspaceRunHistory({ org, workspace, workspaceName, workspaceNa
   }
   const optionLabels = new Map<string, string>();
   const duplicateLabels = new Map<string, number>();
-  for (const [id, { engine, workspace, question }] of promptOptions) {
-    const scopeLabel = collectionVariantLabel(engine, workspaceNames[workspace] ?? "", engines);
+  const selectedEngine = filters.reportQuestion ? filters.reportEngine : engine;
+  for (const [id, prompt] of promptOptions) {
+    if (selectedEngine && prompt.engine !== selectedEngine) continue;
+    if (workspace && workspace !== "all" && workspace !== prompt.workspace) continue;
+    const { engine, workspace: variantWorkspace, question } = prompt;
+    const scopeLabel = collectionVariantLabel(engine, workspaceNames[variantWorkspace] ?? "", engines);
     const shortQuestion = question.length > 95 ? question.slice(0, 94) + "…" : question;
     const label = `${scopeLabel} · ${shortQuestion}`;
     optionLabels.set(id, label);
@@ -189,9 +193,9 @@ export function WorkspaceRunHistory({ org, workspace, workspaceName, workspaceNa
           set: lockSet ? undefined : scope.set, tags: scope.tags, location: scope.location, from: scope.from, to: scope.to, trackedBrand: scope.trackedBrand,
           compareBrand: query.get("compare_brand"), evidenceDay,
         }).filter(([, value]) => value).map(([key, value]) => {
-          const labels: Record<string, string> = { reportQuestion: "Question breakdown", q: "Search", runPrompt: "Prompt variant", trackedBrand: "Tracked brand", compareBrand: "Comparison brand", evidenceDay: "Evidence day", researchValue: "Research", set: "Prompt set" };
+          const labels: Record<string, string> = { reportQuestion: "Question breakdown", q: "Search", runPrompt: "Prompt variant", trackedBrand: "Tracked brand", compareBrand: "Comparison brand", evidenceDay: "Evidence day", researchValue: "Research", set: "Tracking set" };
           const displayed = key === "engine" ? engines[value!] : key === "brand" || key === "trackedBrand" || key === "compareBrand"
-            ? brands.find(item => item.id === value)?.name ?? "Historical brand" : key === "runPrompt" ? optionLabels.get(value!) : key === "metric" && metric ? metricLabels[metric] : value;
+            ? brands.find(item => item.id === value)?.name ?? "Historical brand" : key === "runPrompt" ? optionLabels.get(value!) : key === "status" ? statuses.find(([id]) => id === value)?.[1] ?? value : key === "metric" && metric ? metricLabels[metric] : value;
           return <Button type="button" variant="outline" size="sm" key={key}
             onClick={() => onChange({ [key]: undefined, ...(key === "researchValue" ? { researchType: undefined } : {}),
               ...(key === "trackedBrand" ? { compareBrand: undefined } : {}),
@@ -208,7 +212,7 @@ export function WorkspaceRunHistory({ org, workspace, workspaceName, workspaceNa
             placeholder="Search prompt text or answers" />
         </label>
         <label className="app-field"><span>Engine</span>
-          <select value={filters.reportQuestion ? filters.reportEngine ?? "" : engine} disabled={!!filters.reportQuestion} onChange={e => onChange({ engine: (e.target.value || undefined) as AppSearch["engine"] })}>
+          <select value={filters.reportQuestion ? filters.reportEngine ?? "" : engine} disabled={!!filters.reportQuestion} onChange={e => onChange({ engine: (e.target.value || undefined) as AppSearch["engine"], runPrompt: e.target.value && runPrompt && promptOptions.get(runPrompt)?.engine !== e.target.value ? undefined : runPrompt })}>
             <option value="">All engines</option>
             {Object.entries(engines).map(([id, name]) => <option key={id} value={id}>{name}</option>)}
           </select>
@@ -283,13 +287,13 @@ export function WorkspaceRunHistory({ org, workspace, workspaceName, workspaceNa
         <Link ref={restoreFocus} data-evidence-run={run.id} className="small-link" to="/app" search={recordLink?.(run.id) ?? historyLink?.({ run: run.id }) ?? { ...historySearch, run: run.id }}>
           <strong>{current.question ? "Open " + (engines[run.config?.engine] ?? "recorded") + " answer" : run.prompt_text}</strong>
         </Link>
-        <p className="data-note">{collectionVariantLabel(run.config?.engine, workspaceNames[run.workspace_id] ?? "", engines)} · {new Date(run.created_at).toLocaleString()} · {(run.citations ?? []).length} citations</p>
+        <p className="data-note">{collectionVariantLabel(run.config?.engine, workspaceNames[run.workspace_id] ?? "", engines)} · {collectionTimestamp(run.created_at)} · {(run.citations ?? []).length} citations</p>
         <AnswerPreview excerpt={run.answer_excerpt} passage={run.brand_passage} />
       </article> : (
         <Link key={run.id} ref={restoreFocus} data-evidence-run={run.id} className="run-row" to="/app" search={recordLink?.(run.id) ?? historyLink?.({ run: run.id }) ?? { ...historySearch, run: run.id }}>
           <span><strong>{run.prompt_text}</strong><small>
             {collectionVariantLabel(run.config?.engine, workspaceNames[run.workspace_id] ?? "", engines)}
-            {" · "}{new Date(run.created_at).toLocaleString()} · {run.config?.mode}
+            {" · "}{collectionTimestamp(run.created_at)} · {run.config?.mode}
           </small></span>
           <RunStatus value={run.status} />
           <ArrowUpRight size={15} />

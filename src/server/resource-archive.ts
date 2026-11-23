@@ -1,4 +1,14 @@
-import { now, type Env } from "./types";
+import { all, HttpError, now, type Env } from "./types";
+
+export async function previewPromptDeletion(env: Env, org: string, ids: string[]) {
+  const selected = [...new Set(ids)];
+  const variants = await all(env, `SELECT p.id,p.question_id,p.text,p.engine,p.location_name,p.language_code,
+    (SELECT count(*) FROM schedules s WHERE s.org_id=p.org_id AND s.prompt_id=p.id) AS schedules,
+    (SELECT count(*) FROM prompt_engines e WHERE e.org_id=p.org_id AND e.question_id=p.question_id AND e.archived_at IS NULL) AS question_variants
+    FROM prompts p WHERE p.org_id=? AND p.archived_at IS NULL AND p.id IN (SELECT value FROM json_each(?))`, org, JSON.stringify(selected));
+  if (variants.length !== selected.length) throw new HttpError(404, "One or more selected engine variants are unavailable");
+  return { variants };
+}
 
 export async function archivePrompts(env: Env, org: string, ids: string[]) {
   const values = [org, JSON.stringify(ids)];

@@ -24,6 +24,8 @@ function visibleLinkText(input: string) {
 
 function readableText(input: string) {
   return visibleLinkText(input)
+    .replace(/^ {0,3}(?:(?:-[ \t]*){3,}|(?:\*[ \t]*){3,}|(?:_[ \t]*){3,})$/gm, " ")
+    .replace(/^( {0,3}\d+)\\([.)])(?=\s)/gm, "$1$2")
     .replace(/^\s{0,3}(?:#{1,6}|>|[-*+]|\d+[.)])\s+/gm, "")
     .replace(/(?:\*\*|__|~~|`+)/g, "")
     .replace(/(^|\s)\*([^*\n]+)\*(?=\W|$)/g, "$1$2")

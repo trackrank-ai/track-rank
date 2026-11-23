@@ -1,3 +1,4 @@
+import { countLabel } from "@/lib/collection-labels";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { analyticsQuery, analyticsScope, DAY_MS, utcDay, type AnalyticsScope, type AnswerMetric, type TrendMetric } from "@/lib/analytics-filters";
@@ -84,7 +85,7 @@ export function OverviewFilters({ scope, org, workspace, workspaceNames, sets, b
   const activeBrand = brands.find(brand => brand.id === scope.trackedBrand);
   const activeFilters = [
     scope.from && scope.to && `${scope.from} to ${scope.to} UTC`,
-    scope.set && `Prompt set: ${activeSet?.name ?? "Selected set"}`,
+    scope.set && `Tracking set: ${activeSet?.name ?? "Selected set"}`,
     scope.tags && `Tags: ${scope.tags.split(",").join(", ")}`,
     scope.engine && (engines[scope.engine] ?? scope.engine),
     scope.location && `Location: ${scope.location}`,
@@ -114,7 +115,7 @@ export function OverviewFilters({ scope, org, workspace, workspaceNames, sets, b
         <label className="app-field"><span>Through (UTC)</span>
           <input name="to" type="date" required defaultValue={scope.to} />
         </label>
-        {!lockSet && <label className="app-field"><span>Prompt set</span>
+        {!lockSet && <label className="app-field"><span>Tracking set</span>
           <select name="set" defaultValue={scope.set ?? ""}>
             <option value="">All prompts</option>
             {scope.set && !activeSet && <option value={scope.set}>Selected set</option>}
@@ -232,7 +233,7 @@ export function Overview({
   const comparisonName = scope.compareBrand ? nameFor(scope.compareBrand) ?? "Historical comparison brand" : undefined;
   const selectedBrand = scope.trackedBrand ? brandName ?? "Historical tracked brand" : undefined;
   const scopeLabel = [workspaceName, `${dateLabel} (UTC)`, scope.engine ? engines[scope.engine] : "All engines",
-    selectedBrand ?? "No tracked brand", scope.set && (setName || "Selected prompt set"), scope.location,
+    selectedBrand ?? "No tracked brand", scope.set && (setName || "Selected tracking set"), scope.location,
     scope.tags && `Tags ${scope.tags}`].filter(Boolean).join(" · ");
   const toReport = (nextScope: AnalyticsScope, nextMetric = trendMetric): AppSearch =>
     reportLink?.(nextScope, nextMetric) ?? { ...nextScope, org, workspace, tab: "overview", trendMetric: nextMetric };
@@ -302,7 +303,10 @@ export function Overview({
           <p className="data-note">
             {trendMetric === "mention" ? `Answers that mention ${selectedBrand}` : `Answers that cite ${selectedBrand}’s website`}
             {comparisonName && ` or ${comparisonName}`}. Rates use successful AI answers that tracked {comparisonName ? "both brands" : selectedBrand}.
-            {" "}<Link to="/app" search={metricLink("brand")}>View all {answerCount(totals.samples, "eligible ")}</Link>.
+            {" "}<Link to="/app" search={metricLink(trendMetric)}>View {countLabel(trendMetric === "mention" ? totals.mentions : totals.citations, trendMetric)}{comparisonName && ` for ${selectedBrand}`}</Link>
+            {comparisonName && <> · <Link to="/app" search={metricLink(trendMetric === "mention" ? "compare_mention" : "compare_citation")}>
+              View {countLabel(trendMetric === "mention" ? totals.compare_mentions : totals.compare_citations, trendMetric)} for {comparisonName}</Link></>}
+            {" · "}<Link to="/app" search={metricLink("brand")}>View all {answerCount(totals.samples, "eligible ")}</Link>.
           </p>
           <PeriodChange previous={data.previous_period} metric={trendMetric} samples={totals.samples}
             count={trendMetric === "mention" ? totals.mentions : totals.citations} evidence={metricLink()} report={toReport} scope={scope}
@@ -314,9 +318,6 @@ export function Overview({
             </section>
             {comparison}
           </div>
-          <QuestionBreakdown key={JSON.stringify([org, workspace, scope])} scope={scope} workspace={workspace}
-            request={request} revision={revision} engines={engines} workspaceNames={workspaceNames} showWorkspace={workspace === "all"}
-            brand={selectedBrand} comparison={comparisonName} metric={trendMetric} link={metricLink} />
         </>}
     </CardContent></Card>
     <Card><CardContent>
@@ -339,6 +340,11 @@ export function Overview({
         <span>{answers} / {data.eligible_answers} answers</span>
       </div>) : <p className="data-note">No cited domains in this view.</p>}
     </CardContent></Card>
+    {selectedBrand && totals.samples > 0 && <Card><CardContent>
+      <QuestionBreakdown key={JSON.stringify([org, workspace, scope, trendMetric])} scope={scope} workspace={workspace}
+        request={request} revision={revision} engines={engines} workspaceNames={workspaceNames} showWorkspace={workspace === "all"}
+        brand={selectedBrand} comparison={comparisonName} metric={trendMetric} link={metricLink} />
+    </CardContent></Card>}
   </>;
 }
 
@@ -361,7 +367,9 @@ function QuestionBreakdown({ scope, workspace, request, revision, engines, works
   link: EvidenceLink;
 }) {
   const [page, setPage] = useState(1);
+  const [expanded, setExpanded] = useState(false);
   const query = analyticsQuery(scope, workspace);
+  query.set("sort", metric === "mention" ? "mentions" : "citations");
   query.set("page", String(page));
   const result = useReport<{ questions: QuestionBreakdownRow[]; next_page: number | null }>(
     "/analytics/questions?" + query, request, revision,
@@ -384,7 +392,7 @@ function QuestionBreakdown({ scope, workspace, request, revision, engines, works
         <span>Question</span><span>{label}</span><span>Engine</span>
       </div>
       <ul>
-        {rows.map(row => {
+        {(expanded ? rows : rows.slice(0, 3)).map(row => {
           const rowScope = { evidence_run_id: row.evidence_run_id, engine: row.engine ?? undefined };
           const engineName = row.engine ? engines[row.engine] ?? row.engine : "Engine unavailable";
           return <li key={row.evidence_run_id} className="overview-question-grid">
@@ -413,7 +421,11 @@ function QuestionBreakdown({ scope, workspace, request, revision, engines, works
           </li>;
         })}
       </ul>
-      {(page > 1 || result.data.next_page) && <div className="form-actions" aria-label="Contributing question pages">
+      {(rows.length > 3 || page > 1 || result.data.next_page) && <Button size="sm" variant="outline"
+        aria-expanded={expanded} onClick={() => { setExpanded(!expanded); setPage(1); }}>
+        {expanded ? "Show fewer questions" : "View all contributing questions"}
+      </Button>}
+      {expanded && (page > 1 || result.data.next_page) && <div className="form-actions" aria-label="Contributing question pages">
         <Button size="sm" variant="outline" disabled={page === 1} onClick={() => setPage(page - 1)}>Previous questions</Button>
         <Button size="sm" variant="outline" disabled={!result.data.next_page} onClick={() => setPage(page + 1)}>Next questions</Button>
       </div>}
