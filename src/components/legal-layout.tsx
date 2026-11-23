@@ -20,7 +20,7 @@ export function ContactLink({ subject, children }: { subject: string; children?:
 }
 export function LegalLayout({ title, intro, children }: { title: string; intro: string; children: ReactNode }) {
   return <div className="legal-page shell">
-    <header className="legal-header"><Link to="/">← TrackRank home</Link><ThemeToggle /></header>
+    <header className="legal-header"><Link to="/">← Trackrank AI home</Link><ThemeToggle /></header>
     <main className="legal-content">
       <h1>{title}</h1><p className="legal-intro">{intro}</p>
       <p className="legal-meta">Last updated: {legal.updated} · Operated by <OperatorName /></p>

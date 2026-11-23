@@ -11,14 +11,14 @@ import "./public-layout.css";
 export const SELF_HOST_URL = `${REPOSITORY_URL}/blob/main/docs/SELF_HOSTING.md`;
 
 function PublicBrand() {
-  return <a href="/" className="brand" aria-label="trackrank.ai home">
+  return <a href="/" className="brand" aria-label="Trackrank AI home">
     <span className="brand-mark" aria-hidden="true">
       <svg viewBox="0 0 32 32" fill="none">
         <path d="M7 23V16M15 23V11M23 23V6" stroke="currentColor" strokeWidth="4" />
         <path d="M5 26H27" stroke="currentColor" strokeWidth="2" />
       </svg>
     </span>
-    <span>trackrank<span className="public-brand-suffix">.ai</span></span>
+    <span>Trackrank<span className="public-brand-suffix"> AI</span></span>
   </a>;
 }
 
@@ -51,7 +51,7 @@ export function PublicLayout({ children, page }: { children: ReactNode; page: "h
     <footer className="public-footer shell">
       <PublicBrand />
       <LegalLinks />
-      <span>© {new Date().getFullYear()} TrackRank · <a href={REPOSITORY_URL}>MIT licensed</a></span>
+      <span>© {new Date().getFullYear()} Trackrank AI · <a href={REPOSITORY_URL}>MIT licensed</a></span>
       <ComparisonLinks />
     </footer>
   </div>;

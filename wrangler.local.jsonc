@@ -10,7 +10,7 @@
     "BASE_URL": "http://localhost:3000",
     "SIGNUP_ENABLED": "true",
     "DEV_SKIP_EMAIL_VERIFICATION": "true",
-    "PUBLIC_OPERATOR_NAME": "Local TrackRank",
+    "PUBLIC_OPERATOR_NAME": "Local Trackrank AI",
     "PUBLIC_SUPPORT_EMAIL": ""
   },
   "d1_databases": [

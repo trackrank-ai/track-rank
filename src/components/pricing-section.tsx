@@ -11,7 +11,7 @@ export function PricingSection({ hosted, offers, standalone = false }: { hosted:
   return <section className={`pricing-section${standalone ? " pricing-standalone" : ""}`} id="pricing" aria-labelledby="pricing-title">
     {hosted && offers.length > 0 && <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify({
       "@context": "https://schema.org", "@type": "SoftwareApplication",
-      name: "TrackRank", applicationCategory: "BusinessApplication", operatingSystem: "Web",
+      name: "Trackrank AI", applicationCategory: "BusinessApplication", operatingSystem: "Web",
       description: "Open-source AI visibility tracking. Hosted subscription prices exclude tax and separately billed provider usage.",
       offers: offers.map(offer => ({
         "@type": "Offer", name: offer.name, price: offer.price_cents / 100,
@@ -20,7 +20,7 @@ export function PricingSection({ hosted, offers, standalone = false }: { hosted:
         priceSpecification: { "@type": "UnitPriceSpecification", price: offer.price_cents / 100, priceCurrency: offer.currency.toUpperCase(), unitText: offer.interval },
       })),
     }).replace(/</g, "\\u003c") }} />}
-    <Heading id="pricing-title">{hosted ? "Hosted plans" : "Self-host TrackRank"}</Heading>
+    <Heading id="pricing-title">{hosted ? "Hosted plans" : "Self-host Trackrank AI"}</Heading>
     {hosted && <p className="pricing-intro">Choose your monthly run allowance and searchable history. Every plan includes all features, the same operational rate limits and no per-seat fees.</p>}
     {hosted && offers.length > 0 && <div className="pricing-grid">
       {offers.map(offer => <article className="pricing-card" key={offer.offer_key}>
@@ -38,9 +38,9 @@ export function PricingSection({ hosted, offers, standalone = false }: { hosted:
     {hosted && <div className="pricing-footnotes">
       <p><strong>One run is one prompt × one engine × one sample.</strong> The organization shares its allowance, which resets on the first day of each calendar month (UTC). Optional OpenRouter analysis incurs separate provider charges.</p>
       <p>Searchable history limits the range available in run lists, research and CSV exports. Stored evidence remains available through authorized direct links.</p>
-      <p><strong>Need more runs or longer history?</strong> <a href="mailto:info@trackrank.ai?subject=Custom%20TrackRank%20plan">Contact info@trackrank.ai</a> for a custom plan.</p>
+      <p><strong>Need more runs or longer history?</strong> <a href="mailto:info@trackrank.ai?subject=Custom%20Trackrank AI%20plan">Contact info@trackrank.ai</a> for a custom plan.</p>
     </div>}
-    {!hosted && <p className="pricing-footnotes">Self-hosting requires no TrackRank subscription. <a href={REPOSITORY_URL}>View the MIT-licensed source on GitHub</a> or <a href={SELF_HOST_URL}>read the deployment guide</a>.</p>}
+    {!hosted && <p className="pricing-footnotes">Self-hosting requires no Trackrank AI subscription. <a href={REPOSITORY_URL}>View the MIT-licensed source on GitHub</a> or <a href={SELF_HOST_URL}>read the deployment guide</a>.</p>}
   </section>;
 }
 const usd = (n: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(n);
@@ -72,12 +72,12 @@ export function CostCalculator({ hosted, offers }: { hosted: boolean; offers: Of
     <div className="calculator-results" aria-live="polite">{!estimate ? <p>Use 1-1,000,000 prompts, 1-3 engines and 1-10 samples. Enter whole numbers for volumes and a provider rate of zero or more.</p> : <>
       <article><h3>Your workload</h3><strong>{estimate.runs.toLocaleString("en-US")}</strong><p>prompt runs over 30 days</p></article>
       {hosted && offers.length > 0 ? (
-        <article><h3>TrackRank {estimate.plan?.name || "Custom"}</h3><strong>{estimate.total !== null ? usd(estimate.total) + "/mo" : "Contact us"}</strong><p>{estimate.plan ? `${usd(estimate.plan.price_cents / 100)} subscription + ${usd(estimate.provider)} estimated provider usage` : "Your workload or history needs a custom plan."}</p></article>
+        <article><h3>Trackrank AI {estimate.plan?.name || "Custom"}</h3><strong>{estimate.total !== null ? usd(estimate.total) + "/mo" : "Contact us"}</strong><p>{estimate.plan ? `${usd(estimate.plan.price_cents / 100)} subscription + ${usd(estimate.provider)} estimated provider usage` : "Your workload or history needs a custom plan."}</p></article>
       ) : (
         <article><h3>Estimated provider usage</h3><strong>{usd(estimate.provider)}</strong><p>{hosted ? "Hosted subscriptions are currently unavailable." : "Self-hosting has no software subscription. Add your own Cloudflare infrastructure costs."}</p></article>
       )}
       <article><h3>Peec AI {estimate.alternative?.name || "comparison"}</h3><strong>{estimate.alternative ? usd(estimate.alternative.price) + "/mo" : "Custom comparison"}</strong><p>{estimate.alternative ? `Published daily-tracking package, up to ${estimate.alternative.prompts} prompts on 3 models.` : "Published packages cover up to 350 prompts, with 3 engines and one daily sample."}</p></article>
-      {hosted && estimate.savings !== null && <p className="calculator-saving">{estimate.savings > 0 ? `Estimated saving: ${usd(estimate.savings)}/month (${Math.round(estimate.savings / estimate.alternative!.price * 100)}%).` : estimate.savings < 0 ? `TrackRank is ${usd(-estimate.savings)}/month higher with these inputs.` : "Estimated monthly costs are equal."}</p>}
+      {hosted && estimate.savings !== null && <p className="calculator-saving">{estimate.savings > 0 ? `Estimated saving: ${usd(estimate.savings)}/month (${Math.round(estimate.savings / estimate.alternative!.price * 100)}%).` : estimate.savings < 0 ? `Trackrank AI is ${usd(-estimate.savings)}/month higher with these inputs.` : "Estimated monthly costs are equal."}</p>}
     </>}</div>
     <p className="pricing-footnotes">This estimate compares costs for the selected tracking volume. Features, engines and searchable history vary by platform. <a href="https://peec.ai/pricing">Peec AI monthly brand pricing</a> checked November 23, 2026. Actual offers can change.</p>
   </section>;
@@ -87,7 +87,7 @@ export function AlternativesComparison({ hosted, offers }: { hosted: boolean; of
   const labels = ["Entry subscription", "Tracking allowance", "Cost model and source"];
   const rows: { name: string; values: [string, string, ReactNode] }[] = [
     {
-      name: entry ? `TrackRank ${entry.name}` : "TrackRank self-hosted",
+      name: entry ? `Trackrank AI ${entry.name}` : "Trackrank AI self-hosted",
       values: [
         entry ? `${formatBillingPrice(entry)} + provider usage` : "Infrastructure + provider usage",
         entry ? `${entry.limits.runs_per_month.toLocaleString("en-US")} runs/month · ${entry.limits.searchable_history_days === undefined ? "unlimited history" : `${entry.limits.searchable_history_days}-day searchable history`}` : "Self-host limits are operator-configured",
@@ -101,7 +101,7 @@ export function AlternativesComparison({ hosted, offers }: { hosted: boolean; of
   const comparisonDate = "Published monthly plans, checked November 21, 2026. USD unless marked EUR.";
   return <section className="comparison-section" id="compare" aria-labelledby="compare-title">
     <h2 id="compare-title">Compare tracking packages</h2>
-    <p>{hosted ? "TrackRank bills for hosting. You pay collection costs directly to DataForSEO." : "Self-hosting requires your own Cloudflare and DataForSEO accounts. You pay their usage charges directly."}</p>
+    <p>{hosted ? "Trackrank AI bills for hosting. You pay collection costs directly to DataForSEO." : "Self-hosting requires your own Cloudflare and DataForSEO accounts. You pay their usage charges directly."}</p>
     <table className="public-comparison-table">
       <caption>{comparisonDate}</caption>
       <thead><tr><th scope="col">Platform</th>{labels.map(label => <th key={label} scope="col">{label}</th>)}</tr></thead>

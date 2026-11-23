@@ -15,8 +15,8 @@ test('comparison discovery contains only researched competitors and all public p
     assert.ok(item.wins.length >= 3);
     assert.ok(item.description.length >= 140 && item.description.length <= 160, item.slug);
     assert.ok(item.altDescription.length >= 140 && item.altDescription.length <= 160, item.slug);
-    assert.ok(`TrackRank vs ${item.name}: Open source`.length <= 60);
-    assert.ok(`${item.name} alternatives | TrackRank`.length <= 60);
+    assert.ok(`Trackrank AI vs ${item.name}: Open source`.length <= 60);
+    assert.ok(`${item.name} alternatives | Trackrank AI`.length <= 60);
     assert.match(item.url, /^https:\/\//);
     assert.ok(sitemap.includes(`https://example.org/vs/${item.slug}`));
     assert.ok(sitemap.includes(`https://example.org/alternatives/${item.slug}`));

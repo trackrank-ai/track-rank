@@ -1,10 +1,10 @@
-# TrackRank
+# Trackrank AI
 
 Independent AI visibility tracking for [trackrank.ai](https://trackrank.ai). Open source under [MIT](LICENSE). [Browse, fork, report issues or contribute on GitHub](https://github.com/trackrank-ai/track-rank).
 
 ## Product features
 
-- TanStack Start / React with shadcn/ui, Tailwind v4, self-hosted Geist typography and TrackRank branding.
+- TanStack Start / React with shadcn/ui, Tailwind v4, self-hosted Geist typography and Trackrank AI branding.
 - Better Auth email/password, required email verification, password reset, and Google OAuth. Resend sends transactional email.
 - Organizations; owner/admin/member/viewer roles; single-use expiring team invitation links. Every organization gets a default workspace.
 - Manage workspaces and client, own, and competitor brands. Create and delete prompt questions in bulk, edit engine settings, and use free prompt templates.
@@ -17,10 +17,10 @@ Independent AI visibility tracking for [trackrank.ai](https://trackrank.ai). Ope
 
 See [launch status](docs/LAUNCH.md), [operations and support](docs/OPERATIONS.md), [architecture](docs/ARCHITECTURE.md), [API/MCP reference](docs/API.md), [product context](PRODUCT.md), and [interface design conventions](docs/DESIGN.md).
 
-## Three ways to run TrackRank
+## Three ways to run Trackrank AI
 
 - **Hosted:** [trackrank.ai](https://trackrank.ai), operated by Track Rank Ai. New verified accounts can start a 14-day trial. See the [paid-launch status](docs/LAUNCH.md).
-- **Self-hosted:** deploy to your own Cloudflare account using the [self-hosting guide](docs/SELF_HOSTING.md). No TrackRank subscription is required. Cloudflare/provider usage may incur costs. Standalone Docker/VPS hosting is not implemented yet.
+- **Self-hosted:** deploy to your own Cloudflare account using the [self-hosting guide](docs/SELF_HOSTING.md). No Trackrank AI subscription is required. Cloudflare/provider usage may incur costs. Standalone Docker/VPS hosting is not implemented yet.
 - **Local:** follow the commands below. No Cloudflare login, Google, Resend, PostHog or paid provider key is needed to sign up and explore the app.
 
 ## Workspaces, research, and Settings
@@ -81,7 +81,7 @@ The core suite uses an isolated in-memory SQLite D1 test adapter and mocked prov
 
 ## Hosted deployment — project operator only
 
-**Self-hosters:** use [your-own-account instructions](docs/SELF_HOSTING.md) and the `*:selfhost` commands. The default production commands below point at the TrackRank operator’s resources, not yours.
+**Self-hosters:** use [your-own-account instructions](docs/SELF_HOSTING.md) and the `*:selfhost` commands. The default production commands below point at the Trackrank AI operator’s resources, not yours.
 
 Infrastructure: Cloudflare Worker `trackrank-ai`, D1 `trackrank-db`, private R2 `trackrank-answers`, Workflow `trackrank-tracking`, and Cron `*/5 * * * *`. Deployment configuration is committed in `wrangler.jsonc`.
 
@@ -111,7 +111,7 @@ Hosted billing starts a 14-day no-card trial for eligible new organizations. Loc
 
 ## License
 
-TrackRank is licensed under the [MIT License](LICENSE).
+Trackrank AI is licensed under the [MIT License](LICENSE).
 
 You may use, self-host, modify, fork, redistribute, and commercially use the software, provided you retain the copyright and permission notice in copies or substantial portions. The software is provided without warranty. Third-party dependencies retain their own licenses.
 
@@ -167,7 +167,7 @@ Apply migration `0028_question_type.sql` to the target D1 database before deploy
 
 ### Researched comparison routes
 
-`src/data/competitors.ts` supplies the five researched competitor records shared by `/vs/$competitor`, `/alternatives/$competitor`, their indexes, footer discovery and sitemap entries. Unknown competitors return 404; do not turn arbitrary slugs into indexable pages. Research notes and Google search provenance live under `seo/competitors/`. Recheck official sources and update the per-record date before changing claims. Alternatives are buyer-fit shortlists, not independent rankings or verified complaint reports. Cost tables use the live installation catalog and label provider estimates; no TrackRank software fee for self-hosting does not mean free infrastructure or collection. No historical competitor-data importer is implemented or claimed. These public editorial routes introduce no tenant action and do not need new privileged REST/MCP operations.
+`src/data/competitors.ts` supplies the five researched competitor records shared by `/vs/$competitor`, `/alternatives/$competitor`, their indexes, footer discovery and sitemap entries. Unknown competitors return 404; do not turn arbitrary slugs into indexable pages. Research notes and Google search provenance live under `seo/competitors/`. Recheck official sources and update the per-record date before changing claims. Alternatives are buyer-fit shortlists, not independent rankings or verified complaint reports. Cost tables use the live installation catalog and label provider estimates; no Trackrank AI software fee for self-hosting does not mean free infrastructure or collection. No historical competitor-data importer is implemented or claimed. These public editorial routes introduce no tenant action and do not need new privileged REST/MCP operations.
 
 Collection cost presets live in `src/lib/provider-pricing.ts`, with dated official DataForSEO sources. Choose engine profile and execution mode; do not apply ChatGPT prices to Google. Google presets budget async-overview and poisoned-result extras, and disclose possible refunds, excluded operator charges and the $50 prepaid top-up. Custom blended rates remain user assumptions, not provider quotes. These public calculations do not change actual execution settings.
 

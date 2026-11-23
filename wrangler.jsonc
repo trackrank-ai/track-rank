@@ -19,7 +19,7 @@
     "BILLING_ENABLED": "true",
     "STRIPE_PORTAL_CONFIGURATION": "bpc_1Ue4SPG7SA9cWOCTJQ7EGGvm",
     "BILLING_ALERT_EMAIL": "edninodel@gmail.com",
-    "EMAIL_FROM": "TrackRank <login@mail.trackrank.ai>",
+    "EMAIL_FROM": "Trackrank AI <login@mail.trackrank.ai>",
     "GOOGLE_CLIENT_ID": "193274538094-m765kc4c4c98302fpftkuge4e72tu3lj.apps.googleusercontent.com",
   },
   "d1_databases": [

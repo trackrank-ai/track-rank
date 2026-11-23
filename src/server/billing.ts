@@ -191,7 +191,7 @@ export async function stripeWebhook(req: Request, env: Env) {
 
 export async function billingAlert(env: Env, id: string, org: string | null, kind: string, resource: string, summary: string) {
   await exec(env, "INSERT OR IGNORE INTO billing_alerts(id,org_id,kind,resource_id,summary,created_at) VALUES(?,?,?,?,?,?)", id, org, kind, resource, summary, now());
-  console.error("TrackRank billing attention", kind, resource); // Never payloads, addresses or keys.
+  console.error("Trackrank AI billing attention", kind, resource); // Never payloads, addresses or keys.
 }
 async function withCustomerLock<T>(env: Env, customerId: string, action: (lease: { token: string; customerId: string }) => Promise<T>) {
   const token = crypto.randomUUID();
@@ -283,7 +283,7 @@ export async function deliverBillingAlerts(env: Env) {
   const messageIds: string[] = [];
   const alerts = await all<Row>(env, "SELECT * FROM billing_alerts WHERE notified_at IS NULL AND resolved_at IS NULL ORDER BY created_at LIMIT 20");
   for (const alert of alerts) {
-    const response = await fetch("https://api.resend.com/emails", { method: "POST", signal: AbortSignal.timeout(10000), headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, "Content-Type": "application/json", "Idempotency-Key": `trackrank-billing-${alert.id}` }, body: JSON.stringify({ from: env.EMAIL_FROM, to: [env.BILLING_ALERT_EMAIL], subject: `TrackRank billing: ${alert.kind}`, text: `${alert.summary}\nResource: ${alert.resource_id}\nAlert: ${alert.id}\nReview Stripe Dashboard and the billing operations runbook. No customer content is included.` }) });
+    const response = await fetch("https://api.resend.com/emails", { method: "POST", signal: AbortSignal.timeout(10000), headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, "Content-Type": "application/json", "Idempotency-Key": `trackrank-billing-${alert.id}` }, body: JSON.stringify({ from: env.EMAIL_FROM, to: [env.BILLING_ALERT_EMAIL], subject: `Trackrank AI billing: ${alert.kind}`, text: `${alert.summary}\nResource: ${alert.resource_id}\nAlert: ${alert.id}\nReview Stripe Dashboard and the billing operations runbook. No customer content is included.` }) });
     if (!response.ok) throw new HttpError(503, "Billing alert notification failed");
     const sent = await response.json() as { id?: string };
     if (sent.id) messageIds.push(sent.id);

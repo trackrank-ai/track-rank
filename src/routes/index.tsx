@@ -6,7 +6,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { ArrowDown, ArrowUpRight } from "lucide-react";
 
 export const Route = createFileRoute("/")({ loader: () => getPricingCatalog(), head: ({ loaderData }) => ({
-  meta: [{ title: "Open-Source AI Visibility Tracking — TrackRank" }],
+  meta: [{ title: "Open-Source AI Visibility Tracking — Trackrank AI" }],
   links: loaderData ? [{ rel: "canonical", href: `${loaderData.origin}/` }] : [],
 }), component: Home });
 
@@ -43,7 +43,7 @@ function Home() {
     <section className="public-product" id="product" aria-labelledby="public-product-title">
       <div>
         <h2 id="public-product-title">From a customer question to a finding you can share</h2>
-        <p>TrackRank is open source under the MIT license. Use the hosted service or deploy the same application in your own Cloudflare account.</p>
+        <p>Trackrank AI is open source under the MIT license. Use the hosted service or deploy the same application in your own Cloudflare account.</p>
         <a href="/pricing">See pricing and hosting options <ArrowUpRight size={15} aria-hidden="true" /></a>
       </div>
       <ol>

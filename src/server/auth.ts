@@ -34,7 +34,7 @@ async function sendMail(env: Env, to: string, subject: string, url: string) {
 export function auth(env: Env) {
   const localAuth = localAuthEnabled(env);
   return betterAuth({
-    appName: "TrackRank",
+    appName: "Trackrank AI",
     baseURL: env.BASE_URL,
     secret: env.AUTH_SECRET,
     database: drizzleAdapter(drizzle(env.DB), { provider: "sqlite", schema }),
@@ -73,7 +73,7 @@ export function auth(env: Env) {
       revokeSessionsOnPasswordReset: true,
       disableSignUp: env.SIGNUP_ENABLED !== "true",
       sendResetPassword: async ({ user, url }) =>
-        sendMail(env, user.email, "Reset your TrackRank password", url),
+        sendMail(env, user.email, "Reset your Trackrank AI password", url),
     },
     emailVerification: {
       sendOnSignUp: !localAuth,
@@ -81,7 +81,7 @@ export function auth(env: Env) {
       autoSignInAfterVerification: true,
       sendVerificationEmail: async ({ user, url }) => {
         if (!localAuth)
-          await sendMail(env, user.email, "Verify your TrackRank email", url);
+          await sendMail(env, user.email, "Verify your Trackrank AI email", url);
       },
     },
     session: { expiresIn: 60 * 60 * 24 * 7, updateAge: 60 * 60 * 24 },
