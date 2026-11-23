@@ -563,6 +563,22 @@ test("comparison rates, outcome counts and matching evidence use recorded run co
   assert.deepEqual(new Set(allEngines.runs.map((row: any) => row.id)), new Set(["both-cited", "both-unmentioned", "before-rival"]));
   await assert.rejects(rest("/analytics/questions", { workspace: "foreign" }), { status: 404 });
   await assert.rejects(rest("/analytics/questions", { page: "0" }), { status: 400 });
+  // The Overview fallback counts collected answers even when neither selected brand was tracked.
+  for (let i = 0; i < 3; i++) run("extra-google-" + i, later, { competitor: false });
+  const { id: set } = await (await call("/prompt-sets", {
+    name: "Local discovery", workspace_id: "source", prompt_ids: ["prompt"],
+  })).json() as { id: string };
+  const noBrandCohort = { set, tracked_brand: "new-brand" };
+  const fallbackReport = await (await rest("/analytics", noBrandCohort)).json() as any;
+  assert.equal(fallbackReport.eligible_answers, 6);
+  assert.deepEqual(fallbackReport.daily, []);
+  assert.deepEqual(fallbackReport.comparison_daily, []);
+  assert.deepEqual(JSON.parse(await tool("get_overview", noBrandCohort)), fallbackReport);
+  const fallbackFilters = { ...noBrandCohort, metric: "eligible" };
+  const fallbackHistory = await (await rest("/runs", fallbackFilters)).json() as any;
+  assert.deepEqual(new Set(fallbackHistory.runs.map((row: any) => row.id)),
+    new Set(["before-rival", "both-cited", "both-unmentioned", "extra-google-0", "extra-google-1", "extra-google-2"]));
+  assert.deepEqual(JSON.parse(await tool("list_runs", fallbackFilters)), fallbackHistory);
   for (let i = 0; i < 21; i++) {
     const id = "extra-group-" + i;
     run(id, later);

@@ -105,37 +105,89 @@
   }
 }
 
-.overview-rates > div {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: .75rem 1.5rem;
-  border-top: 1px solid var(--border);
-  padding-block: 1rem;
-}
-.overview-rates dt {
-  flex: 1 1 16rem;
-}
-.overview-rates dd {
+.overview-rates {
   display: grid;
-  gap: .15rem;
-  margin: 0;
-  min-width: 11rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .5rem;
+  margin-block: .75rem;
 }
-.overview-rates dd strong {
-  font-size: 1.15rem;
+.overview-rates a {
+  display: grid;
+  gap: .125rem;
+  min-width: 0;
+  padding: .625rem .75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow-wrap: anywhere;
+  font-size: .8125rem;
+}
+.overview-rates a:hover {
+  background: var(--muted);
+}
+.overview-rates a[aria-current="true"] {
+  border-color: var(--primary);
+  background: var(--accent);
+}
+.overview-rates strong {
+  font-size: 1.125rem;
   font-variant-numeric: tabular-nums;
 }
-.overview-rates a, .overview-outcomes a {
+.overview-rates a > span:last-child {
+  color: var(--muted-foreground);
+}
+.overview-outcomes a,
+.overview-question-rate a {
   text-decoration: underline;
   text-underline-offset: .2em;
 }
-.overview-trend-controls [aria-current="true"] {
-  border-color: var(--primary);
-  color: var(--foreground);
-  font-weight: 600;
-  text-decoration: underline;
-  text-underline-offset: .2em;
+.overview-questions {
+  margin-top: 1.5rem;
+}
+.overview-question-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 9rem) minmax(0, 8rem);
+  align-items: baseline;
+  gap: .125rem 1rem;
+  border-bottom: 1px solid var(--border);
+  padding-block: .625rem;
+  font-size: .875rem;
+  overflow-wrap: anywhere;
+}
+.overview-question-head {
+  color: var(--muted-foreground);
+  font-size: .75rem;
+}
+.overview-question-rate {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 .5rem;
+}
+.overview-question-rate a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2rem;
+}
+.overview-all-answers {
+  color: var(--muted-foreground);
+  font-size: .75rem;
+}
+@media (max-width: 40rem) {
+  .overview-question-head {
+    display: none;
+  }
+  .overview-question-grid {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: .125rem .5rem;
+  }
+  .overview-question-grid h4 {
+    grid-column: 1 / -1;
+  }
+}
+@media (pointer: coarse) {
+  .overview-question-rate a {
+    min-height: 2.75rem;
+  }
 }
 .overview-trend {
   display: grid;

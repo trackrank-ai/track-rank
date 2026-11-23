@@ -1496,14 +1496,13 @@ function App() {
                     hasTrackedBrand={trackedBrandIds.size > 0} brandWorkspace={workspace}
                     credentialsConnected={!!settings.dataforseo_configured} canWrite={canWrite} canManageCredentials={isAdmin}
                     request={request} revision={promptLibraryRevision} trendMetric={search.trendMetric}
-                    emptyScope={<TrackingSetEmptyReport org={org} set={trackedSet} canWrite={canWrite} />}
-                    reviewCollectionsLink={trackingLink("questions")}
+                    emptyScope={!trackedSet.has_runs && <TrackingSetEmptyReport org={org} set={trackedSet} canWrite={canWrite} />}
                     reportLink={(scope, trendMetric) => trackingLink("overview", { ...scope, set: trackedSet.id, trendMetric })}
                     evidenceLink={(metric, evidenceDay, row) => trackingLink("answers", {
                       ...reportScope, metric, evidenceDay, trendMetric: search.trendMetric ?? "mention",
                       reportQuestion: row?.evidence_run_id, reportEngine: row?.engine,
                     })}
-                    filters={<OverviewFilters key={JSON.stringify(reportScope)} lockSet
+                    filters={<OverviewFilters key={JSON.stringify(reportScope)} summarize={false} lockSet
                       org={org} workspace={workspace} workspaceNames={workspaceNames} scope={reportScope} sets={[trackedSet]}
                       brands={scopeBrands as { id: string; name: string }[]} engines={engines} request={request} revision={prompts}
                       onChange={scope => void navigate({ search: { ...scope, org, workspace, tab: "tracking",

@@ -117,8 +117,8 @@ export function TrackingSetDetail({ org, set, search, workspaceName, engines, ch
           tags: search.tags, trendMetric: search.trendMetric }}
         aria-current={view === id ? "page" : undefined}>{label}</Link>)}
     </nav>
-    {view === "overview" && <SetSummary set={set} />}
     {children}
+    {view === "overview" && <SetSummary set={set} />}
   </section>;
 }
 
