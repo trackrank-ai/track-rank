@@ -52,6 +52,7 @@ export const runHistoryFilters = scopeFilters.extend({
   metric: z.enum(answerMetrics).optional(),
   question_id: setId.optional(),
   report_evidence_run: setId.optional(),
+  prompt_q: z.string().trim().max(200).optional(),
   prompt_schedule: z.enum(["active", "inactive"]).optional(),
   prompt_brand: setId.optional(),
   prompt_id: z.string().min(1).max(100).optional(),
@@ -73,8 +74,8 @@ export function parseHistoryFilters(params: URLSearchParams) {
   if (filters.from && filters.to && filters.from > filters.to)
     throw new HttpError(400, "The start date must be on or before the end date");
   if (!!filters.research_type !== !!filters.research_value) throw new HttpError(400, "Choose a research item");
-  if ((filters.prompt_schedule || filters.prompt_brand) && !filters.question_id)
-    throw new HttpError(400, "Choose a question before filtering its variants");
+  if ((filters.prompt_schedule || filters.prompt_brand) && !filters.question_id && filters.prompt_q === undefined)
+    throw new HttpError(400, "Choose a question or search the prompt library before filtering its variants");
   if (filters.metric && filters.metric !== "eligible" && filters.metric !== "coverage" && !filters.tracked_brand)
     throw new HttpError(400, "Choose a tracked brand");
   if (filters.compare_brand && (!filters.tracked_brand || filters.compare_brand === filters.tracked_brand))
@@ -133,11 +134,15 @@ function historyWhere(org: string, filters: z.output<typeof runHistoryFilters>) 
     conditions.push("runs.workspace_id=?");
     bindings.push(filters.workspace);
   }
-  if (filters.question_id || filters.set || filters.tags?.length || filters.metric === "coverage") {
+  if (filters.question_id || filters.prompt_q !== undefined || filters.set || filters.tags?.length || filters.metric === "coverage") {
     const selected = currentPromptWhere(filters);
     if (filters.question_id) {
       selected.conditions.push("p.question_id=?");
       selected.bindings.push(filters.question_id);
+    }
+    if (filters.prompt_q) {
+      selected.conditions.push("instr(lower(p.text),lower(?))>0");
+      selected.bindings.push(filters.prompt_q);
     }
     if (filters.prompt_schedule) {
       selected.conditions.push(filters.prompt_schedule === "active" ? activePromptSchedule : "NOT " + activePromptSchedule);

@@ -233,6 +233,15 @@ test("REST and MCP share receipt actions, exact batch status and readiness", asy
   assert.equal(sql.prepare("SELECT count(*) AS n FROM schedules WHERE prompt_id=?").get(appended.prompts[0].id)?.n, 1);
   assert.equal(sql.prepare("SELECT count(*) AS n FROM runs").get()?.n, 3);
 
+  const standalone = {
+    prompts: { ...base, texts: [appended.prompts[0].text], engines: ["chatgpt"], operation_id: crypto.randomUUID() },
+    action: optedIn.action,
+  };
+  const approvedWithoutSet = await call("/prompts/bulk-submit", standalone);
+  assert.equal(approvedWithoutSet.tracking_set, undefined);
+  assert.equal(approvedWithoutSet.result.run.accepted, 1);
+  assert.deepEqual(await tool("submit_prompt_batch", standalone), approvedWithoutSet);
+  assert.equal(sql.prepare("SELECT count(*) AS n FROM runs").get()?.n, 4);
 });
 
 test("shared question migration preserves engine and historical references", () => {

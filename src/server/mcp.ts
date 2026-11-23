@@ -1,3 +1,4 @@
+import { promptLibrarySortKeys } from "../lib/prompt-library-sort";
 import { overviewQuestionsPage } from "./analytics";
 import { bulkPromptSettingsSchema } from "./prompt-settings";
 import { receiptActionSchema, submitPromptBatchSchema } from "./receipt-actions";
@@ -224,7 +225,8 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
         tracked_brand: scopeFilters.shape.tracked_brand,
         from: scopeFilters.shape.from,
         to: scopeFilters.shape.to,
-        before: z.number().int().nonnegative().optional(),
+        sort: z.enum(promptLibrarySortKeys).optional(),
+        before: z.number().min(0).max(Number.MAX_SAFE_INTEGER).optional(),
         before_id: z.string().min(1).max(100).optional(),
       },
     },
@@ -281,7 +283,7 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
     inputSchema: { operation_id: z.uuid() },
   }, async ({ operation_id }) => invoke("/prompts/receipts/" + operation_id));
   server.registerTool("submit_prompt_batch", {
-    description: "Save reviewed prompt variants, optionally create or add to a tracking set, and collect only approved variants. Include an exact existing_id to opt a saved variant into collection when saving to a tracking set. Confirm provider spend before requesting active collection. Retry with identical arguments.",
+    description: "Save reviewed prompt variants, optionally create or add to a tracking set, and collect only approved variants. Include an exact existing_id to opt a saved variant into collection. Confirm provider spend before requesting active collection. Retry with identical arguments.",
     inputSchema: submitPromptBatchSchema,
   }, async args => invoke("/prompts/bulk-submit", "POST", args));
   server.registerTool("start_prompt_receipt", {
