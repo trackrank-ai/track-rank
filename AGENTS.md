@@ -131,3 +131,17 @@ Homepage and `/pricing` must reuse the live offer catalog and shared pricing com
 Use the common recorded brand cohort for side-by-side comparisons, share of tracked mentions and source overlap. Keep the workspace, period, comparison and evidence filters in UI links, REST, MCP and CSV. Show prior-period coverage and disclose changed question or engine mix. Derive historical match passages from the answer and snapshotted names or aliases. Keep recommendation rank and sentiment separate from textual order.
 
 Store the optional question type on the shared workspace question. Bulk classification validates every selected variant and updates its question across engines. Apply migration `0028_question_type.sql` before deploying the release. Open Settings on workspace monitoring, with paged readiness across clients in All workspaces. Show next checks with an explicit time zone, keep organization providers, team and billing directly accessible, and retain billing as the entry point for paused access.
+
+## Public SEO discovery
+
+`src/server/seo.ts` serves default-allow robots and a public-page-only XML sitemap from the installation's `BASE_URL`. Private routes retain `X-Robots-Tag: noindex`; do not block recrawling that directive. Home and Pricing emit deployment-aware canonical links. Pricing structured data derives from the same live offers as the visible cards, with separate provider costs explicit. Add genuinely public routes to the sitemap allowlist when shipping them. Cloudflare edge-managed robots rules may alter the app response: verify the public `/robots.txt` and `/sitemap.xml` after release.
+
+### Researched comparison routes
+
+`src/data/competitors.ts` supplies the five researched competitor records shared by `/vs/$competitor`, `/alternatives/$competitor`, their indexes, footer discovery and sitemap entries. Unknown competitors return 404; do not turn arbitrary slugs into indexable pages. Research notes and Google search provenance live under `seo/competitors/`. Recheck official sources and update the per-record date before changing claims. Alternatives are buyer-fit shortlists, not independent rankings or verified complaint reports. Cost tables use the live installation catalog and label provider estimates; no TrackRank software fee for self-hosting does not mean free infrastructure or collection. No historical competitor-data importer is implemented or claimed. These public editorial routes introduce no tenant action and do not need new privileged REST/MCP operations.
+
+Collection cost presets live in `src/lib/provider-pricing.ts`, with dated official DataForSEO sources. Choose engine profile and execution mode; do not apply ChatGPT prices to Google. Google presets budget async-overview and poisoned-result extras, and disclose possible refunds, excluded operator charges and the $50 prepaid top-up. Custom blended rates remain user assumptions, not provider quotes. These public calculations do not change actual execution settings.
+
+### Comparison copy review
+
+Edwin requires an `unslop-seo` pass for comparison and alternatives pages. Audit facts and matched comparison dimensions before editing style. Keep direct recommendations in the opening, link the top alternative there, add buyer-question H2s with direct answers, and give each alternative a self-contained verdict, fit, trade-off and price. Run the skill's checker to zero hits and retain receipts under `seo/`; do not erase sourced costs or competitor strengths to simplify copy.

@@ -1,0 +1,157 @@
+[
+  {
+    "path": "/vs",
+    "status": 200,
+    "h2_count": 6,
+    "buyer_questions": [
+      "What can you change or self-host with TrackRank?"
+    ],
+    "first_40_words": "TrackRank lets you modify MIT-licensed code and collect answers with your DataForSEO account. Use these guides to compare that approach with managed monitoring packages.",
+    "top_pick_link": true
+  },
+  {
+    "path": "/alternatives",
+    "status": 200,
+    "h2_count": 6,
+    "buyer_questions": [
+      "What can you change or self-host with TrackRank?"
+    ],
+    "first_40_words": "TrackRank lets you modify MIT-licensed code and collect answers with your DataForSEO account. Use these guides to compare that approach with managed monitoring packages.",
+    "top_pick_link": true
+  },
+  {
+    "path": "/vs/peec-ai",
+    "status": 200,
+    "h2_count": 8,
+    "buyer_questions": [
+      "What changes when you choose TrackRank?",
+      "How much does daily tracking cost?",
+      "When should you choose Peec AI ?",
+      "What can you change or self-host with TrackRank?"
+    ],
+    "first_40_words": "Choose Peec AI for a managed daily-monitoring package with brand-perception and action workflows . Choose TrackRank to modify MIT-licensed code, bring your DataForSEO credentials or self-host.",
+    "top_pick_link": false
+  },
+  {
+    "path": "/vs/ahrefs",
+    "status": 200,
+    "h2_count": 8,
+    "buyer_questions": [
+      "What changes when you choose TrackRank?",
+      "How much does daily tracking cost?",
+      "When should you choose Ahrefs Brand Radar ?",
+      "What can you change or self-host with TrackRank?"
+    ],
+    "first_40_words": "Choose Ahrefs Brand Radar for search-backed discovery across an existing AI-answer index and the wider Ahrefs toolkit . Choose TrackRank to modify MIT-licensed code, bring your DataForSEO credentials or self-host.",
+    "top_pick_link": false
+  },
+  {
+    "path": "/vs/profound",
+    "status": 200,
+    "h2_count": 8,
+    "buyer_questions": [
+      "What changes when you choose TrackRank?",
+      "How much does daily tracking cost?",
+      "When should you choose Profound ?",
+      "What can you change or self-host with TrackRank?"
+    ],
+    "first_40_words": "Choose Profound for enterprise governance, wider engine coverage and a dedicated support relationship . Choose TrackRank to modify MIT-licensed code, bring your DataForSEO credentials or self-host.",
+    "top_pick_link": false
+  },
+  {
+    "path": "/vs/promptwatch",
+    "status": 200,
+    "h2_count": 8,
+    "buyer_questions": [
+      "What changes when you choose TrackRank?",
+      "How much does daily tracking cost?",
+      "When should you choose Promptwatch ?",
+      "What can you change or self-host with TrackRank?"
+    ],
+    "first_40_words": "Choose Promptwatch for broader model coverage, agent chat and integrated content workflows . Choose TrackRank to modify MIT-licensed code, bring your DataForSEO credentials or self-host.",
+    "top_pick_link": false
+  },
+  {
+    "path": "/vs/otterly-ai",
+    "status": 200,
+    "h2_count": 8,
+    "buyer_questions": [
+      "What changes when you choose TrackRank?",
+      "How much does daily tracking cost?",
+      "When should you choose OtterlyAI ?",
+      "What can you change or self-host with TrackRank?"
+    ],
+    "first_40_words": "Choose OtterlyAI for a small managed starting package or a workflow needing its broader engine selection . Choose TrackRank to modify MIT-licensed code, bring your DataForSEO credentials or self-host.",
+    "top_pick_link": false
+  },
+  {
+    "path": "/alternatives/peec-ai",
+    "status": 200,
+    "h2_count": 9,
+    "buyer_questions": [
+      "How did we choose these alternatives?",
+      "What changes when you choose TrackRank?",
+      "What can you change or self-host with TrackRank?",
+      "How much does daily tracking cost?",
+      "When should you choose Peec AI ?"
+    ],
+    "first_40_words": "Choose TrackRank for MIT-licensed code, your DataForSEO credentials and self-hosting without a software subscription. Your question list is growing beyond a fixed prompt package, or you want to inspect and change the tracking code.",
+    "top_pick_link": true
+  },
+  {
+    "path": "/alternatives/ahrefs",
+    "status": 200,
+    "h2_count": 9,
+    "buyer_questions": [
+      "How did we choose these alternatives?",
+      "What changes when you choose TrackRank?",
+      "What can you change or self-host with TrackRank?",
+      "How much does daily tracking cost?",
+      "When should you choose Ahrefs Brand Radar ?"
+    ],
+    "first_40_words": "Choose TrackRank for MIT-licensed code, your DataForSEO credentials and self-hosting without a software subscription. You need to collect a known set of buyer questions in your own stack, rather than pay for a broad discovery index.",
+    "top_pick_link": true
+  },
+  {
+    "path": "/alternatives/profound",
+    "status": 200,
+    "h2_count": 9,
+    "buyer_questions": [
+      "How did we choose these alternatives?",
+      "What changes when you choose TrackRank?",
+      "What can you change or self-host with TrackRank?",
+      "How much does daily tracking cost?",
+      "When should you choose Profound ?"
+    ],
+    "first_40_words": "Choose TrackRank for MIT-licensed code, your DataForSEO credentials and self-hosting without a software subscription. You want a focused monitoring stack with visible software costs, instead of procuring an enterprise marketing package.",
+    "top_pick_link": true
+  },
+  {
+    "path": "/alternatives/promptwatch",
+    "status": 200,
+    "h2_count": 9,
+    "buyer_questions": [
+      "How did we choose these alternatives?",
+      "What changes when you choose TrackRank?",
+      "What can you change or self-host with TrackRank?",
+      "How much does daily tracking cost?",
+      "When should you choose Promptwatch ?"
+    ],
+    "first_40_words": "Choose TrackRank for MIT-licensed code, your DataForSEO credentials and self-hosting without a software subscription. You need economical repeated monitoring and code-level control, without buying a broader content-operations platform.",
+    "top_pick_link": true
+  },
+  {
+    "path": "/alternatives/otterly-ai",
+    "status": 200,
+    "h2_count": 9,
+    "buyer_questions": [
+      "How did we choose these alternatives?",
+      "What changes when you choose TrackRank?",
+      "What can you change or self-host with TrackRank?",
+      "How much does daily tracking cost?",
+      "When should you choose OtterlyAI ?"
+    ],
+    "first_40_words": "Choose TrackRank for MIT-licensed code, your DataForSEO credentials and self-hosting without a software subscription. You want to control collection spending directly, customize the application or separate hosting from usage as monitoring grows.",
+    "top_pick_link": true
+  }
+]

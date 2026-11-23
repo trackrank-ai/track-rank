@@ -12,5 +12,5 @@ export const getSiteConfig = createServerFn({ method: 'GET' }).handler(async () 
 export const getPricingCatalog = createServerFn({ method: 'GET' }).handler(async () => {
   const { env: bindings } = await import('cloudflare:workers');
   const env = bindings as unknown as Env;
-  return { hosted: env.BILLING_ENABLED === 'true', offers: publicBillingOffers(await billingOffers(env)) };
+  return { origin: new URL(env.BASE_URL).origin, hosted: env.BILLING_ENABLED === 'true', offers: publicBillingOffers(await billingOffers(env)) };
 });

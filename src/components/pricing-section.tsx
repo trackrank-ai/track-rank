@@ -1,3 +1,4 @@
+import { profilePricing, llmPricingUrl, googlePricingUrl, providerBillingUrl, providerPricingCheckedAt, type CollectionProfile, type CollectionMode } from "@/lib/provider-pricing";
 import { useState, type ReactNode } from "react";
 import { HostingActions, SELF_HOST_URL } from "@/components/public-layout";
 import { formatBillingPrice } from "@/lib/billing-price";
@@ -8,6 +9,17 @@ export function PricingSection({ hosted, offers, standalone = false }: { hosted:
   const Heading = standalone ? "h1" : "h2";
   const PlanHeading = standalone ? "h2" : "h3";
   return <section className={`pricing-section${standalone ? " pricing-standalone" : ""}`} id="pricing" aria-labelledby="pricing-title">
+    {hosted && offers.length > 0 && <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify({
+      "@context": "https://schema.org", "@type": "SoftwareApplication",
+      name: "TrackRank", applicationCategory: "BusinessApplication", operatingSystem: "Web",
+      description: "Open-source AI visibility tracking. Hosted subscription prices exclude tax and separately billed provider usage.",
+      offers: offers.map(offer => ({
+        "@type": "Offer", name: offer.name, price: offer.price_cents / 100,
+        priceCurrency: offer.currency.toUpperCase(),
+        description: `${offer.limits.runs_per_month} prompt runs per ${offer.interval}; ${offer.limits.searchable_history_days ?? "unlimited"} days searchable history. Provider usage billed separately.`,
+        priceSpecification: { "@type": "UnitPriceSpecification", price: offer.price_cents / 100, priceCurrency: offer.currency.toUpperCase(), unitText: offer.interval },
+      })),
+    }).replace(/</g, "\\u003c") }} />}
     <Heading id="pricing-title">{hosted ? "Hosted plans" : "Self-host TrackRank"}</Heading>
     {hosted && <p className="pricing-intro">Choose your monthly run allowance and searchable history. Every plan includes all features, the same operational rate limits and no per-seat fees.</p>}
     {hosted && offers.length > 0 && <div className="pricing-grid">
@@ -38,19 +50,26 @@ export function CostCalculator({ hosted, offers }: { hosted: boolean; offers: Of
   const [samples, setSamples] = useState("1");
   const [history, setHistory] = useState(30);
   const [rate, setRate] = useState("0.01");
-  const estimate = estimatePricing(offers, Number(prompts), Number(engines), Number(samples), history, rate.trim() ? Number(rate) : NaN);
+  const [profile, setProfile] = useState<CollectionProfile>("all");
+  const [mode, setMode] = useState<CollectionMode>("standard");
+  const preset = profile === "custom" ? null : profilePricing(profile, mode);
+  const engineCount = preset?.engines ?? Number(engines);
+  const effectiveRate = preset?.perRun ?? (rate.trim() ? Number(rate) : NaN);
+  const estimate = estimatePricing(offers, Number(prompts), engineCount, Number(samples), history, effectiveRate);
   return <section className="cost-section" id="calculator" aria-labelledby="calculator-title">
     <h2 id="calculator-title">Estimate your monthly cost</h2>
     <p>A 30-day planning estimate, including your estimated provider cost. Change the inputs to match your workload.</p>
     <div className="calculator-inputs">
       <label>Unique prompts<input type="number" min="1" max="1000000" value={prompts} onChange={e => setPrompts(e.target.value)} /></label>
-      <label>Engines per prompt<input type="number" min="1" max="3" value={engines} onChange={e => setEngines(e.target.value)} /></label>
+      <label>Collection profile<select value={profile} onChange={e => setProfile(e.target.value as CollectionProfile)}><option value="all">ChatGPT + Gemini + Google AI Overviews</option><option value="chatgpt">ChatGPT only</option><option value="gemini">Gemini only</option><option value="google">Google AI Overviews only</option><option value="custom">Custom blended rate</option></select></label>
+      {profile !== "custom" && <label>Execution mode<select value={mode} onChange={e => setMode(e.target.value as CollectionMode)}><option value="standard">Standard queue</option><option value="priority">Priority queue</option><option value="live">Live</option></select></label>}
+      {profile === "custom" && <label>Engines per prompt<input type="number" min="1" max="3" value={engines} onChange={e => setEngines(e.target.value)} /></label>}
       <label>Samples per engine / day<input type="number" min="1" max="10" value={samples} onChange={e => setSamples(e.target.value)} /></label>
       {hosted && <label>Searchable history<select value={history} onChange={e => setHistory(Number(e.target.value))}><option value="30">30 days</option><option value="90">90 days</option><option value="180">180 days</option></select></label>}
-      <label>Estimated provider cost / run (USD)<input type="number" min="0" step="0.001" value={rate} onChange={e => setRate(e.target.value)} /></label>
+      {profile === "custom" && <label>Estimated provider cost / run (USD)<input type="number" min="0" step="0.0001" value={rate} onChange={e => setRate(e.target.value)} /></label>}
     </div>
-    <p className="data-note">The editable $0.01/run default is a planning assumption. Engine, execution mode, options and optional analysis affect your actual bill. The estimate excludes provider minimum deposits and taxes.</p>
-    <div className="calculator-results" aria-live="polite">{!estimate ? <p>Use 1–1,000,000 prompts, 1–3 engines and 1–10 samples. Enter whole numbers for volumes and a provider rate of zero or more.</p> : <>
+    <p className="data-note">Presets use published <a href={llmPricingUrl}>ChatGPT/Gemini</a> and <a href={googlePricingUrl}>Google Organic</a> list rates, checked {providerPricingCheckedAt}. Google budgets depth 10 plus AI Overview loading and poisoned-result resolution; unused async loading may be refunded. Search operators, optional analysis and taxes are excluded. Custom rates are your assumptions. <a href={providerBillingUrl}>DataForSEO requires a $50 minimum top-up</a>; that is prepaid credit, not a monthly fee.</p>
+    <div className="calculator-results" aria-live="polite">{!estimate ? <p>Use 1-1,000,000 prompts, 1-3 engines and 1-10 samples. Enter whole numbers for volumes and a provider rate of zero or more.</p> : <>
       <article><h3>Your workload</h3><strong>{estimate.runs.toLocaleString("en-US")}</strong><p>prompt runs over 30 days</p></article>
       {hosted && offers.length > 0 ? (
         <article><h3>TrackRank {estimate.plan?.name || "Custom"}</h3><strong>{estimate.total !== null ? usd(estimate.total) + "/mo" : "Contact us"}</strong><p>{estimate.plan ? `${usd(estimate.plan.price_cents / 100)} subscription + ${usd(estimate.provider)} estimated provider usage` : "Your workload or history needs a custom plan."}</p></article>
@@ -60,11 +79,11 @@ export function CostCalculator({ hosted, offers }: { hosted: boolean; offers: Of
       <article><h3>Peec AI {estimate.alternative?.name || "comparison"}</h3><strong>{estimate.alternative ? usd(estimate.alternative.price) + "/mo" : "Custom comparison"}</strong><p>{estimate.alternative ? `Published daily-tracking package, up to ${estimate.alternative.prompts} prompts on 3 models.` : "Published packages cover up to 350 prompts, with 3 engines and one daily sample."}</p></article>
       {hosted && estimate.savings !== null && <p className="calculator-saving">{estimate.savings > 0 ? `Estimated saving: ${usd(estimate.savings)}/month (${Math.round(estimate.savings / estimate.alternative!.price * 100)}%).` : estimate.savings < 0 ? `TrackRank is ${usd(-estimate.savings)}/month higher with these inputs.` : "Estimated monthly costs are equal."}</p>}
     </>}</div>
-    <p className="pricing-footnotes">This estimate compares costs for the selected tracking volume. Features, engines and searchable history vary by platform. <a href="https://peec.ai/pricing">Peec AI monthly brand pricing</a> checked November 21, 2026. Actual offers can change.</p>
+    <p className="pricing-footnotes">This estimate compares costs for the selected tracking volume. Features, engines and searchable history vary by platform. <a href="https://peec.ai/pricing">Peec AI monthly brand pricing</a> checked November 23, 2026. Actual offers can change.</p>
   </section>;
 }
 export function AlternativesComparison({ hosted, offers }: { hosted: boolean; offers: Offer[] }) {
-  const entry = offers.filter(offer => offer.currency === "usd" && offer.interval === "month").sort((a, b) => a.price_cents - b.price_cents)[0];
+  const entry = offers.filter(offer => offer.currency === "usd" && offer.interval === "month").sort((a, b) => a.price_cents-b.price_cents)[0];
   const labels = ["Entry subscription", "Tracking allowance", "Cost model and source"];
   const rows: { name: string; values: [string, string, ReactNode] }[] = [
     {

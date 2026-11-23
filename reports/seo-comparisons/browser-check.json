@@ -1,0 +1,329 @@
+{
+  "results": [
+    {
+      "path": "/vs",
+      "width": 1366,
+      "status": 200,
+      "title": "Compare AI Visibility Tracking Tools — TrackRank",
+      "h1": [
+        "Compare TrackRank with AI visibility tools"
+      ],
+      "canonical": "http://localhost:3097/vs",
+      "overflow": false,
+      "comparisonLinks": 12
+    },
+    {
+      "path": "/alternatives",
+      "width": 1366,
+      "status": 200,
+      "title": "AI Visibility Tool Alternatives — TrackRank",
+      "h1": [
+        "AI visibility tool alternatives"
+      ],
+      "canonical": "http://localhost:3097/alternatives",
+      "overflow": false,
+      "comparisonLinks": 12
+    },
+    {
+      "path": "/vs/peec-ai",
+      "width": 1366,
+      "status": 200,
+      "title": "TrackRank vs Peec AI: Open Source",
+      "h1": [
+        "TrackRank vs Peec AI: Open source vs a managed analytics package"
+      ],
+      "canonical": "http://localhost:3097/vs/peec-ai",
+      "overflow": false,
+      "comparisonLinks": 12,
+      "facts": 5
+    },
+    {
+      "path": "/alternatives/peec-ai",
+      "width": 1366,
+      "status": 200,
+      "title": "Peec AI Alternatives — TrackRank",
+      "h1": [
+        "Peec AI alternatives for open-source control and cost-conscious monitoring"
+      ],
+      "canonical": "http://localhost:3097/alternatives/peec-ai",
+      "overflow": false,
+      "comparisonLinks": 12,
+      "facts": 5
+    },
+    {
+      "path": "/vs/ahrefs",
+      "width": 1366,
+      "status": 200,
+      "title": "TrackRank vs Ahrefs Brand Radar: Open Source",
+      "h1": [
+        "TrackRank vs Ahrefs Brand Radar: Your own tracking stack vs an AI visibility index"
+      ],
+      "canonical": "http://localhost:3097/vs/ahrefs",
+      "overflow": false,
+      "comparisonLinks": 12,
+      "facts": 5
+    },
+    {
+      "path": "/alternatives/ahrefs",
+      "width": 1366,
+      "status": 200,
+      "title": "Ahrefs Brand Radar Alternatives — TrackRank",
+      "h1": [
+        "Ahrefs Brand Radar alternatives for open-source control and cost-conscious monitoring"
+      ],
+      "canonical": "http://localhost:3097/alternatives/ahrefs",
+      "overflow": false,
+      "comparisonLinks": 12,
+      "facts": 5
+    },
+    {
+      "path": "/vs/profound",
+      "width": 1366,
+      "status": 200,
+      "title": "TrackRank vs Profound: Open Source",
+      "h1": [
+        "TrackRank vs Profound: An open tracking stack vs an enterprise platform"
+      ],
+      "canonical": "http://localhost:3097/vs/profound",
+      "overflow": false,
+      "comparisonLinks": 12,
+      "facts": 5
+    },
+    {
+      "path": "/alternatives/profound",
+      "width": 1366,
+      "status": 200,
+      "title": "Profound Alternatives — TrackRank",
+      "h1": [
+        "Profound alternatives for open-source control and cost-conscious monitoring"
+      ],
+      "canonical": "http://localhost:3097/alternatives/profound",
+      "overflow": false,
+      "comparisonLinks": 12,
+      "facts": 5
+    },
+    {
+      "path": "/vs/promptwatch",
+      "width": 1366,
+      "status": 200,
+      "title": "TrackRank vs Promptwatch: Open Source",
+      "h1": [
+        "TrackRank vs Promptwatch: Bring your own credentials vs a broader GEO suite"
+      ],
+      "canonical": "http://localhost:3097/vs/promptwatch",
+      "overflow": false,
+      "comparisonLinks": 12,
+      "facts": 5
+    },
+    {
+      "path": "/alternatives/promptwatch",
+      "width": 1366,
+      "status": 200,
+      "title": "Promptwatch Alternatives — TrackRank",
+      "h1": [
+        "Promptwatch alternatives for open-source control and cost-conscious monitoring"
+      ],
+      "canonical": "http://localhost:3097/alternatives/promptwatch",
+      "overflow": false,
+      "comparisonLinks": 12,
+      "facts": 5
+    },
+    {
+      "path": "/vs/otterly-ai",
+      "width": 1366,
+      "status": 200,
+      "title": "TrackRank vs OtterlyAI: Open Source",
+      "h1": [
+        "TrackRank vs OtterlyAI: Run-based control vs a managed credit package"
+      ],
+      "canonical": "http://localhost:3097/vs/otterly-ai",
+      "overflow": false,
+      "comparisonLinks": 12,
+      "facts": 5
+    },
+    {
+      "path": "/alternatives/otterly-ai",
+      "width": 1366,
+      "status": 200,
+      "title": "OtterlyAI Alternatives — TrackRank",
+      "h1": [
+        "OtterlyAI alternatives for open-source control and cost-conscious monitoring"
+      ],
+      "canonical": "http://localhost:3097/alternatives/otterly-ai",
+      "overflow": false,
+      "comparisonLinks": 12,
+      "facts": 5
+    },
+    {
+      "path": "/vs",
+      "width": 390,
+      "status": 200,
+      "title": "Compare AI Visibility Tracking Tools — TrackRank",
+      "h1": [
+        "Compare TrackRank with AI visibility tools"
+      ],
+      "canonical": "http://localhost:3097/vs",
+      "overflow": false,
+      "comparisonLinks": 12
+    },
+    {
+      "path": "/alternatives",
+      "width": 390,
+      "status": 200,
+      "title": "AI Visibility Tool Alternatives — TrackRank",
+      "h1": [
+        "AI visibility tool alternatives"
+      ],
+      "canonical": "http://localhost:3097/alternatives",
+      "overflow": false,
+      "comparisonLinks": 12
+    },
+    {
+      "path": "/vs/peec-ai",
+      "width": 390,
+      "status": 200,
+      "title": "TrackRank vs Peec AI: Open Source",
+      "h1": [
+        "TrackRank vs Peec AI: Open source vs a managed analytics package"
+      ],
+      "canonical": "http://localhost:3097/vs/peec-ai",
+      "overflow": false,
+      "comparisonLinks": 12,
+      "facts": 5
+    },
+    {
+      "path": "/alternatives/peec-ai",
+      "width": 390,
+      "status": 200,
+      "title": "Peec AI Alternatives — TrackRank",
+      "h1": [
+        "Peec AI alternatives for open-source control and cost-conscious monitoring"
+      ],
+      "canonical": "http://localhost:3097/alternatives/peec-ai",
+      "overflow": false,
+      "comparisonLinks": 12,
+      "facts": 5
+    },
+    {
+      "path": "/vs/ahrefs",
+      "width": 390,
+      "status": 200,
+      "title": "TrackRank vs Ahrefs Brand Radar: Open Source",
+      "h1": [
+        "TrackRank vs Ahrefs Brand Radar: Your own tracking stack vs an AI visibility index"
+      ],
+      "canonical": "http://localhost:3097/vs/ahrefs",
+      "overflow": false,
+      "comparisonLinks": 12,
+      "facts": 5
+    },
+    {
+      "path": "/alternatives/ahrefs",
+      "width": 390,
+      "status": 200,
+      "title": "Ahrefs Brand Radar Alternatives — TrackRank",
+      "h1": [
+        "Ahrefs Brand Radar alternatives for open-source control and cost-conscious monitoring"
+      ],
+      "canonical": "http://localhost:3097/alternatives/ahrefs",
+      "overflow": false,
+      "comparisonLinks": 12,
+      "facts": 5
+    },
+    {
+      "path": "/vs/profound",
+      "width": 390,
+      "status": 200,
+      "title": "TrackRank vs Profound: Open Source",
+      "h1": [
+        "TrackRank vs Profound: An open tracking stack vs an enterprise platform"
+      ],
+      "canonical": "http://localhost:3097/vs/profound",
+      "overflow": false,
+      "comparisonLinks": 12,
+      "facts": 5
+    },
+    {
+      "path": "/alternatives/profound",
+      "width": 390,
+      "status": 200,
+      "title": "Profound Alternatives — TrackRank",
+      "h1": [
+        "Profound alternatives for open-source control and cost-conscious monitoring"
+      ],
+      "canonical": "http://localhost:3097/alternatives/profound",
+      "overflow": false,
+      "comparisonLinks": 12,
+      "facts": 5
+    },
+    {
+      "path": "/vs/promptwatch",
+      "width": 390,
+      "status": 200,
+      "title": "TrackRank vs Promptwatch: Open Source",
+      "h1": [
+        "TrackRank vs Promptwatch: Bring your own credentials vs a broader GEO suite"
+      ],
+      "canonical": "http://localhost:3097/vs/promptwatch",
+      "overflow": false,
+      "comparisonLinks": 12,
+      "facts": 5
+    },
+    {
+      "path": "/alternatives/promptwatch",
+      "width": 390,
+      "status": 200,
+      "title": "Promptwatch Alternatives — TrackRank",
+      "h1": [
+        "Promptwatch alternatives for open-source control and cost-conscious monitoring"
+      ],
+      "canonical": "http://localhost:3097/alternatives/promptwatch",
+      "overflow": false,
+      "comparisonLinks": 12,
+      "facts": 5
+    },
+    {
+      "path": "/vs/otterly-ai",
+      "width": 390,
+      "status": 200,
+      "title": "TrackRank vs OtterlyAI: Open Source",
+      "h1": [
+        "TrackRank vs OtterlyAI: Run-based control vs a managed credit package"
+      ],
+      "canonical": "http://localhost:3097/vs/otterly-ai",
+      "overflow": false,
+      "comparisonLinks": 12,
+      "facts": 5
+    },
+    {
+      "path": "/alternatives/otterly-ai",
+      "width": 390,
+      "status": 200,
+      "title": "OtterlyAI Alternatives — TrackRank",
+      "h1": [
+        "OtterlyAI alternatives for open-source control and cost-conscious monitoring"
+      ],
+      "canonical": "http://localhost:3097/alternatives/otterly-ai",
+      "overflow": false,
+      "comparisonLinks": 12,
+      "facts": 5
+    },
+    {
+      "path": "/vs/not-a-real-competitor",
+      "status": 404
+    },
+    {
+      "path": "/alternatives/not-a-real-competitor",
+      "status": 404
+    }
+  ],
+  "errors": [],
+  "calculator": {
+    "chatgpt": "Your workload1,500prompt runs over 30 daysEstimated provider usage$1.80Self-hosting has no software subscription. Add your own Cloudflare infrastructure costs.Peec AI comparisonCustom comparisonPublished packages cover up to 350 prompts, with 3 engines and one daily sample.",
+    "all": "Your workload4,500prompt runs over 30 daysEstimated provider usage$6.30Self-hosting has no software subscription. Add your own Cloudflare infrastructure costs.Peec AI Starter$95.00/moPublished daily-tracking package, up to 50 prompts on 3 models."
+  },
+  "pricingNavigation": {
+    "path": "/vs/peec-ai",
+    "canonical": "http://localhost:3097/vs/peec-ai"
+  }
+}

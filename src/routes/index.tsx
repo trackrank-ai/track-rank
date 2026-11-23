@@ -5,7 +5,10 @@ import { getPricingCatalog } from "@/server/site-config";
 import { createFileRoute } from "@tanstack/react-router";
 import { ArrowDown, ArrowUpRight } from "lucide-react";
 
-export const Route = createFileRoute("/")({ loader: () => getPricingCatalog(), component: Home });
+export const Route = createFileRoute("/")({ loader: () => getPricingCatalog(), head: ({ loaderData }) => ({
+  meta: [{ title: "Open-Source AI Visibility Tracking — TrackRank" }],
+  links: loaderData ? [{ rel: "canonical", href: `${loaderData.origin}/` }] : [],
+}), component: Home });
 
 function ExampleAnswer() {
   return <section className="public-example" aria-labelledby="example-question">

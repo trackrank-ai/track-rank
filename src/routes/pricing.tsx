@@ -6,8 +6,8 @@ import { getPricingCatalog } from "@/server/site-config";
 
 export const Route = createFileRoute("/pricing")({
   loader: () => getPricingCatalog(),
-  head: () => ({ meta: [
-    { title: "Pricing — TrackRank" },
+  head: ({ loaderData }) => ({ links: loaderData ? [{ rel: "canonical", href: `${loaderData.origin}/pricing` }] : [], meta: [
+    { title: "AI Visibility Tracking Pricing — TrackRank" },
     { name: "description", content: "TrackRank hosted plans and the 14-day no-card trial." },
   ] }),
   component: Pricing,
@@ -18,6 +18,7 @@ function Pricing() {
   return <PublicLayout page="pricing">
     <PricingSection hosted={hosted} offers={offers} standalone />
     <AlternativesComparison hosted={hosted} offers={offers} />
+    <p className="public-pricing-costs">Evaluating daily tracking packages? <a href="/vs/peec-ai">Compare TrackRank vs Peec AI with total-cost examples</a>.</p>
     <CostCalculator hosted={hosted} offers={offers} />
     {hosted && (
       <section className="public-billing-support" aria-labelledby="billing-support-title">

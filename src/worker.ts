@@ -1,3 +1,4 @@
+import { discoveryResponse } from "./server/seo";
 import { workflowId } from "./server/dispatch";
 import { maintenance } from "./server/erasure";
 import { operations } from "./server/operations";
@@ -32,6 +33,8 @@ const appWorker = {
     try {
       if (u.pathname.startsWith("/api/operations/")) return await operations(req, env);
       if (maintenance(env) && u.pathname !== "/api/health" && u.pathname !== "/api/billing/webhook") throw new HttpError(503, "Scheduled maintenance", { "Retry-After": "600" });
+      const discovery = discoveryResponse(u.pathname, env.BASE_URL);
+      if (discovery && (req.method === "GET" || req.method === "HEAD")) return req.method === "HEAD" ? new Response(null, { headers: discovery.headers }) : discovery;
       if (u.pathname === "/.well-known/security.txt") {
         const { email } = publicSettings(env);
         if (!email) return new Response("Security contact not configured", { status: 404 });
