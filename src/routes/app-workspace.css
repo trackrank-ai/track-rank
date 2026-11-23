@@ -310,6 +310,13 @@
   margin: .125rem 0 0;
 }
 
+.question-row-metrics .small-link {
+  font-size: inherit;
+  color: var(--foreground);
+  text-decoration: underline;
+  text-underline-offset: .2em;
+}
+
 .question-library-unmeasured {
   margin: 1.25rem 0 .5rem;
   font-size: .875rem;
