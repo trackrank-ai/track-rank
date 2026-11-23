@@ -24,3 +24,6 @@
 .public-footer { flex-wrap: wrap; }
 @media(max-width: 640px) { .comparison-article { padding-block: 1.5rem; } .comparison-index, .comparison-footer { grid-template-columns: minmax(0,1fr); } }
 .legal-footer { flex-wrap: wrap; }
+.comparison-cost-figure { display: block; }
+.comparison-cost-figure > span { display: block; margin-top: .4rem; }
+.comparison-cost-lead { background: var(--public-record); border: 1px solid var(--border); border-radius: .6rem; padding: 1rem 1.25rem; }

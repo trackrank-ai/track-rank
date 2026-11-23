@@ -16,3 +16,20 @@ TrackRank's Google payload uses depth 10, async overview loading and the organiz
 50 questions, daily, 30 days: 1,500 results per selected engine. ChatGPT-only collection is $1.80 / $3.60 / $6.00 by mode. The modeled three-engine collection budget is $6.30 / $12.60 / $21.00. Add the live TrackRank subscription if hosted; self-hosting adds infrastructure instead. No claims of equal coverage/features or guaranteed savings versus competitor bundles.
 
 DataForSEO's $50 minimum top-up is prepaid non-expiring credit, not a monthly subscription or monthly usage minimum. Initial cash required can exceed the month's consumption. Old $0.01 blended estimates were arbitrary assumptions; researched presets now replace that default. A custom blended rate remains available and is labeled as a user assumption.
+
+## Dollar-first article budgets
+
+The articles now show hosted total budgets before quotas. For three engines, one daily sample per engine, a 30-day month and a 30-day required history window:
+
+| Questions | Monthly runs | Selected hosting | Standard total | Priority total | Live total |
+|---|---:|---|---:|---:|---:|
+| 16 | 1,440 | Starter $10 | $12.02 | $14.03 | $16.72 |
+| 50 | 4,500 | Starter $10 | $16.30 | $22.60 | $31.00 |
+| 120 | 10,800 | Agency $39 | $54.12 | $69.24 | $89.40 |
+| 150 | 13,500 | Agency $39 | $57.90 | $76.80 | $102.00 |
+| 350 | 31,500 | Agency $39 | $83.10 | $127.20 | $186.00 |
+| 403 | 36,270 | Agency $39 | $89.78 | $140.56 | $208.26 |
+
+Hosted prices come from the live catalog at render time, not this documentation table. `src/lib/comparison-cost.ts` applies each mode's per-engine rates and selects the tier satisfying volume and history. Ranges mean Standard queue to Live for the named workload, not arbitrary unlimited usage. They budget the configured Google extras before conditional refunds; actual bills can be lower. Taxes, optional inference, search operators, higher depth and additional samples are excluded. Software is free for self-hosting, but provider and infrastructure expenses remain separate; no fabricated all-in self-hosting range is published.
+
+Ahrefs index and Profound enterprise prices are not directly comparable to collecting the named question set. Profound's public custom pricing supplies no verifiable numeric range; the article says so instead of inventing one. Otterly examples retain EUR and four-engine coverage; TrackRank examples use USD and three engines. The Standard/Priority/Live budget is not a feature-equivalence claim.

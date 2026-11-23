@@ -1,0 +1,146 @@
+{
+  "configuration": "Isolated local hosted-catalog fixture; no Stripe or provider API calls",
+  "results": [
+    {
+      "path": "/vs/peec-ai",
+      "width": 1366,
+      "status": 200,
+      "costLead": "Estimated $16.30-$31.00/month hostedStarter hosting $10.00/month + estimated $6.30-$21.00/month provider usage.50 questions, ChatGPT + Gemini + Google AI Overviews, one daily sample per engine, 30 days.Range: Standard queue to Live. Budget includes Google extras when selected; actual charges may be lower after refunds.",
+      "overflow": false
+    },
+    {
+      "path": "/vs/ahrefs",
+      "width": 1366,
+      "status": 200,
+      "costLead": "Estimated $16.30-$31.00/month hostedStarter hosting $10.00/month + estimated $6.30-$21.00/month provider usage.50 questions, ChatGPT + Gemini + Google AI Overviews, one daily sample per engine, 30 days.Range: Standard queue to Live. Budget includes Google extras when selected; actual charges may be lower after refunds.",
+      "overflow": false
+    },
+    {
+      "path": "/vs/profound",
+      "width": 1366,
+      "status": 200,
+      "costLead": "Estimated $16.30-$31.00/month hostedStarter hosting $10.00/month + estimated $6.30-$21.00/month provider usage.50 questions, ChatGPT + Gemini + Google AI Overviews, one daily sample per engine, 30 days.Range: Standard queue to Live. Budget includes Google extras when selected; actual charges may be lower after refunds.",
+      "overflow": false
+    },
+    {
+      "path": "/vs/promptwatch",
+      "width": 1366,
+      "status": 200,
+      "costLead": "Estimated $16.30-$31.00/month hostedStarter hosting $10.00/month + estimated $6.30-$21.00/month provider usage.50 questions, ChatGPT + Gemini + Google AI Overviews, one daily sample per engine, 30 days.Range: Standard queue to Live. Budget includes Google extras when selected; actual charges may be lower after refunds.",
+      "overflow": false
+    },
+    {
+      "path": "/vs/otterly-ai",
+      "width": 1366,
+      "status": 200,
+      "costLead": "Estimated $12.02-$16.72/month hostedStarter hosting $10.00/month + estimated $2.02-$6.72/month provider usage.16 questions, ChatGPT + Gemini + Google AI Overviews, one daily sample per engine, 30 days.Range: Standard queue to Live. Budget includes Google extras when selected; actual charges may be lower after refunds.",
+      "overflow": false
+    },
+    {
+      "path": "/alternatives/peec-ai",
+      "width": 1366,
+      "status": 200,
+      "costLead": "Estimated $16.30-$31.00/month hostedStarter hosting $10.00/month + estimated $6.30-$21.00/month provider usage.50 questions, ChatGPT + Gemini + Google AI Overviews, one daily sample per engine, 30 days.Range: Standard queue to Live. Budget includes Google extras when selected; actual charges may be lower after refunds.",
+      "overflow": false
+    },
+    {
+      "path": "/alternatives/ahrefs",
+      "width": 1366,
+      "status": 200,
+      "costLead": "Estimated $16.30-$31.00/month hostedStarter hosting $10.00/month + estimated $6.30-$21.00/month provider usage.50 questions, ChatGPT + Gemini + Google AI Overviews, one daily sample per engine, 30 days.Range: Standard queue to Live. Budget includes Google extras when selected; actual charges may be lower after refunds.",
+      "overflow": false
+    },
+    {
+      "path": "/alternatives/profound",
+      "width": 1366,
+      "status": 200,
+      "costLead": "Estimated $16.30-$31.00/month hostedStarter hosting $10.00/month + estimated $6.30-$21.00/month provider usage.50 questions, ChatGPT + Gemini + Google AI Overviews, one daily sample per engine, 30 days.Range: Standard queue to Live. Budget includes Google extras when selected; actual charges may be lower after refunds.",
+      "overflow": false
+    },
+    {
+      "path": "/alternatives/promptwatch",
+      "width": 1366,
+      "status": 200,
+      "costLead": "Estimated $16.30-$31.00/month hostedStarter hosting $10.00/month + estimated $6.30-$21.00/month provider usage.50 questions, ChatGPT + Gemini + Google AI Overviews, one daily sample per engine, 30 days.Range: Standard queue to Live. Budget includes Google extras when selected; actual charges may be lower after refunds.",
+      "overflow": false
+    },
+    {
+      "path": "/alternatives/otterly-ai",
+      "width": 1366,
+      "status": 200,
+      "costLead": "Estimated $12.02-$16.72/month hostedStarter hosting $10.00/month + estimated $2.02-$6.72/month provider usage.16 questions, ChatGPT + Gemini + Google AI Overviews, one daily sample per engine, 30 days.Range: Standard queue to Live. Budget includes Google extras when selected; actual charges may be lower after refunds.",
+      "overflow": false
+    },
+    {
+      "path": "/vs/peec-ai",
+      "width": 390,
+      "status": 200,
+      "costLead": "Estimated $16.30-$31.00/month hostedStarter hosting $10.00/month + estimated $6.30-$21.00/month provider usage.50 questions, ChatGPT + Gemini + Google AI Overviews, one daily sample per engine, 30 days.Range: Standard queue to Live. Budget includes Google extras when selected; actual charges may be lower after refunds.",
+      "overflow": false
+    },
+    {
+      "path": "/vs/ahrefs",
+      "width": 390,
+      "status": 200,
+      "costLead": "Estimated $16.30-$31.00/month hostedStarter hosting $10.00/month + estimated $6.30-$21.00/month provider usage.50 questions, ChatGPT + Gemini + Google AI Overviews, one daily sample per engine, 30 days.Range: Standard queue to Live. Budget includes Google extras when selected; actual charges may be lower after refunds.",
+      "overflow": false
+    },
+    {
+      "path": "/vs/profound",
+      "width": 390,
+      "status": 200,
+      "costLead": "Estimated $16.30-$31.00/month hostedStarter hosting $10.00/month + estimated $6.30-$21.00/month provider usage.50 questions, ChatGPT + Gemini + Google AI Overviews, one daily sample per engine, 30 days.Range: Standard queue to Live. Budget includes Google extras when selected; actual charges may be lower after refunds.",
+      "overflow": false
+    },
+    {
+      "path": "/vs/promptwatch",
+      "width": 390,
+      "status": 200,
+      "costLead": "Estimated $16.30-$31.00/month hostedStarter hosting $10.00/month + estimated $6.30-$21.00/month provider usage.50 questions, ChatGPT + Gemini + Google AI Overviews, one daily sample per engine, 30 days.Range: Standard queue to Live. Budget includes Google extras when selected; actual charges may be lower after refunds.",
+      "overflow": false
+    },
+    {
+      "path": "/vs/otterly-ai",
+      "width": 390,
+      "status": 200,
+      "costLead": "Estimated $12.02-$16.72/month hostedStarter hosting $10.00/month + estimated $2.02-$6.72/month provider usage.16 questions, ChatGPT + Gemini + Google AI Overviews, one daily sample per engine, 30 days.Range: Standard queue to Live. Budget includes Google extras when selected; actual charges may be lower after refunds.",
+      "overflow": false
+    },
+    {
+      "path": "/alternatives/peec-ai",
+      "width": 390,
+      "status": 200,
+      "costLead": "Estimated $16.30-$31.00/month hostedStarter hosting $10.00/month + estimated $6.30-$21.00/month provider usage.50 questions, ChatGPT + Gemini + Google AI Overviews, one daily sample per engine, 30 days.Range: Standard queue to Live. Budget includes Google extras when selected; actual charges may be lower after refunds.",
+      "overflow": false
+    },
+    {
+      "path": "/alternatives/ahrefs",
+      "width": 390,
+      "status": 200,
+      "costLead": "Estimated $16.30-$31.00/month hostedStarter hosting $10.00/month + estimated $6.30-$21.00/month provider usage.50 questions, ChatGPT + Gemini + Google AI Overviews, one daily sample per engine, 30 days.Range: Standard queue to Live. Budget includes Google extras when selected; actual charges may be lower after refunds.",
+      "overflow": false
+    },
+    {
+      "path": "/alternatives/profound",
+      "width": 390,
+      "status": 200,
+      "costLead": "Estimated $16.30-$31.00/month hostedStarter hosting $10.00/month + estimated $6.30-$21.00/month provider usage.50 questions, ChatGPT + Gemini + Google AI Overviews, one daily sample per engine, 30 days.Range: Standard queue to Live. Budget includes Google extras when selected; actual charges may be lower after refunds.",
+      "overflow": false
+    },
+    {
+      "path": "/alternatives/promptwatch",
+      "width": 390,
+      "status": 200,
+      "costLead": "Estimated $16.30-$31.00/month hostedStarter hosting $10.00/month + estimated $6.30-$21.00/month provider usage.50 questions, ChatGPT + Gemini + Google AI Overviews, one daily sample per engine, 30 days.Range: Standard queue to Live. Budget includes Google extras when selected; actual charges may be lower after refunds.",
+      "overflow": false
+    },
+    {
+      "path": "/alternatives/otterly-ai",
+      "width": 390,
+      "status": 200,
+      "costLead": "Estimated $12.02-$16.72/month hostedStarter hosting $10.00/month + estimated $2.02-$6.72/month provider usage.16 questions, ChatGPT + Gemini + Google AI Overviews, one daily sample per engine, 30 days.Range: Standard queue to Live. Budget includes Google extras when selected; actual charges may be lower after refunds.",
+      "overflow": false
+    }
+  ],
+  "errors": []
+}

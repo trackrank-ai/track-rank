@@ -77,3 +77,11 @@ Applied the installed `unslop-seo` skill on 2026-11-23 to all ten competitor pag
 - All 12 routes returned 200 and contain buyer-question headings; all five alternative-page openings link TrackRank. No visible fact placeholders.
 - Desktop and mobile browser checks cover both shared page templates; the route audit supplies the first 40 words and heading counts for every page.
 - Build, typecheck and existing regression suite results are recorded in the PR. No deployment.
+
+## Dollar-first follow-up
+
+- `src/components/comparison-pages.tsx`: monthly cost ranges now lead the opening callout, quota rows and TrackRank alternative blocks. The cost table shows Standard/Priority/Live totals, with hosting/provider breakdowns. Buyer-question H2s and first-paragraph recommendations remain intact.
+- `src/data/competitors.ts`: price-related TrackRank rows now reference typed workloads rather than quota-only prose. Source-based competitor facts remain unchanged. Otterly workload examples retain four-engine EUR context beside three-engine USD TrackRank budgets.
+- `src/lib/comparison-cost.ts`: a shared cost model selects the live hosting tier and derives all three mode budgets from the existing per-engine rates. Missing hosted catalog prices remain a quote, not zero dollars or an invented self-hosted price.
+- Exact skill checker: 0 hits across these files. No new fact markers. Dollar assumptions, conditional Google refunds, excluded costs and the $50 prepaid top-up remain explicit.
+- Browser: all ten articles at desktop/mobile widths (20 checks) using an isolated populated hosted-catalog fixture. No page overflow or JavaScript errors; each opening includes a monthly dollar range and the Peec 350-question row includes $83.10-$186.00/month. Evidence: `reports/seo-comparisons/dollar-first-check.json`.
