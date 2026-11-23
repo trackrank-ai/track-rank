@@ -50,6 +50,24 @@ test("workspace setup and verified passages match REST and read-only MCP in tena
   assert.equal(setup.engines[0].schedules,0);
   assert.equal(setup.brands[0].kind,"client");
   assert.deepEqual(JSON.parse((await tool("get_workspace_monitoring",{workspace_id:"w"})).content[0].text),setup);
+  sql.exec(`INSERT INTO prompts(id,org_id,workspace_id,text,engine,created_at,updated_at) VALUES('p2','org','w','A question','gemini',0,0);
+    INSERT INTO schedules(id,org_id,prompt_id,preset,days,times_json,timezone,enabled,created_at,next_due_at)
+    VALUES('s','org','p','daily','[]','["08:00"]','UTC',1,0,2000),('s2','org','p2','daily','[]','["09:00"]','UTC',0,0,1000);
+    INSERT INTO workspaces(id,org_id,name,created_at,archived_at) VALUES('del','org','Archived',0,1);`);
+  for (let i=0; i<25; i++) sql.prepare("INSERT INTO workspaces(id,org_id,name,created_at) VALUES(?,'org',?,0)").run("empty"+i,"Empty "+i);
+  const summary = await (await get("/workspaces/monitoring")).json() as any;
+  assert.equal(summary.dataforseo_configured,false);
+  assert.equal(summary.next_page,2);
+  assert.equal(summary.workspaces.length,25);
+  assert.deepEqual(summary.workspaces[0],{id:"w",name:"Client",questions:1,tracked_brands:1,enabled_schedules:1,next_check_at:2000});
+  assert.deepEqual(JSON.parse((await tool("list_workspace_monitoring",{})).content[0].text),summary);
+  const tail = JSON.parse((await tool("list_workspace_monitoring",{page:2})).content[0].text);
+  assert.equal(tail.next_page,null);
+  assert.equal(tail.workspaces.length,1);
+  assert.equal(tail.workspaces[0].next_check_at,null);
+  assert.ok([...summary.workspaces,...tail.workspaces].every(row => row.id !== "x" && row.id !== "del"));
+  await assert.rejects(get("/workspaces/monitoring?page=0"),{status:400});
+  assert.equal((await tool("list_workspace_monitoring",{page:0})).isError,true);
   const { run } = await (await get("/runs/r")).json() as any;
   assert.deepEqual(run.mentions[0].first_match,{start:4,end:9,text:"AT Co"});
   assert.deepEqual(JSON.parse((await tool("get_run",{run_id:"r"})).content[0].text).run.mentions,run.mentions);

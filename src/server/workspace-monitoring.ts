@@ -31,3 +31,28 @@ export async function workspaceMonitoring(env: Env, org: string, workspaceId: st
   ]);
   return { workspace, brands, questions: library?.questions ?? 0, dataforseo_configured: provider, engines };
 }
+
+export async function organizationMonitoring(env: Env, org: string, page: number) {
+  const pageSize = 25;
+  const [rows, provider] = await Promise.all([
+    all(env, `WITH page AS (
+      SELECT id,name,org_id FROM workspaces WHERE org_id=? AND archived_at IS NULL
+      ORDER BY name COLLATE NOCASE,id LIMIT ? OFFSET ?
+    ), active AS (
+      SELECT p.org_id,p.workspace_id,p.question_id,p.id FROM prompt_engines p
+      JOIN page w ON w.org_id=p.org_id AND w.id=p.workspace_id WHERE p.archived_at IS NULL
+    ), library AS (
+      SELECT workspace_id,count(DISTINCT question_id) AS questions FROM active GROUP BY workspace_id
+    ), timing AS (
+      SELECT p.workspace_id,count(*) AS enabled_schedules,min(s.next_due_at) AS next_check_at FROM active p
+      JOIN schedules s ON s.org_id=p.org_id AND s.prompt_id=p.id WHERE s.enabled=1 GROUP BY p.workspace_id
+    )
+    SELECT w.id,w.name,coalesce(l.questions,0) AS questions,
+      (SELECT count(*) FROM workspace_brands b WHERE b.org_id=w.org_id AND b.workspace_id=w.id) AS tracked_brands,
+      coalesce(t.enabled_schedules,0) AS enabled_schedules,t.next_check_at
+    FROM page w LEFT JOIN library l ON l.workspace_id=w.id LEFT JOIN timing t ON t.workspace_id=w.id
+    ORDER BY w.name COLLATE NOCASE,w.id`, org, pageSize + 1, (page - 1) * pageSize),
+    credentials(env, org).then(c => credentialStatus(c).dataforseo_configured),
+  ]);
+  return { workspaces: rows.slice(0, pageSize), dataforseo_configured: provider, page, next_page: rows.length > pageSize ? page + 1 : null };
+}

@@ -1,6 +1,7 @@
 import { questionTypes } from "../lib/question-type";
 import { questionTypePatch } from "./prompt-questions";
 import { promptLibrarySortKeys } from "../lib/prompt-library-sort";
+import { reportBrandIds } from "./report-brand-identities";
 import { overviewQuestionsPage, researchReportInput } from "./analytics";
 import { bulkPromptSettingsSchema } from "./prompt-settings";
 import { receiptActionSchema, submitPromptBatchSchema } from "./receipt-actions";
@@ -104,6 +105,10 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
     },
     async () => invoke("/workspaces"),
   );
+  server.registerTool("list_workspace_monitoring", {
+    description: "List organization workspaces with assigned brand and saved question counts, enabled schedules, next checks and DataForSEO readiness.",
+    inputSchema: { page: z.number().int().min(1).max(1_000_000).optional() },
+  }, async ({ page }) => invoke(`/workspaces/monitoring?page=${page ?? 1}`));
   server.registerTool("get_workspace_monitoring", {
     description: "Inspect a workspace’s brand assignments, provider readiness, questions, engine coverage and next scheduled checks.",
     inputSchema: { workspace_id: z.string().min(1).max(100) },
@@ -167,6 +172,10 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
     }
     return path + "?" + query;
   }
+  server.registerTool("get_recorded_brand_names", {
+    description: "Resolve selected brand IDs to their latest recorded names per workspace, including removed brands within searchable history.",
+    inputSchema: { ids: reportBrandIds, ...workspaceInput },
+  }, async args => invoke(filteredPath("/analytics/brand-identities", args)));
   server.registerTool("list_prompt_sets", {
     description: "List named workspace tracking sets with active, paused and unscheduled variant counts, engines, and check times. Use list_prompts with set to inspect members.",
     inputSchema: workspaceInput,
@@ -193,7 +202,7 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
   }, async ({ set_id, ...args }) => invoke(`/prompt-sets/${set_id}/members`, "PATCH", args));
   const reportingInput = { ...scopeFilters.shape, ...workspaceInput };
   server.registerTool("get_overview", {
-    description: "Compute full-period visibility totals, brand-by-engine counts, previous-period rates, coverage and UTC daily trends. Pass tracked_brand for daily brand statistics and compare_brand for their common cohort.",
+    description: "Compute full-period visibility totals, brand-by-engine counts, previous-period rates, coverage and UTC daily trends. Pass tracked_brand for daily brand statistics and compare_brand for their common cohort. With no shared answers, individual_coverage gives the eligible count for each brand.",
     inputSchema: { ...reportingInput, compare_brand: runHistoryFilters.shape.compare_brand },
   }, async args => invoke(filteredPath("/analytics", args)));
   server.registerTool("export_overview", {
@@ -379,9 +388,10 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
     "list_runs",
     {
       description:
-        "List run history with answer excerpts, status, citations, grounding queries and mentions. Filter by question_id across engine variants with an answer metric to include first-page daily matching answer counts. Research matches include the full total_matches before pagination. Continue with next_before and next_before_id.",
+        "List run history with readable answer excerpts, verified brand passages, status, citations, grounding queries and mentions. Set include_report_counts=true with an answer metric for exact eligible and brand outcome counts before pagination. Filter by question_id across engine variants with an answer metric to include first-page daily matching answer counts. Research matches include the full total_matches before pagination. Continue with next_before and next_before_id.",
       inputSchema: z.object({
         ...historyInput,
+        include_report_counts: z.literal("true").optional(),
         limit: listPageLimit.max(100).optional(),
         before: z.number().int().nonnegative().optional(),
         before_id: z.string().min(1).max(100).optional(),

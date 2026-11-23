@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import type { AppSearch, ResearchType } from "@/lib/app-location";
+import { AnswerPreview } from "./answer-preview";
 import { useReport } from "./overview";
 import { formatLastSeen, formatShare, SourcePagination, SourceTable, type ResearchSummary } from "./research-results";
 
@@ -11,12 +12,13 @@ type Item = Record<string, any>;
 type ResearchPage = { total_matches: number; runs: Item[]; next_before: number | null; next_before_id: string | null };
 const researchNames = { domain: "Cited domain", page: "Cited page", query: "Grounding query" };
 
-export function ResearchDrilldown({ search, type, value, engines, workspaceNames, request }: {
+export function ResearchDrilldown({ search, type, value, engines, workspaceNames, request, restoreFocus }: {
   search: AppSearch;
   type: ResearchType;
   value: string;
   engines: Record<string, string>;
   workspaceNames: Record<string, string>;
+  restoreFocus?: (link: HTMLAnchorElement | null) => void;
   request: (path: string) => Promise<Item>;
 }) {
   const answersHeading = useRef<HTMLHeadingElement>(null);
@@ -51,7 +53,7 @@ export function ResearchDrilldown({ search, type, value, engines, workspaceNames
   }, [path, request, view]);
 
   useEffect(() => {
-    if (view === "answers" && search.sourceQuestion && page) answersHeading.current?.focus();
+    if (view === "answers" && search.sourceQuestion && page && !document.activeElement?.hasAttribute("data-evidence-run")) answersHeading.current?.focus();
   }, [view, search.sourceQuestion, !!page]);
 
   async function more() {
@@ -156,18 +158,22 @@ export function ResearchDrilldown({ search, type, value, engines, workspaceNames
           <a className="small-link" href={"/api/v1/export?" + new URLSearchParams({ ...Object.fromEntries(query), org: search.org ?? "" })}>
             Export {page!.total_matches > 1000 ? "latest 1,000 matches" : "matching answers"} as CSV
           </a>
-          {runs.map(run => (
-            <div className="simple-row research-answer-row" key={run.id}>
-              <Link to="/app" search={{ ...search, tab: "runs", run: run.id }}>
-                <strong>{run.prompt_text}</strong>
-                <small>
-                  {engines[run.config?.engine] ?? "Unknown engine"} · {workspaceNames[run.workspace_id] ?? "Unavailable workspace"} · {new Date(run.created_at).toLocaleString()}
-                </small>
-                {run.answer_excerpt && <p className="research-answer-excerpt">{run.answer_excerpt}</p>}
-              </Link>
-              <span>{(run.mentions || []).filter((brand: Item) => brand.mentioned).map((brand: Item) => brand.name).join(", ")}</span>
-            </div>
-          ))}
+          {runs.map(run => {
+            const citations = (run.citations ?? []).filter((citation: Item) => type === "domain" ? citation.domain === value : type === "page" && citation.url === value);
+            const labels = (run.mentions ?? []).filter((brand: Item) => brand.mentioned).map((brand: Item) => brand.name).filter(Boolean);
+            const runSearch = { ...search, tab: "runs" as const, run: run.id };
+            return <article className="question-answer" key={run.id}>
+              <div>
+                <Link ref={restoreFocus} data-evidence-run={run.id} className="small-link" to="/app" search={runSearch}><strong>{run.prompt_text}</strong></Link>
+                <p className="data-note">{engines[run.config?.engine] ?? "Unknown engine"} · {workspaceNames[run.workspace_id] ?? "Unavailable workspace"} · {new Date(run.created_at).toLocaleString()}</p>
+                <AnswerPreview excerpt={run.answer_excerpt} passage={run.brand_passage} />
+                {!!labels.length && <p className="data-note">Brands mentioned · {labels.join(", ")}</p>}
+                {!!citations.length && <ul className="preview-citations" aria-label="Matching cited pages">{citations.map((citation: Item, index: number) =>
+                  <li key={index}><Link to="/app" search={{ ...runSearch, evidence: "citations" }}>{citation.title || citation.domain || citation.url}</Link></li>)}</ul>}
+              </div>
+              <Link className="small-link" to="/app" search={runSearch}>Open answer</Link>
+            </article>;
+          })}
           {page?.next_before_id && <Button size="sm" variant="outline" disabled={busy} onClick={more}>
             {busy ? "Loading…" : "Load older matching answers"}
           </Button>}

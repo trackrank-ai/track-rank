@@ -41,6 +41,7 @@ test("research groups and organization settings destinations survive sign-in", (
   const cases: Record<string, string>[] = [
     { org: "agency", workspace: "client", tab: "research", researchGroup: "page", researchType: "page", researchValue: "https://example.test/a", engine: "google" },
     { org: "agency", tab: "settings", settingsSection: "billing" },
+    { org: "agency", tab: "settings", workspace: "all", settingsSection: "monitoring", monitoringPage: "2" },
   ];
   for (const original of cases) {
     const login = new URL(appLoginPath("?" + new URLSearchParams(original), ""), "https://trackrank.invalid");

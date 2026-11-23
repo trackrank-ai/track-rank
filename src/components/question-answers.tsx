@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { ArrowUpRight } from "lucide-react";
+import { AnswerPreview, type BrandPassage } from "./answer-preview";
 import { Button } from "@/components/ui/button";
 import type { AppSearch } from "@/lib/app-location";
 import { DAY_MS, defaultPeriod } from "@/lib/analytics-filters";
@@ -10,6 +11,7 @@ type Answer = {
   created_at: number;
   prompt_text?: string;
   answer_excerpt?: string;
+  brand_passage?: BrandPassage | null;
   config: {
     engine?: string;
     location_name?: string;
@@ -45,7 +47,7 @@ function AnswerTrend({ days, period }: { days: Day[]; period: ReturnType<typeof 
   </figure>;
 }
 
-export function QuestionAnswers({ path, request, org, context, engines, engine, brand, period, revision, hasCollections, emptyAction, showQuestion, outcome }: {
+export function QuestionAnswers({ path, request, org, context, engines, engine, brand, period, revision, hasCollections, emptyAction, showQuestion, outcome, selected, restoreFocus }: {
   path: string;
   request: (path: string) => Promise<Record<string, any>>;
   org: string;
@@ -59,6 +61,8 @@ export function QuestionAnswers({ path, request, org, context, engines, engine, 
   emptyAction?: React.ReactNode;
   showQuestion?: boolean;
   outcome?: "mention" | "citation";
+  selected?: string;
+  restoreFocus?: (link: HTMLAnchorElement | null) => void;
 }) {
   const [page, setPage] = useState<Page>();
   const [attempt, setAttempt] = useState(0);
@@ -123,7 +127,7 @@ export function QuestionAnswers({ path, request, org, context, engines, engine, 
           <div className={showQuestion ? "data-note" : "font-semibold"}>{engines[answer.config?.engine ?? ""] ?? "Recorded engine"}</div>
           <p className="data-note">{new Date(answer.created_at).toLocaleString()}
             {answer.config?.location_name && ` · ${answer.config.location_name}`}</p>
-          {answer.answer_excerpt && <p className="answer-excerpt">{answer.answer_excerpt}</p>}
+          <AnswerPreview excerpt={answer.answer_excerpt} passage={answer.brand_passage} />
           <div className="answer-brand-mentions">{answer.config?.brands?.map(snapshot => {
             const observation = answer.mentions?.find(item => item.brand_id === snapshot.id);
             const outcome = [observation?.mentioned && "mentioned", observation?.cited && "cited"].filter(Boolean).join(" and ");
@@ -131,7 +135,7 @@ export function QuestionAnswers({ path, request, org, context, engines, engine, 
           })}</div>
         </div>
         <div className="question-row-actions">
-          <Link className="small-link" to="/app" search={{ ...context, org, tab: "runs", run: answer.id }}>
+          <Link ref={restoreFocus} data-evidence-run={answer.id} aria-current={selected === answer.id ? "true" : undefined} className="small-link" to="/app" search={{ ...context, org, tab: "runs", run: answer.id }}>
             Open answer <ArrowUpRight size={14} aria-hidden />
           </Link>
           <Link className="small-link" to="/app" search={{ ...context, org, tab: "runs", run: answer.id, evidence: "citations" }}>
