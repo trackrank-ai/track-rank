@@ -18,6 +18,10 @@ import { Route as SecurityRouteImport } from './routes/security'
 import { Route as SetupRouteImport } from './routes/setup'
 import { Route as SupportRouteImport } from './routes/support'
 import { Route as TermsRouteImport } from './routes/terms'
+import { Route as AlternativesIndexRouteImport } from './routes/alternatives.index'
+import { Route as AlternativesCompetitorRouteImport } from './routes/alternatives.$competitor'
+import { Route as VsIndexRouteImport } from './routes/vs.index'
+import { Route as VsCompetitorRouteImport } from './routes/vs.$competitor'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -64,6 +68,26 @@ const TermsRoute = TermsRouteImport.update({
   path: '/terms',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AlternativesIndexRoute = AlternativesIndexRouteImport.update({
+  id: '/alternatives/',
+  path: '/alternatives/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AlternativesCompetitorRoute = AlternativesCompetitorRouteImport.update({
+  id: '/alternatives/$competitor',
+  path: '/alternatives/$competitor',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const VsIndexRoute = VsIndexRouteImport.update({
+  id: '/vs/',
+  path: '/vs/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const VsCompetitorRoute = VsCompetitorRouteImport.update({
+  id: '/vs/$competitor',
+  path: '/vs/$competitor',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -75,6 +99,10 @@ export interface FileRoutesByFullPath {
   '/setup': typeof SetupRoute
   '/support': typeof SupportRoute
   '/terms': typeof TermsRoute
+  '/alternatives/$competitor': typeof AlternativesCompetitorRoute
+  '/vs/$competitor': typeof VsCompetitorRoute
+  '/alternatives/': typeof AlternativesIndexRoute
+  '/vs/': typeof VsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -86,6 +114,10 @@ export interface FileRoutesByTo {
   '/setup': typeof SetupRoute
   '/support': typeof SupportRoute
   '/terms': typeof TermsRoute
+  '/alternatives/$competitor': typeof AlternativesCompetitorRoute
+  '/vs/$competitor': typeof VsCompetitorRoute
+  '/alternatives': typeof AlternativesIndexRoute
+  '/vs': typeof VsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -98,6 +130,10 @@ export interface FileRoutesById {
   '/setup': typeof SetupRoute
   '/support': typeof SupportRoute
   '/terms': typeof TermsRoute
+  '/alternatives/$competitor': typeof AlternativesCompetitorRoute
+  '/vs/$competitor': typeof VsCompetitorRoute
+  '/alternatives/': typeof AlternativesIndexRoute
+  '/vs/': typeof VsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -111,6 +147,10 @@ export interface FileRouteTypes {
     | '/setup'
     | '/support'
     | '/terms'
+    | '/alternatives/$competitor'
+    | '/vs/$competitor'
+    | '/alternatives/'
+    | '/vs/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -122,6 +162,10 @@ export interface FileRouteTypes {
     | '/setup'
     | '/support'
     | '/terms'
+    | '/alternatives/$competitor'
+    | '/vs/$competitor'
+    | '/alternatives'
+    | '/vs'
   id:
     | '__root__'
     | '/'
@@ -133,6 +177,10 @@ export interface FileRouteTypes {
     | '/setup'
     | '/support'
     | '/terms'
+    | '/alternatives/$competitor'
+    | '/vs/$competitor'
+    | '/alternatives/'
+    | '/vs/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -145,6 +193,10 @@ export interface RootRouteChildren {
   SetupRoute: typeof SetupRoute
   SupportRoute: typeof SupportRoute
   TermsRoute: typeof TermsRoute
+  AlternativesCompetitorRoute: typeof AlternativesCompetitorRoute
+  VsCompetitorRoute: typeof VsCompetitorRoute
+  AlternativesIndexRoute: typeof AlternativesIndexRoute
+  VsIndexRoute: typeof VsIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -212,6 +264,34 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TermsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/alternatives/': {
+      id: '/alternatives/'
+      path: '/alternatives'
+      fullPath: '/alternatives/'
+      preLoaderRoute: typeof AlternativesIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/alternatives/$competitor': {
+      id: '/alternatives/$competitor'
+      path: '/alternatives/$competitor'
+      fullPath: '/alternatives/$competitor'
+      preLoaderRoute: typeof AlternativesCompetitorRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/vs/': {
+      id: '/vs/'
+      path: '/vs'
+      fullPath: '/vs/'
+      preLoaderRoute: typeof VsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/vs/$competitor': {
+      id: '/vs/$competitor'
+      path: '/vs/$competitor'
+      fullPath: '/vs/$competitor'
+      preLoaderRoute: typeof VsCompetitorRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -225,6 +305,10 @@ const rootRouteChildren: RootRouteChildren = {
   SetupRoute: SetupRoute,
   SupportRoute: SupportRoute,
   TermsRoute: TermsRoute,
+  AlternativesCompetitorRoute: AlternativesCompetitorRoute,
+  VsCompetitorRoute: VsCompetitorRoute,
+  AlternativesIndexRoute: AlternativesIndexRoute,
+  VsIndexRoute: VsIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

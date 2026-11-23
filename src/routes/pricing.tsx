@@ -18,6 +18,7 @@ function Pricing() {
   return <PublicLayout page="pricing">
     <PricingSection hosted={hosted} offers={offers} standalone />
     <AlternativesComparison hosted={hosted} offers={offers} />
+    <p className="public-pricing-costs">Evaluating daily tracking packages? <a href="/vs/peec-ai">Compare TrackRank vs Peec AI with total-cost examples</a>.</p>
     <CostCalculator hosted={hosted} offers={offers} />
     {hosted && (
       <section className="public-billing-support" aria-labelledby="billing-support-title">

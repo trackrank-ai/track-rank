@@ -1,5 +1,6 @@
+import { comparisonPaths } from "../data/competitors";
 // Public pages only. Never enumerate authenticated workspace or evidence URLs.
-export const publicPages = ["/", "/pricing", "/privacy", "/terms", "/support", "/security"];
+export const publicPages = ["/", "/pricing", "/privacy", "/terms", "/support", "/security", ...comparisonPaths];
 
 function xml(value: string) {
   return value.replace(/[<>&"']/g, c => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;", "'": "&apos;" })[c]!);

@@ -1,5 +1,6 @@
 import { Link, useLoaderData } from "@tanstack/react-router";
 import type { ReactNode } from "react";
+import { ComparisonLinks } from "./comparison-links";
 import { ThemeToggle } from "./theme-toggle";
 
 export const legal = { updated: "November 21, 2026" };
@@ -24,6 +25,6 @@ export function LegalLayout({ title, intro, children }: { title: string; intro: 
       <h1>{title}</h1><p className="legal-intro">{intro}</p>
       <p className="legal-meta">Last updated: {legal.updated} · Operated by <OperatorName /></p>
       {children}
-    </main><footer className="legal-footer"><LegalLinks /><span>© {new Date().getFullYear()} <OperatorName /></span></footer>
+    </main><footer className="legal-footer"><LegalLinks /><span>© {new Date().getFullYear()} <OperatorName /></span><ComparisonLinks /></footer>
   </div>;
 }

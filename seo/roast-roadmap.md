@@ -51,3 +51,9 @@ Confirm XML URLs resolve, view-source has absolute canonicals and matching offer
 ## Fluff (ignore until the rows above ship)
 
 - Optional llms.txt, social preview polish, minor alt/heading/meta-length cleanup; no speculative issue counts.
+
+## Comparison expansion (same PR)
+
+Added `/vs` and `/alternatives` hubs plus ten researched commercial pages for Peec AI, Ahrefs Brand Radar, Profound, Promptwatch and OtterlyAI. Every page is linked from the shared public/legal footer and included in the runtime sitemap. Pricing links contextually to `/vs/peec-ai`. This partially addresses row 1 with comparison intent; the original open-source/self-hosted/agency landing-page suggestions remain separate future work. Google research and dated sources are stored in `seo/competitors/`. Pages use ownership/BYOK/run-based economics as the reason to consider TrackRank without asserting universal savings, a free provider, unverified competitor shortcomings or automatic historical migration.
+
+The initial $0.01/run planning assumption was replaced after checking official DataForSEO pricing. The default is now the Standard three-engine profile: 1,500 results per engine for 50 questions/day over 30 days, modeled collection budget $6.30 plus applicable hosting. ChatGPT-only collection is $1.80 Standard at that question count. Mode/profile-specific presets, surcharge/refund caveats and the separate $50 prepaid top-up are documented in `seo/competitors/dataforseo-pricing.md`; a custom blended-rate option remains labeled as an assumption.

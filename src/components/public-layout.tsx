@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { ArrowUpRight, Menu, X } from "lucide-react";
 import type { ReactNode } from "react";
+import { ComparisonLinks } from "./comparison-links";
 import { LegalLinks } from "@/components/legal-layout";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
@@ -21,7 +22,7 @@ function PublicBrand() {
   </a>;
 }
 
-export function PublicLayout({ children, page }: { children: ReactNode; page: "home" | "pricing" }) {
+export function PublicLayout({ children, page }: { children: ReactNode; page: "home" | "pricing" | "compare" }) {
   const [open, setOpen] = useState(false);
   const menuButton = useRef<HTMLButtonElement>(null);
   return <div className="public-page">
@@ -39,7 +40,7 @@ export function PublicLayout({ children, page }: { children: ReactNode; page: "h
         <nav id="public-nav" className="public-nav" aria-label="Main navigation" data-open={open}>
           <a href={page === "home" ? "#product" : "/#product"} onClick={() => setOpen(false)}>Product</a>
           <a href="/pricing" aria-current={page === "pricing" ? "page" : undefined} onClick={() => setOpen(false)}>Pricing</a>
-          <a href="#compare" onClick={() => setOpen(false)}>Compare</a>
+          <a href={page === "compare" ? "/vs" : "#compare"} onClick={() => setOpen(false)}>Compare</a>
           <a href={REPOSITORY_URL}>GitHub <ArrowUpRight size={14} aria-hidden="true" /></a>
         </nav>
         <ThemeToggle />
@@ -51,6 +52,7 @@ export function PublicLayout({ children, page }: { children: ReactNode; page: "h
       <PublicBrand />
       <LegalLinks />
       <span>© {new Date().getFullYear()} TrackRank · <a href={REPOSITORY_URL}>MIT licensed</a></span>
+      <ComparisonLinks />
     </footer>
   </div>;
 }

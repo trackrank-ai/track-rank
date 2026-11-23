@@ -1,0 +1,26 @@
+.comparison-article { max-width: 980px; margin-inline: auto; padding-block: 3rem; overflow-wrap: anywhere; }
+.comparison-article header { max-width: 830px; }
+.comparison-article h1 { font-size: clamp(2rem, 4.5vw, 3.6rem); line-height: 1.1; letter-spacing: -.035em; margin-block: 1rem; }
+.comparison-article h2 { font-size: clamp(1.4rem, 3vw, 2rem); line-height: 1.2; margin-block: .7rem; }
+.comparison-article h3 { font-size: 1.1rem; font-weight: 650; margin-block: 1.2rem .5rem; }
+.comparison-article p { line-height: 1.75; margin-block: .8rem; }
+.comparison-article > section { padding-block: 2rem; border-top: 1px solid var(--border); margin-top: 1.5rem; }
+.comparison-article a, .comparison-footer a { text-decoration: underline; text-underline-offset: .2em; }
+.comparison-verdict { font-size: 1.2rem; }
+.comparison-eyebrow, .comparison-note { color: var(--public-muted); font-size: .9rem; }
+.comparison-article :is(ul,ol) { padding-left: 1.5rem; list-style: revert; }
+.comparison-article li { line-height: 1.75; margin-block: .65rem; }
+.comparison-table-wrap { max-width: 100%; overflow-x: auto; margin-block: 1.5rem; border: 1px solid var(--border); border-radius: .5rem; }
+.comparison-table-wrap table { border-collapse: collapse; width: 100%; min-width: 640px; font-size: .9rem; }
+.comparison-table-wrap :is(th,td) { padding: .9rem; text-align: left; vertical-align: top; border-bottom: 1px solid var(--border); line-height: 1.6; }
+.comparison-table-wrap th { font-weight: 650; }
+.comparison-table-wrap thead { background: var(--public-record); }
+.alternative-option { padding: 1rem 1.25rem; border: 1px solid var(--border); border-radius: .6rem; margin-block: 1rem; }
+.comparison-cta { display: inline-block; padding-block: .75rem; font-weight: 650; }
+.comparison-index { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 1.5rem; margin-block: 2rem; }
+.comparison-footer { width: 100%; display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 1rem; padding-block: 1.5rem; border-top: 1px solid var(--border); }
+.comparison-footer h2 { font-weight: 650; margin-bottom: .5rem; }
+.comparison-footer a { display: block; width: fit-content; padding-block: .5rem; line-height: 1.5; overflow-wrap: anywhere; }
+.public-footer { flex-wrap: wrap; }
+@media(max-width: 640px) { .comparison-article { padding-block: 1.5rem; } .comparison-index, .comparison-footer { grid-template-columns: minmax(0,1fr); } }
+.legal-footer { flex-wrap: wrap; }
