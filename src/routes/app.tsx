@@ -411,8 +411,22 @@ function App() {
     setPromptSelection(new Map());
     void navigate({ search: { ...sectionSearch("prompts"), set: set || undefined } });
   }
+  function navigationSearch(nextTab: Tab): AppSearch {
+    const next = { ...sectionSearch(nextTab), promptView: undefined };
+    if (nextTab === tab) return next;
+    const engine = tab === "prompts" ? search.promptEngine : search.engine;
+    if (nextTab === "prompts") {
+      return { ...next, from: search.from, to: search.to, promptEngine: engine };
+    }
+    if (tab === "prompts" && (nextTab === "overview" || nextTab === "runs" || nextTab === "research")) {
+      return { ...next, from: search.from, to: search.to, engine };
+    }
+    return next;
+  }
   function setTab(nextTab: Tab) {
-    if (nextTab !== tab || search.prompt || search.question || search.promptView || search.run || (tracking && search.set)) void navigate({ search: { ...sectionSearch(nextTab), promptView: undefined } });
+    if (nextTab !== tab || search.prompt || search.question || search.promptView || search.run || (tracking && search.set)) {
+      void navigate({ search: navigationSearch(nextTab) });
+    }
   }
   function setOrg(next: string, replace = false) {
     void navigate({ search: settingsTab ? { ...settingsSearch(settingsSection), org: next, workspace: undefined } : { org: next, tab }, replace, hash: "" });
@@ -1181,7 +1195,7 @@ function App() {
             <div className="app-nav-group" key={group.label} role={group.label ? "group" : undefined} aria-label={group.label || undefined}>
               {group.label && <span className="app-nav-label" aria-hidden="true">{group.label}</span>}
               {group.items.map(({ id, label, Icon }) => (
-                <Link key={id} to="/app" search={{ ...sectionSearch(id), promptView: undefined }}
+                <Link key={id} to="/app" search={navigationSearch(id)}
                   className={(id === "settings" ? settingsTab : tab === id) ? "active" : ""}
                   aria-current={(id === "settings" ? settingsTab : tab === id) ? "page" : undefined}
                   onClick={() => setError("")}>
