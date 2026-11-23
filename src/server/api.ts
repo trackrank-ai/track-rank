@@ -1,6 +1,9 @@
-import { promptQuestionText } from "./prompt-questions";
+import { firstBrandMatch, recordedListNumber, snapshotNames } from "../lib/brand-passage";
+import { workspaceMonitoring } from "./workspace-monitoring";
+import { classifyQuestions, promptQuestionText, questionTypePatch } from "./prompt-questions";
 import { applyReceiptAction, readReceiptAction, receiptActionSchema, submitPromptBatch, submitPromptBatchSchema } from "./receipt-actions";
 import { promptSetPredicate, promptSetsRoute, requirePromptSet, setId } from "./prompt-sets";
+import { csvDownload, exportOverview } from "./report-csv";
 import { analytics, collectionLocations, overviewQuestions, researchSummary } from "./analytics";
 import { bulkPromptTagsSchema, decodePrompt, promptTags, updatePromptTags } from "./prompt-tags";
 import { bulkPromptSettingsSchema, promptSettingsSchema, updatePromptSettings } from "./prompt-settings";
@@ -176,6 +179,8 @@ export async function api(
         org,
       ),
     });
+  const monitoring = path.match(/^\/workspaces\/([^/]+)\/monitoring$/);
+  if (monitoring && method === "GET") return json(await workspaceMonitoring(env, org, monitoring[1]));
   if (path === "/workspaces" && method === "POST") {
     const b = await body(
       req,
@@ -332,6 +337,7 @@ export async function api(
   if (path === "/prompt-sets" || path.startsWith("/prompt-sets/")) return promptSetsRoute(req, env, org, path, u.searchParams);
   if (method === "GET") {
     if (path === "/analytics") return json(await analytics(env, org, u.searchParams));
+    if (path === "/analytics/export") return exportOverview(env, org, u.searchParams);
     if (path === "/analytics/questions") return json(await overviewQuestions(env, org, u.searchParams));
     if (path === "/analytics/locations") return json(await collectionLocations(env, org, u.searchParams));
     if (path === "/research") return json(await researchSummary(env, org, u.searchParams));
@@ -352,6 +358,8 @@ export async function api(
       )).map(decodePrompt),
     });
   }
+  if (path === "/prompts/question-type" && method === "PATCH")
+    return json(await classifyQuestions(env, org, await body(req, questionTypePatch)));
   const receiptMatch = path.match(/^\/prompts\/receipts\/([\w-]+)$/);
   if (receiptMatch && method === "GET") {
     const receipt = await getPromptReceipt(env, org, receiptMatch[1]);
@@ -504,8 +512,13 @@ export async function api(
       throw new HttpError(400, "Invalid run history cursor");
     }
     const { conditions, bindings } = await searchableHistoryWhere(env, org, u.searchParams);
-    const total = u.searchParams.has("research_type")
+    const total = u.searchParams.has("research_type") || u.searchParams.has("overlap")
       ? await one<{ count: number }>(env, "SELECT count(*) AS count FROM runs WHERE " + conditions.join(" AND "), ...bindings)
+      : undefined;
+    const questionDaily = timestamp === null && u.searchParams.has("question_id") && u.searchParams.has("metric")
+      ? await all<{ day: string; answers: number }>(env,
+        `SELECT strftime('%Y-%m-%d',created_at/1000,'unixepoch') AS day, count(*) AS answers
+         FROM runs WHERE ${conditions.join(" AND ")} GROUP BY day ORDER BY day`, ...bindings)
       : undefined;
     if (timestamp !== null) {
       conditions.push("(created_at,id)<(?,?)");
@@ -517,7 +530,7 @@ export async function api(
     const pageSize = pageLimit.data;
     const runs = await all(
       env,
-      "SELECT id,prompt_id,workspace_id,prompt_text,config,status,mentions,citations,grounding_queries,discovered_brands,has_answer,error,provider_cost,created_at,updated_at FROM runs WHERE " +
+      "SELECT id,prompt_id,workspace_id,prompt_text,substr(answer_text,1,320) AS answer_excerpt,config,status,mentions,citations,grounding_queries,discovered_brands,has_answer,error,provider_cost,created_at,updated_at FROM runs WHERE " +
         conditions.join(" AND ") + " ORDER BY created_at DESC,id DESC LIMIT ?",
       ...bindings,
       pageSize + 1,
@@ -525,6 +538,7 @@ export async function api(
     const last = runs.length > pageSize ? runs[pageSize - 1] : null;
     return json({
       runs: runs.slice(0, pageSize).map(decodeRun),
+      ...(questionDaily ? { question_daily: questionDaily } : {}),
       ...(total ? { total_matches: total.count } : {}),
       next_before: last?.created_at ?? null,
       next_before_id: last?.id ?? null,
@@ -876,24 +890,7 @@ export async function api(
       "provider_cost",
       "created_at",
     ];
-    const cell = (v: unknown) => {
-      let s = String(v ?? "");
-      if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
-      return '"' + s.replaceAll('"', '""') + '"';
-    };
-    return new Response(
-      [
-        headers.join(","),
-        ...rows.map((r) => headers.map((h) => cell(r[h])).join(",")),
-      ].join("\r\n"),
-      {
-        headers: {
-          "Content-Type": "text/csv",
-          "Content-Disposition": 'attachment; filename="trackrank-runs.csv"',
-          "Cache-Control": "no-store",
-        },
-      },
-    );
+    return csvDownload("trackrank-runs.csv", headers, rows);
   }
   throw new HttpError(404, "API route not found");
 }
@@ -914,6 +911,16 @@ export function decodeRun(run: Row) {
         r[key] = null;
       }
     }
+  if (typeof r.answer_text === "string" && Array.isArray(r.mentions)) {
+    const answer = r.answer_text;
+    const brands = (r.config as { brands?: Row[] } | null)?.brands;
+    const snapshots = new Map((Array.isArray(brands) ? brands : []).filter(Boolean).map(b => [b.id, b]));
+    r.mentions = r.mentions.map(mention => {
+      const snapshot = snapshots.get(mention?.brand_id);
+      const match = mention?.mentioned && snapshot ? firstBrandMatch(answer, snapshotNames(snapshot)) : null;
+      return { ...mention, first_match: match, list_number: match ? recordedListNumber(answer, match.start) : null };
+    });
+  }
   delete r.org_id;
   delete r.raw_key;
   return r;

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { DAY_MS, utcDay, validDay } from "../lib/analytics-filters";
 import { brandOutcome, brandSnapshot, brandSnapshotId, brandTracked, currentPromptWhere, eligibleAnswer, outcomePredicates, parseHistoryFilters, runConfig, runHistoryFilters, searchableHistoryWhere } from "./run-history";
+import { trackedWorkspaceBrands } from "./workspace-brands";
 import { all, HttpError, now, type Env } from "./types";
 
 function reportingPeriod(params: URLSearchParams) {
@@ -17,11 +18,15 @@ const citationDomain = "CASE WHEN citation.type='object' THEN json_extract(citat
 
 export async function analytics(env: Env, org: string, params: URLSearchParams) {
   const { query, filters } = reportingPeriod(params);
-  const { conditions, bindings } = await searchableHistoryWhere(env, org, query);
+  const { conditions, bindings, searchableSince } = await searchableHistoryWhere(env, org, query);
   const selected = currentPromptWhere(filters);
   const setWorkspace = filters.set ? "AND p.workspace_id=(SELECT workspace_id FROM prompt_sets WHERE org_id=p.org_id AND id=?)" : "";
+  const primary = filters.tracked_brand ?? null;
+  const competitor = filters.compare_brand ?? null;
+  // Group the competitive rows in their own CTE: local and hosted D1 limit
+  // each compound SELECT to five terms.
   const rows = await all<{
-    kind: "total" | "day" | "brand" | "domain" | "paired_day";
+    kind: "total" | "day" | "brand" | "domain" | "paired_day" | "engine_brand";
     key: string;
     samples: number;
     eligible_answers: number;
@@ -39,18 +44,28 @@ export async function analytics(env: Env, org: string, params: URLSearchParams) 
       SELECT p.id,p.question_id,p.workspace_id FROM prompts p WHERE p.org_id=? ${filters.workspace ? "AND p.workspace_id=?" : ""}
       ${setWorkspace} AND ${selected.conditions.join(" AND ")}
     ), samples AS MATERIALIZED (
-      SELECT DISTINCT runs.id, runs.created_at, ${brandSnapshotId} AS brand_id,
+      SELECT runs.id, runs.created_at, json_extract(${runConfig},'$.engine') AS engine, ${brandSnapshotId} AS brand_id,
+        max(json_extract(snapshot.value,'$.name')) AS name,
         ${brandOutcome(brandSnapshotId, "mentioned")} AS mentioned,
         ${brandOutcome(brandSnapshotId, "cited")} AS cited
       FROM scoped runs, ${brandSnapshot} AS snapshot WHERE runs.eligible AND ${brandSnapshotId} IS NOT NULL
+      GROUP BY runs.id,brand_id
+    ), competitive AS (
+      SELECT 'paired_day' AS kind,date(primary_sample.created_at/1000,'unixepoch') AS key,count(*) AS samples,
+        sum(primary_sample.mentioned) AS mentions,sum(primary_sample.cited) AS citations,
+        0 AS eligible_answers,0 AS covered_prompts,0 AS selected_prompts,
+        sum(other_sample.mentioned) AS compare_mentions,sum(other_sample.cited) AS compare_citations
+      FROM samples primary_sample JOIN samples other_sample ON other_sample.id=primary_sample.id
+      WHERE primary_sample.brand_id=? AND other_sample.brand_id=?
+      GROUP BY date(primary_sample.created_at/1000,'unixepoch')
+      UNION ALL
+      SELECT 'engine_brand',json_array(s.engine,s.brand_id,max(s.name)),count(*),sum(s.mentioned),sum(s.cited),0,0,0,0,0
+      FROM samples s
+      ${competitor ? `JOIN samples paired ON paired.id=s.id AND
+        ((s.brand_id=? AND paired.brand_id=?) OR (s.brand_id=? AND paired.brand_id=?))` : ""}
+      GROUP BY s.engine,s.brand_id
     )
-    SELECT 'paired_day' AS kind,date(primary_sample.created_at/1000,'unixepoch') AS key,count(*) AS samples,
-      sum(primary_sample.mentioned) AS mentions,sum(primary_sample.cited) AS citations,
-      0 AS eligible_answers,0 AS covered_prompts,0 AS selected_prompts,
-      sum(other_sample.mentioned) AS compare_mentions,sum(other_sample.cited) AS compare_citations
-    FROM samples primary_sample JOIN samples other_sample ON other_sample.id=primary_sample.id
-    WHERE primary_sample.brand_id=? AND other_sample.brand_id=?
-    GROUP BY date(primary_sample.created_at/1000,'unixepoch')
+    SELECT * FROM competitive
     UNION ALL
     SELECT 'total' AS kind,'' AS key,count(*) AS samples,0 AS mentions,0 AS citations,coalesce(sum(eligible),0) AS eligible_answers,
       count(DISTINCT CASE WHEN eligible THEN selected.question_id END) AS covered_prompts,
@@ -69,11 +84,11 @@ export async function analytics(env: Env, org: string, params: URLSearchParams) 
     )
     ORDER BY kind,key`, ...bindings, org, ...(filters.workspace ? [filters.workspace] : []),
     ...(filters.set ? [filters.set] : []), ...selected.bindings,
-    filters.tracked_brand ?? null, filters.compare_brand ?? null,
-    filters.tracked_brand ?? null);
+    primary, competitor, ...(competitor ? [primary, competitor, competitor, primary] : []), primary);
   const total = rows.find(row => row.kind === "total")!;
   const unrestricted = await searchableHistoryWhere(env, org, new URLSearchParams(filters.workspace ? { workspace: filters.workspace } : {}));
-  const [outcomes, workspaceTotals] = await Promise.all([
+  const [previous_period, outcomes, workspaceTotals] = await Promise.all([
+    previousBrandPeriod(env, org, query, filters.from!, filters.to!, searchableSince),
     all<{ outcome: string; count: number }>(env, `SELECT CASE
       WHEN ${outcomePredicates.pending} THEN 'pending' WHEN ${outcomePredicates.failed} THEN 'failed'
       WHEN ${outcomePredicates.uncertain} THEN 'uncertain' WHEN ${eligibleAnswer} THEN 'eligible'
@@ -84,20 +99,90 @@ export async function analytics(env: Env, org: string, params: URLSearchParams) 
       (SELECT min(created_at) FROM runs WHERE ${unrestricted.conditions.join(" AND ")}) AS first_run`,
       org, ...(filters.workspace ? [filters.workspace] : []), ...unrestricted.bindings),
   ]);
+  const pairedDays = rows.filter(row => row.kind === "paired_day");
+  const credited = pairedDays.reduce((total, day) => ({
+    samples: total.samples + day.samples,
+    primary: total.primary + day.mentions,
+    competitor: total.competitor + day.compare_mentions,
+  }), { samples: 0, primary: 0, competitor: 0 });
+  const mentions = credited.primary + credited.competitor;
   return {
     from: filters.from, to: filters.to,
+    mention_share: primary && competitor ? {
+      samples: credited.samples, credited_mentions: mentions,
+      brands: [{ id: primary, mentions: credited.primary }, { id: competitor, mentions: credited.competitor }]
+        .map(brand => ({ ...brand, share: mentions ? brand.mentions / mentions : null })),
+    } : null,
     workspace_prompts: workspaceTotals[0].prompts, workspace_has_runs: workspaceTotals[0].first_run !== null, workspace_first_run: workspaceTotals[0].first_run,
     outcomes: Object.fromEntries(outcomes.map(row => [row.outcome, row.count])),
+    previous_period,
+    engine_brands: rows.filter(row => row.kind === "engine_brand").map(({ key, samples, mentions, citations }) => {
+      const [engine, id, name] = JSON.parse(key) as [string | null, string, string | null];
+      return { engine, id, name, samples, mentions, citations };
+    }),
     total_runs: total.samples, eligible_answers: total.eligible_answers,
     covered_prompts: total.covered_prompts, selected_prompts: total.selected_prompts,
     brands: rows.filter(row => row.kind === "brand").map(({ key, samples, mentions, citations }) => ({ id: key, samples, mentions, citations })),
     domains: rows.filter(row => row.kind === "domain").map(({ key, samples }) => ({ domain: key, answers: samples }))
       .sort((a, b) => b.answers - a.answers || a.domain.localeCompare(b.domain)),
-    comparison_daily: rows.filter(row => row.kind === "paired_day")
+    comparison_daily: pairedDays
       .map(({ key, samples, mentions, citations, compare_mentions, compare_citations }) =>
         ({ day: key, samples, mentions, citations, compare_mentions, compare_citations })),
     daily: rows.filter(row => row.kind === "day").map(({ key, samples, mentions, citations }) => ({ day: key, samples, mentions, citations })),
   };
+}
+
+async function previousBrandPeriod(env: Env, org: string, query: URLSearchParams, from: string, to: string, searchableSince: number | null) {
+  const end = Date.parse(from);
+  const start = end - (Date.parse(to) - end + DAY_MS);
+  const previous = {
+    from: utcDay(start), to: utcDay(end - DAY_MS),
+    complete: (searchableSince === null || start >= searchableSince) && end <= now(),
+    samples: 0, mentions: 0, citations: 0, compare_mentions: 0, compare_citations: 0,
+    question_mix_changed: false, engine_mix_changed: false,
+  };
+  const brand = query.get("tracked_brand");
+  if (!validDay(previous.from) || !validDay(previous.to)) return { ...previous, complete: false };
+  if (!brand || (searchableSince !== null && end <= searchableSince)) return previous;
+  const prior = new URLSearchParams(query);
+  prior.set("metric", "brand");
+  prior.set("from", previous.from);
+  prior.set("to", previous.to);
+  if (query.has("match_from")) {
+    prior.set("match_from", from);
+    prior.set("match_to", to);
+  }
+  const current = new URLSearchParams(query);
+  current.set("metric", "brand");
+  const competitor = query.get("compare_brand");
+  const [priorWhere, currentWhere] = await Promise.all([
+    searchableHistoryWhere(env, org, prior), searchableHistoryWhere(env, org, current),
+  ]);
+  const cell = `workspace_id,prompt_text,json_extract(${runConfig},'$.engine') AS engine`;
+  // Compare fractional sample weights as integers. A change in question or engine
+  // mix can explain a rate change even if both periods contained the same labels.
+  const changed = (groups: string) => `EXISTS (SELECT 1 FROM cells GROUP BY ${groups}
+    HAVING sum(current_samples)*totals.samples <> sum(prior_samples)*totals.current_samples)`;
+  const [counts] = await all<{
+    samples: number; mentions: number; citations: number; compare_mentions: number; compare_citations: number;
+    question_mix_changed: number; engine_mix_changed: number;
+  }>(env, `WITH cells AS MATERIALIZED (
+      SELECT ${cell},count(*) AS prior_samples,0 AS current_samples,
+        sum(${brandOutcome("?", "mentioned")}) AS mentions, sum(${brandOutcome("?", "cited")}) AS citations,
+        sum(${brandOutcome("?", "mentioned")}) AS compare_mentions, sum(${brandOutcome("?", "cited")}) AS compare_citations
+      FROM runs WHERE ${priorWhere.conditions.join(" AND ")} GROUP BY workspace_id,prompt_text,engine
+      UNION ALL
+      SELECT ${cell},0,count(*),0,0,0,0 FROM runs WHERE ${currentWhere.conditions.join(" AND ")}
+      GROUP BY workspace_id,prompt_text,engine
+    ), totals AS (
+      SELECT total(prior_samples) AS samples,total(current_samples) AS current_samples,
+        total(mentions) AS mentions,total(citations) AS citations,
+        total(compare_mentions) AS compare_mentions,total(compare_citations) AS compare_citations FROM cells
+    )
+    SELECT samples,mentions,citations,compare_mentions,compare_citations,
+      ${changed("workspace_id,prompt_text")} AS question_mix_changed,${changed("engine")} AS engine_mix_changed
+      FROM totals`, brand, brand, competitor, competitor, ...priorWhere.bindings, ...currentWhere.bindings);
+  return { ...previous, ...counts, question_mix_changed: !!counts.question_mix_changed, engine_mix_changed: !!counts.engine_mix_changed };
 }
 
 export const overviewQuestionsPage = z.number().int().min(1).max(1_000_000);
@@ -196,10 +281,11 @@ export async function researchSummary(env: Env, org: string, params: URLSearchPa
   const order = { answers: "count", questions: "questions", last_seen: "last_seen", value: "value COLLATE NOCASE" }[sort];
   const pageSize = 25;
   const scopedBindings = research_type ? [...bindings, research_value] : bindings;
+  const domainReport = kind === "domain";
   const rows = await all<{
     value: string; title: string | null; count: number; questions: number; last_seen: number | null;
     workspace_id: string | null; evidence_run_id: string | null;
-    row_type: "item" | "facets" | "cohort" | "matching" | "day";
+    row_type: "item" | "facets" | "cohort" | "matching" | "day" | "domain_day";
   }>(env, `${cte}, facets AS MATERIALIZED (
     SELECT * FROM (${facet})
     WHERE instr(lower(value),lower(?))>0 OR instr(lower(coalesce(title,'')),lower(?))>0
@@ -207,6 +293,12 @@ export async function researchSummary(env: Env, org: string, params: URLSearchPa
     SELECT * FROM facets ORDER BY ${order} ${direction}, value, evidence_run_id LIMIT ? OFFSET ?
   )
   SELECT *, 'item' AS row_type FROM page_rows
+  ${domainReport ? `
+    UNION ALL SELECT value,date(created_at/1000,'unixepoch'),NULL,NULL,count(DISTINCT id),0,NULL,'domain_day'
+    FROM (${sourceValues("domain", "answers")})
+    WHERE value IN (SELECT value FROM page_rows ORDER BY count DESC,value LIMIT 3)
+    GROUP BY value,date(created_at/1000,'unixepoch')
+  ` : ""}
   UNION ALL SELECT '',NULL,NULL,NULL,count(*),0,NULL,'facets' FROM facets
   UNION ALL SELECT '',NULL,NULL,NULL,count(*),0,NULL,'cohort' FROM answers
   ${research_type ? `
@@ -218,10 +310,18 @@ export async function researchSummary(env: Env, org: string, params: URLSearchPa
   const answers = rows.find(row => row.row_type === "cohort")!.count;
   const match = rows.find(row => row.row_type === "matching");
   const total = rows.find(row => row.row_type === "facets")!.count;
+  const workspace = query.get("workspace");
+  const mappings = domainReport && workspace ? await trackedWorkspaceBrands(env, org, workspace) : [];
+  const ownership = (domain: string) => mappings.filter(brand => {
+    const canonical = String(brand.domain || "").toLowerCase().replace(/^www\./, "");
+    return canonical && (domain === canonical || domain.endsWith("." + canonical));
+  }).map(({ id, name, kind }) => ({ id, name, kind }));
   return {
+    domain_trends: rows.filter(row => row.row_type === "domain_day")
+      .map(row => ({ domain: row.value, day: row.title!, answers: row.count })),
     answers, total, page, next_page: page * pageSize < total ? page + 1 : null,
     items: rows.filter(row => row.row_type === "item").map(({ row_type, ...row }) => ({
-      ...row, kind, share: answers ? row.count / answers : 0,
+      ...row, kind, ...(domainReport ? { ownership: ownership(row.value) } : {}), share: answers ? row.count / answers : 0,
     })),
     detail: match ? {
       count: match.count, questions: match.questions, last_seen: match.last_seen,

@@ -150,3 +150,13 @@ The homepage and `/pricing` use the same live published offer catalog and pricin
 The calculator estimates a 30-day workload, picks the least expensive published USD monthly plan satisfying both runs and searchable history, and adds an editable provider-cost assumption. It is not a provider quote. Comparisons use dated official competitor sources and do not imply feature/engine/retention equivalence or guaranteed savings. Refresh those sources before updating price claims.
 
 See [contribution guidelines](CONTRIBUTING.md). Public contributions happen in forks and pull requests. The default branch requires CI and an owner code review; direct pushes, force pushes and deletion are blocked, including for administrators.
+
+## Investigate competitive visibility
+
+In **Overview**, choose a workspace and brand to see mention or citation rates by engine. Select a comparison brand to analyze answers that tracked both brands. The previous-period comparison shows both fractions and supports matching questions and engines across periods. Open a fraction to read the evidence. Share of mentions gives each brand one credit per answer that names it.
+
+Follow the **Sources** link for answers mentioning the competitor alone, or open **Compare brand mentions** in Sources. Inspect cited domains, pages and matching answers, then export that cohort. Workspace domain ownership uses the brands assigned to that workspace. In a recorded answer, open **First mention in answer** to see the matching name or alias in context.
+
+In **Prompts**, eligible answers sort measured questions first. Use **Unchecked** to find questions with no checks in searchable history. Import a question file or paste into the creation form and review the exact variants. In **Manage selection**, classify shared questions as discovery, comparison or branded. Use the question type filter in Questions and Answers. Open **Settings → Workspace monitoring** for the brands included in future checks, provider readiness, engine coverage and upcoming schedules.
+
+Apply migration `0028_question_type.sql` to the target D1 database before deploying this version. Existing questions begin unclassified. Reporting uses stored run snapshots and does not require another provider collection.

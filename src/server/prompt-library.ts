@@ -1,3 +1,5 @@
+import { questionTypeMatch } from "./prompt-questions";
+import { questionTypes } from "../lib/question-type";
 import { activePromptSchedule, associatedPromptBrand, brandOutcome, brandTracked, eligibleAnswer, runConfig } from "./run-history";
 import { organizationPlan } from "./plans";
 import { defaultPeriod, DAY_MS, validDay } from "../lib/analytics-filters";
@@ -11,9 +13,11 @@ export const listPageLimit = z.number().int().min(1);
 const libraryFilters = z.object({
   workspace: z.string().min(1).max(100).optional(),
   question_id: setId.optional(),
+  question_type: z.enum(questionTypes).optional(),
   q: z.string().trim().max(200).default(""),
   engine: z.enum(["chatgpt", "gemini", "google"]).optional(),
   schedule: z.enum(["active", "inactive"]).optional(),
+  checks: z.literal("unchecked").optional(),
   tracked_brand: setId.optional(),
   from: z.string().refine(validDay).optional(),
   to: z.string().refine(validDay).optional(),
@@ -40,6 +44,7 @@ export async function listSavedPrompts(env: Env, org: string, params: URLSearchP
     conditions.push("p.workspace_id=?");
     values.push(filters.workspace);
   }
+  if (filters.question_type) { conditions.push(questionTypeMatch); values.push(filters.question_type); }
   if (filters.question_id) {
     const question = await one(env, `SELECT id FROM prompt_questions WHERE org_id=? AND id=?${filters.workspace ? " AND workspace_id=?" : ""}`,
       org, filters.question_id, ...(filters.workspace ? [filters.workspace] : []));
@@ -73,10 +78,6 @@ export async function listSavedPrompts(env: Env, org: string, params: URLSearchP
   if (filters.schedule === "active") conditions.push(activePromptSchedule);
   if (filters.schedule === "inactive") conditions.push("NOT (" + activePromptSchedule + ")");
   const scope = conditions.join(" AND ");
-  const total = filters.before === undefined && !filters.selection
-    ? one<{ total: number }>(env,
-      `SELECT count(*) AS total FROM (SELECT 1 FROM prompts p WHERE ${scope} GROUP BY question_id)`, ...values)
-    : null;
   const sort = filters.selection ? "newest" : filters.sort;
   const sortKey = {
     newest: "matching.created_at",
@@ -91,7 +92,7 @@ export async function listSavedPrompts(env: Env, org: string, params: URLSearchP
   const cursor = filters.before === undefined ? "" : "WHERE (sort_key,id)<(?,?)";
   const cursorValues = filters.before === undefined ? [] : [filters.before, filters.before_id];
   const pageSize = filters.selection ? 1000 : filters.limit ?? 100;
-  const historyDays = filters.selection ? undefined : (await organizationPlan(env, org)).limits.searchable_history_days;
+  const historyDays = filters.selection && !filters.checks ? undefined : (await organizationPlan(env, org)).limits.searchable_history_days;
   const time = now();
   const historyFloor = historyDays === undefined ? 0 : time - historyDays * DAY_MS;
   const period = defaultPeriod(time);
@@ -99,6 +100,18 @@ export async function listSavedPrompts(env: Env, org: string, params: URLSearchP
   const end = Date.parse(filters.to ?? period.to) + DAY_MS;
   const runScope = "runs.org_id=p.org_id AND runs.prompt_id=p.id AND runs.workspace_id=p.workspace_id" +
     (filters.engine ? ` AND json_extract(${runConfig},'$.engine')=p.engine` : "");
+  // "Unchecked" means no admitted run among the matching variants in searchable history.
+  // Pending, failed and organic-only attempts count as checks here.
+  const checked = `EXISTS(SELECT 1 FROM runs WHERE ${runScope} AND runs.created_at>=?)`;
+  const total = filters.before === undefined && !filters.selection
+    ? one<{ total: number; unchecked: number }>(env, `SELECT count(*) AS total,
+        count(CASE WHEN has_run=0 THEN 1 END) AS unchecked FROM (
+          SELECT max(${checked}) AS has_run FROM prompts p WHERE ${scope} GROUP BY p.question_id
+        )`, historyFloor, ...values)
+    : null;
+  const checkedGroups = filters.checks ? `, checked_groups AS (
+    SELECT DISTINCT p.question_id FROM matching p WHERE ${checked}
+  )` : "";
   const evidence = filters.selection ? "" : `, evidence AS (
           SELECT runs.question_id,
             max(CASE WHEN runs.status IN ('succeeded','failed') THEN runs.updated_at END) AS last_checked_at,
@@ -138,16 +151,17 @@ export async function listSavedPrompts(env: Env, org: string, params: URLSearchP
     all<Row>(env, `WITH matching AS (
           SELECT p.*, row_number() OVER (PARTITION BY question_id ORDER BY created_at DESC,id DESC) AS variant_rank
           FROM prompts p WHERE ${scope}
-        ) ${evidence}, ranked AS (
+        ) ${checkedGroups} ${evidence}, ranked AS (
           SELECT matching.id,matching.question_id,matching.text,matching.created_at, ${sortKey} AS sort_key ${groupMetrics}
           FROM matching ${filters.selection ? "" : "LEFT JOIN evidence ON evidence.question_id=matching.question_id"} WHERE variant_rank=1
+            ${filters.checks ? "AND matching.question_id NOT IN (SELECT question_id FROM checked_groups)" : ""}
         ), page AS (
           SELECT * FROM ranked ${cursor} ORDER BY sort_key DESC,id DESC LIMIT ?
         )
-        SELECT ${columns}, page.question_id AS group_id, page.id AS cursor_id, page.sort_key, page.created_at AS group_created_at, page.text AS group_text ${pageMetrics}
-        FROM page JOIN matching p ON p.question_id=page.question_id
+        SELECT ${columns}, page.question_id AS group_id, page.id AS cursor_id, page.sort_key, page.created_at AS group_created_at, page.text AS group_text, qt.question_type ${pageMetrics}
+        FROM page JOIN matching p ON p.question_id=page.question_id JOIN prompt_questions qt ON qt.id=p.question_id AND qt.org_id=p.org_id
         ORDER BY page.sort_key DESC,page.id DESC,p.created_at DESC,p.id DESC`,
-      ...values, ...evidenceParams, ...cursorValues, pageSize + 1, ...historyParams),
+      ...values, ...(filters.checks ? [historyFloor] : []), ...evidenceParams, ...cursorValues, pageSize + 1, ...historyParams),
     filters.selection ? [] : all<{ tag: string }>(env,
       `SELECT DISTINCT t.value AS tag FROM prompts p, json_each(p.tags) t
        WHERE ${tagScope} ORDER BY tag`, ...tagValues,
@@ -164,11 +178,12 @@ export async function listSavedPrompts(env: Env, org: string, params: URLSearchP
   }
 
   const groups = new Map<unknown, Row>();
-  for (const { group_id, group_created_at, group_text, cursor_id, sort_key, variant_rank, last_checked_at, checks, eligible_answers, mentions, citations, ...row } of rows) {
+  for (const { group_id, group_created_at, group_text, question_type, cursor_id, sort_key, variant_rank, last_checked_at, checks, eligible_answers, mentions, citations, ...row } of rows) {
     let group = groups.get(group_id);
     if (!group) {
       group = { id: group_id, cursor_id, sort_key, created_at: group_created_at, workspace_id: row.workspace_id, text: group_text, variants: [] };
       if (!filters.selection) {
+        group.question_type = question_type;
         group.last_checked_at = last_checked_at ?? null;
         group.period = { checks: checks ?? 0, eligible_answers: eligible_answers ?? 0, mentions: filters.tracked_brand ? mentions ?? 0 : null,
           citations: filters.tracked_brand ? citations ?? 0 : null };
@@ -181,7 +196,7 @@ export async function listSavedPrompts(env: Env, org: string, params: URLSearchP
   const last = entries.length > pageSize ? entries[pageSize - 1] : null;
   return {
     prompts: entries.slice(0, pageSize).map(({ cursor_id, sort_key, ...group }) => group),
-    ...(count ? { total: count.total } : {}),
+    ...(count ? { total: filters.checks ? count.unchecked : count.total, unchecked: count.unchecked } : {}),
     tags: tags.map(row => row.tag),
     next_cursor: last ? { before: last.sort_key, before_id: last.cursor_id } : null,
   };

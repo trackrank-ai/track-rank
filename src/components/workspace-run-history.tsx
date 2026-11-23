@@ -71,7 +71,7 @@ export function WorkspaceRunHistory({ org, workspace, workspaceName, workspaceNa
   const [page, setPage] = useState<RunPage | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const query = analyticsQuery(evidenceDay ? { ...scope, from: evidenceDay, to: evidenceDay } : scope, workspace);
-  if (!metric || metric === "eligible" || metric === "coverage") query.delete("compare_brand");
+  if (!scope.overlap && (!metric || metric === "eligible" || metric === "coverage")) query.delete("compare_brand");
   if (metric) query.set("metric", metric);
   if (researchType && researchValue) {
     query.set("research_type", researchType);

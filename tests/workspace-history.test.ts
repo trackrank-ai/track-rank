@@ -593,6 +593,82 @@ test("comparison rates, outcome counts and matching evidence use recorded run co
   assert.equal(pageTwo.questions.length, 2);
   assert.equal(pageTwo.next_page, null);
   assert.equal(new Set([...pageOne.questions, ...pageTwo.questions].map(row => row.evidence_run_id)).size, 22);
+
+  // A duplicate page, a competitor added late and incomplete outcomes must reconcile in every drill-down.
+  sql.exec("DELETE FROM runs WHERE org_id='org'");
+  const host = "blog.rival.test";
+  const pages = JSON.stringify([{ domain: host, url: "https://" + host + "/a" }, { domain: host, url: "https://" + host + "/b" }]);
+  sql.exec(`INSERT INTO brands VALUES('configured-rival','org','Configured rival','rival.test','[]','competitor',0);
+    INSERT INTO workspace_brands VALUES('org','source','configured-rival','competitor')`);
+  const flags = { client_only: [true, false], competitor_only: [false, true], both: [true, true], neither: [false, false] };
+  for (const [id, [client, rival]] of Object.entries(flags)) {
+    run(id, later, { mention: client });
+    const observations = [{ brand_id: "client", mentioned: client, cited: true }, { brand_id: "rival", mentioned: rival }];
+    sql.prepare("UPDATE runs SET answer_text=?,citations=?,mentions=? WHERE id=?")
+      .run("x".repeat(400), pages, JSON.stringify(observations), id);
+  }
+  run("pre-onboarding", later, { competitor: false, mention: true });
+  run("previous-sample", earlier - 86400000, { mention: true });
+  run("no-overview", later, { answer: 0, organic: true });
+  run("failed-sample", later, { status: "failed" });
+  run("gemini-current", later, { engine: "gemini", mention: true });
+  const compared = await (await rest("/analytics")).json() as any;
+  assert.equal(compared.previous_period.complete, true);
+  assert.deepEqual([compared.previous_period.samples, compared.previous_period.mentions], [1, 1]);
+  assert.deepEqual(compared.engine_brands.map((row: any) => [row.engine, row.id, row.samples, row.mentions, row.citations]),
+    [["google", "client", 4, 2, 4], ["google", "rival", 4, 2, 0]]);
+  assert.deepEqual(compared.mention_share, { samples: 4, credited_mentions: 4, brands: [
+    { id: "client", mentions: 2, share: 0.5 }, { id: "rival", mentions: 2, share: 0.5 },
+  ] });
+  const individual = await (await call("/analytics?" + new URLSearchParams({ workspace: "source", from, to }))).json() as any;
+  assert.equal(individual.engine_brands.find((row: any) => row.id === "client" && row.engine === "google").samples, 5);
+  assert.equal(individual.engine_brands.find((row: any) => row.id === "rival" && row.engine === "gemini").samples, 1);
+  assert.equal(individual.mention_share, null);
+  for (const overlap of ["all", ...Object.keys(flags)]) {
+    const expected = overlap === "all" ? Object.keys(flags).sort() : [overlap];
+    const sources = await (await rest("/research", { overlap })).json() as any;
+    assert.deepEqual(JSON.parse(await tool("get_research_summary", { overlap })), sources);
+    assert.equal(sources.answers, expected.length);
+    assert.deepEqual(sources.domain_trends, [{ domain: host, day: to, answers: expected.length }]);
+    assert.deepEqual(sources.items[0].ownership, [{ id: "configured-rival", name: "Configured rival", kind: "competitor" }]);
+    const source = sources.items[0];
+    assert.deepEqual([source.value, source.count, source.share], [host, expected.length, 1]);
+    const exact = { overlap, research_type: "domain", research_value: host };
+    const detail = await (await rest("/research", exact)).json() as any;
+    assert.equal(detail.detail.count, expected.length);
+    const history = await (await rest("/runs", exact)).json() as any;
+    assert.equal(history.total_matches, expected.length);
+    assert.deepEqual(history.runs.map((r: any) => r.id).sort(), expected);
+    assert.equal(history.runs[0].answer_excerpt.length, 320);
+    assert.deepEqual(JSON.parse(await tool("list_runs", exact)), history);
+    const csv = await (await rest("/export", exact)).text();
+    assert.deepEqual(csv.split("\r\n").slice(1).map(row => row.slice(1,row.indexOf('",'))).sort(), expected);
+    assert.equal(await tool("export_runs", exact), csv);
+  }
+  // Different engine and question distributions can explain a change on their own.
+  sql.exec("UPDATE runs SET prompt_text='Current-only question' WHERE id='client_only'");
+  const summaryCSV = await (await rest("/analytics/export")).text();
+  assert.equal(await tool("export_overview"), summaryCSV);
+  const shareRows = summaryCSV.split("\r\n").filter(row => row.includes('"share_of_mentions"'));
+  assert.equal(shareRows.length, 2);
+  for (const row of shareRows) assert.match(row, /"2","4","0.5","4"/);
+  const mixed = await (await call("/analytics?" + new URLSearchParams({
+    workspace: "source", from, to, tracked_brand: "client", compare_brand: "rival",
+  }))).json() as any;
+  assert.equal(mixed.previous_period.question_mix_changed, true);
+  assert.equal(mixed.previous_period.engine_mix_changed, true);
+  const matched = { match_from: compared.previous_period.from, match_to: compared.previous_period.to };
+  const matchedReport = await (await rest("/analytics", matched)).json() as any;
+  assert.equal(matchedReport.engine_brands[0].samples, 3);
+  assert.equal(matchedReport.previous_period.samples, 1);
+  assert.equal(matchedReport.previous_period.question_mix_changed, false);
+  assert.deepEqual(JSON.parse(await tool("get_overview", matched)), matchedReport);
+  assert.deepEqual((await (await rest("/runs", { ...matched, overlap: "all" })).json() as any).runs.map((r: any) => r.id).sort(),
+    ["both", "competitor_only", "neither"]);
+  await assert.rejects(rest("/analytics", { match_from: from }), { status: 400 });
+  await assert.rejects(rest("/analytics", { match_from: to, match_to: from }), { status: 400 });
+  await assert.rejects(call("/research?overlap=competitor_only&tracked_brand=client"), { status: 400 });
+  await assert.rejects(rest("/research", { overlap: "wrong" }), { status: 400 });
 });
 
 test("question answers reconcile with the library while remaining scoped to current workspace variants", async () => {
@@ -634,6 +710,10 @@ test("question answers reconcile with the library while remaining scoped to curr
   assert.deepEqual(library.prompts[0].period, { checks: 5, eligible_answers: 2, mentions: 1, citations: 1 });
   assert.deepEqual(answers.runs.map((row: any) => row.id), ["match-gemini-unmentioned", "match-gemini"]);
   assert.equal(answers.runs[0].citations[0].url, "https://example.test/source");
+  assert.equal(answers.runs[0].answer_excerpt, "Recorded answer");
+  const answerPage = await (await call("/runs" + query + "&limit=1")).json() as any;
+  assert.equal(answerPage.runs.length, 1);
+  assert.deepEqual(answerPage.question_daily, [{ day, answers: 2 }]);
   assert.match(await (await call("/export" + query)).text(), /match-gemini/);
   const { mcp } = await import("../src/server/mcp");
   const { hashToken } = await import("../src/server/crypto");
@@ -667,6 +747,14 @@ test("question answers reconcile with the library while remaining scoped to curr
   assert.equal(nextPage.next_cursor, null);
   const never = await tool("list_prompts", { ...sortedScope, sort: "never_checked" });
   assert.equal(never.prompts[0].text, "Never checked");
+  const unchecked = await tool("list_prompts", { ...sortedScope, checks: "unchecked" });
+  assert.deepEqual(unchecked.prompts.map((row: any) => row.text), ["Never checked"]);
+  assert.equal(firstPage.unchecked, 1);
+  assert.equal(unchecked.total, 1);
+  const uncheckedSelection = await tool("list_prompts", { ...sortedScope, checks: "unchecked", selection: true });
+  assert.deepEqual(uncheckedSelection.prompts.map((row: any) => row.id), unchecked.prompts.map((row: any) => row.id));
+  const answerTrend = await tool("list_runs", { workspace_id: "source", question_id: question, ...scope, metric: "brand", limit: 1 });
+  assert.deepEqual(answerTrend.question_daily, [{ day, answers: 2 }]);
   const selection = await tool("list_prompts", { ...sortedScope, selection: true });
   assert.equal(selection.prompts.length, 4);
   await assert.rejects(call("/prompts?view=library&sort=lowest_mention_rate"), { status: 400 });
