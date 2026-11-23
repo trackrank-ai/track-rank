@@ -1,3 +1,4 @@
+import { countLabel } from "@/lib/collection-labels";
 import { Dialog } from "radix-ui";
 import { Link } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
@@ -23,7 +24,7 @@ export function CollectionDetails({ workspace, workspaceId, brands, locales, pro
     <p>{brands.length ? `Workspace brands measured: ${brands.join(", ")}.`
       : "This workspace has no tracked brands. Collection can capture answers and sources. Brands added later will have no historical mention metrics for these checks."}</p>
     <p>{provider ? "DataForSEO connected." : "Connect DataForSEO before starting collection."}
-      {available !== undefined && ` ${available.toLocaleString()} checks available this month.`}</p>
+      {available !== undefined && ` ${countLabel(available, "check")} available this month.`}</p>
     {showProviderCharges && <p className="data-note">Provider charges apply separately for each check.</p>}
     <div className="app-inline-form">
       <Link target="_blank" rel="noopener" to="/app" search={{ org, tab: "settings", settingsSection: "providers" }}>Provider settings</Link>
@@ -45,14 +46,14 @@ export function CollectionReview({ data, type, org, engines, timing, changeTimin
   const runError = !data.can_run ? "Your access is read-only for collection."
     : !data.provider_connected ? "DataForSEO is required to run these prompts."
     : eligibilityErrors.length ? eligibilityErrors.join(". ")
-    : data.requested > data.available ? `This selection needs ${data.requested} checks and ${data.available} are available.` : "";
+    : data.requested > data.available ? `This selection needs ${countLabel(data.requested, "check")}. Available this month: ${countLabel(data.available, "check")}.` : "";
   const projection = monitoringProjection(timing, unscheduled.length);
   return <Dialog.Root open onOpenChange={open => { if (!open && !busy) close(); }}>
     <Dialog.Portal>
       <Dialog.Overlay className="collection-overlay" />
       <Dialog.Content className="collection-dialog form-stack">
         <Dialog.Title>{type === "run" ? "Review collection" : "Schedule selected prompts"}</Dialog.Title>
-        <Dialog.Description>{data.combinations.length} engine combinations selected.</Dialog.Description>
+        <Dialog.Description>{countLabel(data.combinations.length, "engine variant")} selected.</Dialog.Description>
         <CollectionDetails workspace={data.workspace.name} workspaceId={data.workspace.id} brands={data.brands.map(b => b.name)}
           locales={[...new Set(data.combinations.map(row => `${engines[row.engine]} · ${row.location_name} · ${row.language_code}`))]}
           provider={data.provider_connected} available={data.available} org={org} />
@@ -61,15 +62,15 @@ export function CollectionReview({ data, type, org, engines, timing, changeTimin
           Each check measures all tracked workspace brands.
         </p>}
         {type === "run" ? <>
-          <p>{data.requested} checks now · 0 new recurring checks</p>
+          <p>{countLabel(data.requested, "check")} now · 0 new recurring checks</p>
           {runError && <p role="alert">{runError}</p>}
-          <Button disabled={busy || !!runError} onClick={() => confirm(true, data.combinations.map(row => row.id))}>Run {data.requested} checks</Button>
+          <Button disabled={busy || !!runError} onClick={() => confirm(true, data.combinations.map(row => row.id))}>Run {countLabel(data.requested, "check")}</Button>
         </> : <>
           <p>{unscheduled.length} ready to schedule · {active.length} already active · {paused.length} paused · {ineligible.length} ineligible</p>
           {!!pausedSchedules.length && <div className="form-stack">
-            <p>Resume using saved timing · {pausedSchedules.reduce((sum, row) => sum + row.weekly_checks, 0)} checks per scheduled week.</p>
+            <p>Resume using saved timing · {countLabel(pausedSchedules.reduce((sum, row) => sum + row.weekly_checks, 0), "check")} per scheduled week.</p>
             <Button variant="outline" disabled={busy || !data.can_schedule || !data.provider_connected}
-              onClick={() => resume(pausedSchedules.map(row => row.id))}>Resume {pausedSchedules.length} paused schedules</Button>
+              onClick={() => resume(pausedSchedules.map(row => row.id))}>Resume {countLabel(pausedSchedules.length, "paused schedule")}</Button>
           </div>}
           {!data.can_schedule && <p role="status">Your access is read-only for schedules.</p>}
           {!!eligibilityErrors.length && <p role="status">{eligibilityErrors.join(". ")}</p>}
@@ -77,7 +78,7 @@ export function CollectionReview({ data, type, org, engines, timing, changeTimin
           <p>0 checks now</p>
           <div className="form-actions">
             <Button disabled={busy || !data.can_schedule || !data.provider_connected || !unscheduled.length || !projection.valid}
-              onClick={() => confirm(true, unscheduled.map(row => row.id))}>Start monitoring {unscheduled.length} combinations</Button>
+              onClick={() => confirm(true, unscheduled.map(row => row.id))}>Start monitoring {countLabel(unscheduled.length, "engine variant")}</Button>
             <Button variant="outline" disabled={busy || !data.can_schedule || !unscheduled.length || !projection.valid}
               onClick={() => confirm(false, unscheduled.map(row => row.id))}>Save {unscheduled.length} paused</Button>
           </div>

@@ -25,6 +25,7 @@ export type AppSearch = AnalyticsScope & {
   tab?: AppTab;
   prompt?: string;
   question?: string;
+  setAction?: "choose";
   trackingView?: "overview" | "questions" | "answers" | "settings";
   questionEngine?: AnalyticsScope["engine"] | "all";
   questionMetric?: "mention" | "citation";
@@ -33,6 +34,8 @@ export type AppSearch = AnalyticsScope & {
   promptSort?: PromptLibrarySort;
   questionType?: QuestionType;
   promptChecks?: "unchecked";
+  scheduleId?: string;
+  scheduleBatch?: string;
   setupIntent?: "schedule";
   setupFrom?: "tracking";
   promptEngine?: AnalyticsScope["engine"];
@@ -60,6 +63,8 @@ export type AppSearch = AnalyticsScope & {
   sourceDomain?: string;
   sourceDomainPage?: string;
   sourceBackRun?: string;
+  sourceReturn?: string;
+  sourceScope?: "all";
   researchType?: ResearchType;
   researchValue?: string;
   settingsSection?: SettingsSection;
@@ -98,6 +103,7 @@ export function parseAppSearch(search: Record<string, unknown>): AppSearch {
     ...(scoped ? scope : tab === "prompts"
       ? { set: resourceId(search.set), from: analyticsScope(search).from, to: analyticsScope(search).to } : tab === "schedules" ? { set: trackingSet } : {}),
     trackingView,
+    setAction: tab === "tracking" && search.setAction === "choose" ? "choose" : undefined,
     ...(historyContext && metric && (!metric.startsWith("compare_") || scope.compareBrand) ? { metric } : {}),
     trendMetric: (!tab || tab === "overview" || historyContext || tab === "tracking") ? trendMetric : undefined,
     evidenceDay: evidenceDay && (!scope.from || evidenceDay >= scope.from) && (!scope.to || evidenceDay <= scope.to) ? evidenceDay : undefined,
@@ -117,6 +123,8 @@ export function parseAppSearch(search: Record<string, unknown>): AppSearch {
     questionType: libraryContext ? questionTypes.find(type => type === search.questionType) : undefined,
     promptSort: libraryContext ? promptLibrarySortKeys.find(value => value === search.promptSort) : undefined,
     setupFrom: tab === "prompts" && search.promptView === "create" && search.setupFrom === "tracking" ? "tracking" : undefined,
+    scheduleId: tab === "schedules" ? resourceId(search.scheduleId) : undefined,
+    scheduleBatch: tab === "schedules" ? resourceId(search.scheduleBatch) : undefined,
     setupIntent: tab === "prompts" && search.promptView === "create" && search.setupIntent === "schedule" ? "schedule" : undefined,
     promptEngine: libraryContext ? analyticsScope({ engine: search.promptEngine }).engine : undefined,
     promptSchedule: libraryContext && (search.promptSchedule === "active" || search.promptSchedule === "inactive")
@@ -146,6 +154,8 @@ export function parseAppSearch(search: Record<string, unknown>): AppSearch {
       sourceDomain: typeof search.sourceDomain === "string" && search.sourceDomain.length <= 4096 ? search.sourceDomain : undefined,
       sourceDomainPage: sourcePage(search.sourceDomainPage),
       sourceBackRun: resourceId(search.sourceBackRun),
+      sourceReturn: resourceId(search.sourceBackRun) && typeof search.sourceReturn === "string" && search.sourceReturn.length <= 32768 ? search.sourceReturn : undefined,
+      sourceScope: resourceId(search.sourceBackRun) && search.sourceScope === "all" ? "all" : undefined,
     } : {}),
     monitoringPage: tab === "settings" && search.settingsSection === "monitoring" && search.workspace === "all" ? sourcePage(search.monitoringPage) : undefined,
     settingsSection: tab === "settings"

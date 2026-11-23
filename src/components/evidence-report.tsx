@@ -1,8 +1,10 @@
 import { Link } from "@tanstack/react-router";
 import type { AppSearch } from "@/lib/app-location";
 import { ExternalLink } from "lucide-react";
-import { useId, type ReactNode } from "react";
+import { lazy, Suspense, useId, type ReactNode } from "react";
 import "./evidence-report.css";
+
+const Markdown = lazy(() => import("react-markdown"));
 
 type EvidenceSource = {
   title?: string | null;
@@ -71,7 +73,16 @@ export function EvidenceReport({
     <div className={["evidence-report", className].filter(Boolean).join(" ")}>
       <section aria-labelledby={`${id}-answer`}>
         <h3 id={`${id}-answer`}>{illustrative ? "Example answer" : "Recorded answer"}</h3>
-        {answer ? <p className="evidence-answer">{answer}</p> : <p className="evidence-report-note">{emptyAnswer}</p>}
+        {answer ? illustrative ? <p className="evidence-answer">{answer}</p> : <>
+          <div className="evidence-answer formatted-answer">
+            <Suspense fallback={<p>{answer}</p>}><Markdown skipHtml components={{
+              a: ({ children, href }) => href && /^https?:\/\//i.test(href)
+                ? <a href={href} rel="noreferrer" target="_blank">{children}</a> : <>{children}</>,
+              img: ({ alt }) => <>{alt}</>,
+            }}>{answer}</Markdown></Suspense>
+          </div>
+          <details className="raw-answer"><summary>View original answer text</summary><pre>{answer}</pre></details>
+        </> : <p className="evidence-report-note">{emptyAnswer}</p>}
       </section>
       {(observations || sources) && (
         <div className="evidence-report-aside">

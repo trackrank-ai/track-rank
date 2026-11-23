@@ -2,7 +2,7 @@ import { questionTypes } from "../lib/question-type";
 import { questionTypePatch } from "./prompt-questions";
 import { promptLibrarySortKeys } from "../lib/prompt-library-sort";
 import { reportBrandIds } from "./report-brand-identities";
-import { overviewQuestionsPage, researchReportInput } from "./analytics";
+import { overviewQuestionSort, overviewQuestionsPage, researchReportInput } from "./analytics";
 import { bulkPromptSettingsSchema } from "./prompt-settings";
 import { receiptActionSchema, submitPromptBatchSchema } from "./receipt-actions";
 import { bulkPromptTagsSchema, promptTag, promptTags } from "./prompt-tags";
@@ -211,7 +211,7 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
   }, async args => invoke(filteredPath("/analytics/export", args)));
   server.registerTool("get_overview_questions", {
     description: "Page through per-question and engine counts from the Overview evidence cohort. Pass a row's evidence_run_id as report_evidence_run to list_runs.",
-    inputSchema: { ...reportingInput, compare_brand: runHistoryFilters.shape.compare_brand, page: overviewQuestionsPage.optional() },
+    inputSchema: { ...reportingInput, compare_brand: runHistoryFilters.shape.compare_brand, page: overviewQuestionsPage.optional(), sort: overviewQuestionSort.optional() },
   }, async args => invoke(filteredPath("/analytics/questions", args)));
   server.registerTool("list_collection_locations", {
     description: "List locations recorded on runs in the reporting scope.",
@@ -219,7 +219,7 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
   }, async args => invoke(filteredPath("/analytics/locations", args)));
   server.registerTool("get_research_summary", {
     description: "Search and page through cited domains, pages or grounding queries by group. Use tracked_brand, compare_brand and overlap to investigate sources cited when only one brand, both or neither appeared. Pass research_type and research_value for complete-cohort source metrics and pages or questions.",
-    inputSchema: { ...reportingInput, compare_brand: runHistoryFilters.shape.compare_brand, overlap: runHistoryFilters.shape.overlap, ...researchReportInput },
+    inputSchema: { ...runHistoryFilters.omit({ workspace: true }).shape, ...workspaceInput, ...researchReportInput },
   }, async args => invoke(filteredPath("/research", args)));
   const historyInput = { ...runHistoryFilters.omit({ workspace: true }).shape, ...workspaceInput };
   server.registerTool("export_runs", {
@@ -229,10 +229,11 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
   server.registerTool(
     "list_prompts",
     {
-      description: "List saved questions with their matching engine variants grouped within each workspace. The first page includes the matching total. Use selection for compact ID pages and next_cursor to continue, or question_id to read one question.",
+      description: "List saved questions with their matching engine variants grouped within each workspace. The first page includes the matching total. Use selection for compact ID pages and next_cursor to continue, or question_id to inspect its schedules, cadence, and tracking set memberships.",
       inputSchema: {
         workspace_id: z.string().min(1).max(100).optional(),
         question_id: setId.optional(),
+        outside_set: setId.optional().describe("Only variants in this tracking set’s workspace that have not joined it."),
         question_type: z.enum(questionTypes).optional(),
         tag: promptTag.optional(),
         set: setId.optional(),
@@ -273,6 +274,10 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
     description: "Move up to 100 selected prompts to another workspace in the same organization.",
     inputSchema: movePromptsSchema,
   }, async (args) => invoke("/prompts/move", "POST", args));
+  server.registerTool("preview_prompt_deletion", {
+    description: "Inspect selected engine variants, the number of affected schedules and each question's saved variant count before confirming deletion.",
+    inputSchema: bulkPromptIdsSchema,
+  }, async args => invoke("/prompts/deletion-preview", "POST", args));
   server.registerTool("delete_prompts", {
     description: "Archive up to 100 selected prompts and remove their schedules. Existing run history is retained. Confirm the deletion with the user first.",
     inputSchema: bulkPromptIdsSchema,
@@ -428,8 +433,10 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
   server.registerTool(
     "list_schedules",
     {
-      description: "List active and paused schedules. The first page includes the matching total. Use selection for compact pages and next_cursor to continue.",
+      description: "List schedules and linked question IDs. Filter by workspace, tracking set, schedule ID or saved receipt schedule batch. Use selection for compact pages and next_cursor to continue.",
       inputSchema: {
+        schedule_id: setId.optional(),
+        batch_id: setId.optional(),
         workspace_id: z.string().min(1).max(100).optional(),
         set: setId.optional(),
         limit: listPageLimit.max(500).optional(),
@@ -438,8 +445,10 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
         before_id: z.string().min(1).max(100).optional(),
       },
     },
-    async ({ workspace_id, before, before_id, limit, selection, set }) => {
+    async ({ workspace_id, before, before_id, limit, selection, set, schedule_id, batch_id }) => {
       const query = new URLSearchParams();
+      if (schedule_id) query.set("schedule_id", schedule_id);
+      if (batch_id) query.set("batch_id", batch_id);
       if (selection) query.set("selection", "1");
       if (limit !== undefined) query.set("limit", String(limit));
       if (set) query.set("set", set);

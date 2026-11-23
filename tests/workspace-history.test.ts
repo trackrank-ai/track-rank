@@ -307,7 +307,7 @@ test("bulk selection pages keep the same tenant and filters across REST and MCP"
   const matching = { workspace_id: "source", tag: "batch", q: "selection", selection: true };
   const first: any = await (await call(query + "&selection=1")).json();
   assert.equal(first.prompts.length, 1000);
-  assert.deepEqual(first.prompts[0].variants[0], { id: expected.at(-1), workspace_id: "source" });
+  assert.deepEqual(first.prompts[0].variants[0], { id: expected.at(-1), workspace_id: "source", question_id: first.prompts[0].id, engine: "chatgpt" });
   const last = await tool("list_prompts", { ...matching, ...first.next_cursor });
   assert.equal(last.next_cursor, null);
   assert.deepEqual([...first.prompts, ...last.prompts].map(row => row.variants[0].id), [...expected].reverse());
@@ -328,12 +328,39 @@ test("bulk selection pages keep the same tenant and filters across REST and MCP"
   assert.deepEqual(nextGroup.prompts.map(group => group.variants.map(variant => variant.id)), [["match-0000"]]);
   assert.equal(nextGroup.next_cursor, null);
   const byEngine = await tool("list_prompts", { ...matching, engine: "gemini" });
-  assert.deepEqual(byEngine.prompts[0].variants, [{ id: "match-1000", workspace_id: "source" }]);
+  assert.deepEqual(byEngine.prompts[0].variants, [{ id: "match-1000", workspace_id: "source", question_id: grouped.prompts[0].id, engine: "gemini" }]);
+
+  const { id: setId } = await tool("create_prompt_set", { workspace_id: "source", name: "Partial engines", prompt_ids: ["match-1000"] });
+  const outside = await tool("list_prompts", { ...matching, outside_set: setId });
+  assert.equal(outside.prompts.find((row: any) => row.id === grouped.prompts[0].id).variants.length, 999);
+  assert.equal((await tool("list_prompts", { outside_set: setId, workspace_id: "target" }, true)).status, 404);
+  const byRest = await (await call("/prompts?outside_set=" + setId + "&engine=gemini", undefined, "viewer")).json() as any;
+  assert.deepEqual(byRest.prompts, []);
+  await assert.rejects(call(`/prompts?outside_set=${setId}&set=${setId}`), { status: 400 });
 
   const question = grouped.prompts[0];
   await assert.rejects(call("/prompt-questions/" + question.id, { text: "Selection blocked" }, "owner", "PATCH"), { status: 404 });
   assert.equal(sql.prepare("SELECT count(*) AS n FROM prompts WHERE question_id=? AND text='Selection fixture'").get(question.id)?.n, 1000);
   assert.deepEqual(sql.prepare("PRAGMA foreign_key_check").all(), []);
+
+  const variantId = "match-1000";
+  const detail = await tool("list_prompts", { workspace_id: "source", question_id: question.id, engine: "gemini" });
+  assert.deepEqual(detail.prompts[0].variants[0].tracking_sets, [{ id: setId, name: "Partial engines" }]);
+  assert.equal(detail.prompts[0].variants[0].schedules[0].id, "s-match-1000");
+  assert.equal(detail.prompts[0].variants[0].schedules[0].timezone, "UTC");
+  sql.prepare("UPDATE schedules SET batch_id='receipt-batch' WHERE id IN ('s-match-1000','s-foreign-prompt')").run();
+  const byBatch = await tool("list_schedules", { batch_id: "receipt-batch" });
+  assert.deepEqual(byBatch.schedules.map((row: any) => [row.id, row.question_id]), [["s-match-1000", question.id]]);
+  const byId = await (await call("/schedules?workspace=source&schedule_id=s-match-1000", undefined, "viewer")).json() as any;
+  assert.deepEqual(byId.schedules, byBatch.schedules);
+  assert.equal((await tool("list_schedules", { schedule_id: "s-foreign-prompt" })).total, 0);
+  const preview = await tool("preview_prompt_deletion", { ids: [variantId] });
+  assert.equal(preview.variants[0].schedules, 1);
+  assert.equal(preview.variants[0].question_variants, 1000);
+  const readPreview = await (await call("/prompts/deletion-preview", { ids: [variantId] }, "viewer")).json();
+  assert.deepEqual(readPreview, preview);
+  await assert.rejects(call("/prompts/deletion-preview", { ids: [variantId, "foreign-prompt"] }), { status: 404 });
+  await assert.rejects(call("/prompts/bulk", { ids: [variantId] }, "viewer", "DELETE"), { status: 403 });
 
   const schedulePage = await tool("list_schedules", { workspace_id: "source", limit: 20 });
   assert.equal(schedulePage.total, 1004);
@@ -548,6 +575,9 @@ test("comparison rates, outcome counts and matching evidence use recorded run co
   }]);
   const breakdown = await (await rest("/analytics/questions")).json() as any;
   assert.deepEqual(JSON.parse(await tool("get_overview_questions")), breakdown);
+  assert.deepEqual(JSON.parse(await tool("get_overview_questions", { sort: "mentions" })),
+    await (await rest("/analytics/questions", { sort: "mentions" })).json());
+  await assert.rejects(rest("/analytics/questions", { sort: "unknown" }), { status: 400 });
   assert.deepEqual(breakdown.questions, [{
     evidence_run_id: "both-cited", workspace_id: "source", question: "Question", engine: "google",
     eligible_answers: 2, mentions: 0, citations: 1, compare_mentions: 0, compare_citations: 1,
@@ -659,6 +689,8 @@ test("comparison rates, outcome counts and matching evidence use recorded run co
     const sources = await (await rest("/research", { overlap })).json() as any;
     assert.deepEqual(JSON.parse(await tool("get_research_summary", { overlap })), sources);
     assert.equal(sources.answers, expected.length);
+    assert.deepEqual(sources.comparison_coverage, { primary: "client", comparison: "rival",
+      primary_answers: 5, comparison_answers: 4, shared_answers: 4 });
     assert.deepEqual(sources.domain_trends, [{ domain: host, day: to, answers: expected.length }]);
     assert.deepEqual(sources.items[0].ownership, [{ id: "configured-rival", name: "Configured rival", kind: "competitor" }]);
     const source = sources.items[0];
@@ -729,7 +761,7 @@ test("question answers reconcile with the library while remaining scoped to curr
   run("other-question", "alt", "source", "gemini", "client", true);
   run("wrong-workspace", "gemini", "target", "gemini", "client", true);
   run("workspace-copy", "copy", "target", "gemini", "client", true);
-  const recorded = "![logo](https://assets.test/image(" + "a".repeat(800) + "))\n## Tools\n* Try **[Client](https://vendor.test/one_(two))** for help.";
+  const recorded = "![logo](https://assets.test/image(" + "a".repeat(800) + "))\n## Tools\n---\n1\\. Try **[Client](https://vendor.test/one_(two))** for help.";
   sql.prepare("UPDATE runs SET answer_text=? WHERE id='match-gemini'").run(recorded);
   const question = sql.prepare("SELECT question_id FROM prompts WHERE id='prompt'").get()?.question_id;
   const foreign = sql.prepare("SELECT question_id FROM prompts WHERE id='foreign-prompt'").get()?.question_id;
@@ -867,7 +899,8 @@ test("sources search the full eligible cohort and preserve question evidence acr
       workspace, question, JSON.stringify({ engine }), "succeeded", eligible, JSON.stringify(sources),
       JSON.stringify(["duplicate query", "duplicate query"]), id, time, time);
   record("source-first", [...hosts, common, otherPage, foreignCitation], { time: earlier });
-  record("source-second", [common, otherPage, otherPage], { engine: "gemini" });
+  record("source-second", [common, { ...otherPage, url: otherPage.url + "?utm_source=chatgpt.com&gclid=123" },
+    { ...otherPage, url: otherPage.url + "?FbClId=abc" }], { engine: "gemini" });
   record("source-third", [common], { question: "Another question" });
   record("source-none", [source("ineligible.test")], { eligible: 0 });
   record("source-foreign", [source("foreign.test"), common], { workspace: "foreign" });
@@ -909,6 +942,10 @@ test("sources search the full eligible cohort and preserve question evidence acr
   const detail = await get(match);
   assert.deepEqual(detail.items.map((item: any) => item.value), [common.url, otherPage.url]);
   assert.equal(detail.detail.count, 3);
+  const originalUrls = await get({ research_type: "page", research_value: otherPage.url + "?utm_medium=chat" }, "/runs");
+  assert.deepEqual(originalUrls.runs.map((run: any) => run.id), ["source-second", "source-first"]);
+  assert.match(originalUrls.runs[0].citations[1].url, /utm_source/);
+  assert.equal((await get({ research_type: "page", research_value: otherPage.url + "?product=2&utm_medium=chat" })).detail.count, 0);
   assert.equal(detail.detail.daily.reduce((sum: number, day: any) => sum + day.answers, 0), 3);
   const questionView = { research_type: "page", research_value: otherPage.url, view: "questions" };
   const questions = await get(questionView);

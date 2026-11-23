@@ -1,5 +1,23 @@
+const dateTime = new Intl.DateTimeFormat(undefined, {
+  year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", second: "2-digit", timeZoneName: "short",
+});
+
+export function collectionTimestamp(value: number) {
+  return dateTime.format(value);
+}
+
+export function countLabel(count: number, singular: string, plural = singular + "s") {
+  return `${count.toLocaleString()} ${count === 1 ? singular : plural}`;
+}
+
 export function collectionVariantLabel(engine: string | undefined, workspaceName: string, engines: Record<string, string>) {
   return [engine ? engines[engine] ?? engine : "Unknown engine", workspaceName].filter(Boolean).join(" · ");
+}
+
+export function monitoringGroup(variants: { actively_scheduled?: number; schedule_count?: number }[]) {
+  if (variants.some(variant => !variant.schedule_count)) return "Ready to schedule";
+  if (variants.some(variant => !variant.actively_scheduled)) return "Has paused monitoring";
+  return "Already scheduled";
 }
 
 export function scheduleCadence(schedule: { preset: string; days: string; times_json: string; timezone: string }, locale?: string) {

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { appLoginPath, appReturnPath, parseAppSearch } from "../src/lib/app-location";
+import { sourceReportQuery, sourceReturnSearch } from "../src/lib/source-report";
+import { appLoginPath, appPath, appReturnPath, parseAppSearch } from "../src/lib/app-location";
 
 test("app links preserve the selected organization, workspace and record through login", () => {
   const search = "?org=second-org&workspace=client&tab=runs&run=run-abc";
@@ -77,6 +78,7 @@ test("schedule selection and recurring setup restore the chosen workspace after 
 
 test("tracking links retain workspace, view and evidence scope through sign-in", () => {
   for (const parameters of [
+    { tab: "tracking", trackingView: "questions", setAction: "choose" },
     { tab: "tracking", trackingView: "answers", metric: "mention", trackedBrand: "brand", trendMetric: "mention", evidenceDay: "2026-11-22" },
     { tab: "runs", trackingView: "answers", run: "recorded-run", evidence: "citations" },
     { tab: "prompts", trackingView: "questions", promptView: "create" },
@@ -116,4 +118,17 @@ test("source overlap, matches and evidence URLs retain the common brand cohort",
   }
   assert.equal(parseAppSearch({ ...scope, tab: "research", compareBrand: "primary" }).overlap, undefined);
   assert.equal(parseAppSearch({ ...scope, tab: "overview" }).overlap, undefined);
+});
+
+
+test("citation investigations restore the answer and apply its metric, brand, engine and day", () => {
+  const answer = parseAppSearch({ org: "agency", workspace: "client", tab: "runs", run: "answer", evidence: "citations",
+    trackedBrand: "brand", from: "2026-11-01", to: "2026-11-30", engine: "chatgpt", metric: "mention",
+    trendMetric: "mention", evidenceDay: "2026-11-12", reportQuestion: "question-anchor" });
+  const page = parseAppSearch({ ...answer, tab: "research", researchType: "page", researchValue: "https://example.test/",
+    sourceBackRun: answer.run, sourceReturn: appPath(answer).slice("/app?".length) });
+  assert.deepEqual(sourceReturnSearch(page), answer);
+  assert.deepEqual(Object.fromEntries(sourceReportQuery(page)), { workspace: "client", engine: "chatgpt",
+    from: "2026-11-12", to: "2026-11-12", tracked_brand: "brand", metric: "mention", report_evidence_run: "question-anchor" });
+  assert.equal(sourceReturnSearch({ ...page, org: "elsewhere" }), undefined);
 });

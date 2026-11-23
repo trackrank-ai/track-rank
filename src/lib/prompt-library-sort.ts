@@ -1,4 +1,5 @@
 export const promptLibrarySorts = {
+  monitoring: "Schedule status",
   newest: "Newest added",
   last_checked: "Most recently checked",
   never_checked: "Never checked first",

@@ -1,3 +1,5 @@
+import { citationPageKey } from "../lib/citation-page";
+import { citationPageSql } from "./citation-page";
 import { questionTypeMatch } from "./prompt-questions";
 import { questionTypes } from "../lib/question-type";
 import { z } from "zod";
@@ -113,6 +115,8 @@ export const runHistoryFilters = scopeFilters.extend({
   outcome: z.enum(["pending", "failed", "uncertain", "organic", "no_answer", "no_evidence", "eligible"]).optional(),
   status: z.enum(["queued", "submitting", "submitted", "succeeded", "failed", "uncertain"]).optional(),
   brand_id: z.string().min(1).max(100).optional(),
+  within_source_type: z.enum(["domain", "page", "query"]).optional(),
+  within_source_value: z.string().trim().min(1).max(4096).optional(),
   research_type: z.enum(["domain", "page", "query"]).optional(),
   research_value: z.string().trim().min(1).max(4096).optional(),
 });
@@ -129,7 +133,7 @@ export function parseHistoryFilters(params: URLSearchParams) {
   if (filters.from && filters.to && filters.from > filters.to)
     throw new HttpError(400, "The start date must be on or before the end date");
   if (filters.report_question_all_engines && !filters.report_evidence_run) throw new HttpError(400, "Choose a recorded question");
-  if (!!filters.research_type !== !!filters.research_value) throw new HttpError(400, "Choose a research item");
+  if (!!filters.research_type !== !!filters.research_value || !!filters.within_source_type !== !!filters.within_source_value) throw new HttpError(400, "Choose a research item");
   if ((filters.prompt_schedule || filters.prompt_brand) && !filters.question_id && filters.prompt_q === undefined)
     throw new HttpError(400, "Choose a question or search the prompt library before filtering its variants");
   if (filters.metric && filters.metric !== "eligible" && filters.metric !== "coverage" && !filters.tracked_brand)
@@ -275,21 +279,22 @@ function historyWhere(org: string, filters: z.output<typeof runHistoryFilters>) 
     )`);
     bindings.push(filters.brand_id);
   }
-  if (filters.research_type) {
+  for (const [type, value] of [[filters.research_type, filters.research_value], [filters.within_source_type, filters.within_source_value]] as const) {
+    if (!type || !value) continue;
     conditions.push("status='succeeded' AND has_answer=1");
-    if (filters.research_type === "query") {
+    if (type === "query") {
       conditions.push(`EXISTS (
         SELECT 1 FROM json_each(CASE WHEN json_valid(grounding_queries) THEN grounding_queries ELSE '[]' END)
         WHERE type='text' AND value=?
       )`);
     } else {
-      const field = filters.research_type === "domain" ? "$.domain" : "$.url";
+      const field = type === "domain" ? "json_extract(source.value,'$.domain')" : citationPageSql("json_extract(source.value,'$.url')");
       conditions.push(`EXISTS (
         SELECT 1 FROM json_each(CASE WHEN json_valid(citations) THEN citations ELSE '[]' END) AS source
-        WHERE CASE WHEN source.type='object' THEN json_extract(source.value,'${field}') END=?
+        WHERE CASE WHEN source.type='object' THEN ${field} END=?
       )`);
     }
-    bindings.push(filters.research_value);
+    bindings.push(type === "page" ? citationPageKey(value) : value);
   }
   return { conditions, bindings };
 }

@@ -1,3 +1,4 @@
+import { collectionTimestamp } from "@/lib/collection-labels";
 import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { ArrowUpRight } from "lucide-react";
@@ -125,7 +126,7 @@ export function QuestionAnswers({ path, request, org, context, engines, engine, 
         <div>
           {showQuestion && <strong>{answer.prompt_text}</strong>}
           <div className={showQuestion ? "data-note" : "font-semibold"}>{engines[answer.config?.engine ?? ""] ?? "Recorded engine"}</div>
-          <p className="data-note">{new Date(answer.created_at).toLocaleString()}
+          <p className="data-note">{collectionTimestamp(answer.created_at)}
             {answer.config?.location_name && ` · ${answer.config.location_name}`}</p>
           <AnswerPreview excerpt={answer.answer_excerpt} passage={answer.brand_passage} />
           <div className="answer-brand-mentions">{answer.config?.brands?.map(snapshot => {

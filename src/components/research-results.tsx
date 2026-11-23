@@ -28,6 +28,7 @@ export type SourceItem = {
   ownership?: Pick<ReportBrand, "id" | "name" | "kind">[];
 };
 export type ResearchSummary = {
+  comparison_coverage?: { primary: string; comparison: string; primary_answers: number; comparison_answers: number; shared_answers: number };
   domain_trends?: DomainDay[];
   answers: number;
   items: SourceItem[];
@@ -137,7 +138,7 @@ export function ResearchResults({ data, group, search, error, onSearch }: {
       <p className="data-note my-4" role="status">{data.total.toLocaleString()} {data.total === 1 ? "match" : "matches"} across {data.answers.toLocaleString()} eligible {data.answers === 1 ? "answer" : "answers"}. Each answer counts once per source.</p>
       {data.items.length ? <SourceTable rows={data.items} title={title} search={search}
         link={item => ({ ...search, researchType: group, researchValue: item.value, sourceView: search.overlap ? "answers" : undefined })} />
-        : <p className="data-note">{search.sourceSearch ? "No matches. Try another search." : "No results in this scope. Try a different comparison, engine or date range."}</p>}
+        : <p className="data-note">{search.sourceSearch ? "No matches. Try another search." : search.overlap && data.comparison_coverage ? (data.comparison_coverage.shared_answers ? "Both brands were measured together. No sources matched the selected mention group." : "No eligible answers tracked these two brands together.") : "No sources in this scope."}</p>}
       <SourcePagination data={data} search={search} field="sourcePage" />
     </>}
   </CardContent></Card>;

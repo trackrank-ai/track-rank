@@ -3,6 +3,7 @@ import { useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { DAY_MS, utcDay } from "@/lib/analytics-filters";
 import type { AppSearch } from "@/lib/app-location";
+import type { ResearchSummary } from "./research-results";
 import type { ReportBrand } from "./competitive-report";
 
 const overlapLabels = {
@@ -13,11 +14,16 @@ const overlapLabels = {
   neither: "Neither mentioned",
 } as const;
 
-export function SourceComparison({ brands, search }: { brands: ReportBrand[]; search: AppSearch }) {
+export function sourceBrandPair(brands: ReportBrand[], search: AppSearch) {
+  const primary = search.trackedBrand ?? (brands.find(brand => brand.kind !== "competitor") ?? brands[0])?.id;
+  const comparison = search.compareBrand ?? (brands.find(brand => brand.kind === "competitor" && brand.id !== primary) ?? brands.find(brand => brand.id !== primary))?.id;
+  return { primary, comparison };
+}
+
+export function SourceComparison({ brands, search, coverage }: { brands: ReportBrand[]; search: AppSearch; coverage?: ResearchSummary["comparison_coverage"] }) {
   const navigate = useNavigate({ from: "/app" });
   const [error, setError] = useState("");
-  const selected = search.trackedBrand ?? (brands.find(brand => brand.kind !== "competitor") ?? brands[0])?.id;
-  const other = search.compareBrand ?? (brands.find(brand => brand.kind === "competitor" && brand.id !== selected) ?? brands.find(brand => brand.id !== selected))?.id;
+  const { primary: selected, comparison: other } = sourceBrandPair(brands, search);
   const options = [...brands];
   for (const id of [selected, other]) {
     if (id && !options.some(brand => brand.id === id)) options.push({ id, name: id === selected ? "Historical primary brand" : "Historical comparison brand" });
@@ -37,10 +43,11 @@ export function SourceComparison({ brands, search }: { brands: ReportBrand[]; se
     void navigate({ search: { ...target, trackedBrand, compareBrand, overlap } });
   }
   return <section className="source-cohort" aria-label="Source comparison">
-    {!search.overlap && selected && other && <Link className="small-link" to="/app"
+    {!search.overlap && !!coverage?.shared_answers && selected && other && <Link className="small-link" to="/app"
       search={{ ...target, trackedBrand: selected, compareBrand: other, overlap: "competitor_only" }}>
       Sources in answers mentioning {name(other)} without {name(selected)}
     </Link>}
+    {coverage && !coverage.shared_answers && <p className="data-note">No eligible answers tracked both brands in this scope. {name(coverage.primary)} was measured in {coverage.primary_answers} answers and {name(coverage.comparison)} in {coverage.comparison_answers}.</p>}
     <details className="advanced-settings mb-4">
     <summary>Compare brand mentions{search.overlap && ` · ${name(selected)} / ${name(other)} · ${overlapLabels[search.overlap]}`}</summary>
     <form className="form-stack" onSubmit={apply}>
