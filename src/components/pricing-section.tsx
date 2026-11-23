@@ -8,6 +8,17 @@ export function PricingSection({ hosted, offers, standalone = false }: { hosted:
   const Heading = standalone ? "h1" : "h2";
   const PlanHeading = standalone ? "h2" : "h3";
   return <section className={`pricing-section${standalone ? " pricing-standalone" : ""}`} id="pricing" aria-labelledby="pricing-title">
+    {hosted && offers.length > 0 && <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify({
+      "@context": "https://schema.org", "@type": "SoftwareApplication",
+      name: "TrackRank", applicationCategory: "BusinessApplication", operatingSystem: "Web",
+      description: "Open-source AI visibility tracking. Hosted subscription prices exclude tax and separately billed provider usage.",
+      offers: offers.map(offer => ({
+        "@type": "Offer", name: offer.name, price: offer.price_cents / 100,
+        priceCurrency: offer.currency.toUpperCase(),
+        description: `${offer.limits.runs_per_month} prompt runs per ${offer.interval}; ${offer.limits.searchable_history_days ?? "unlimited"} days searchable history. Provider usage billed separately.`,
+        priceSpecification: { "@type": "UnitPriceSpecification", price: offer.price_cents / 100, priceCurrency: offer.currency.toUpperCase(), unitText: offer.interval },
+      })),
+    }).replace(/</g, "\\u003c") }} />}
     <Heading id="pricing-title">{hosted ? "Hosted plans" : "Self-host TrackRank"}</Heading>
     {hosted && <p className="pricing-intro">Choose your monthly run allowance and searchable history. Every plan includes all features, the same operational rate limits and no per-seat fees.</p>}
     {hosted && offers.length > 0 && <div className="pricing-grid">

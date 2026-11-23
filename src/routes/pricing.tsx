@@ -6,8 +6,8 @@ import { getPricingCatalog } from "@/server/site-config";
 
 export const Route = createFileRoute("/pricing")({
   loader: () => getPricingCatalog(),
-  head: () => ({ meta: [
-    { title: "Pricing — TrackRank" },
+  head: ({ loaderData }) => ({ links: loaderData ? [{ rel: "canonical", href: `${loaderData.origin}/pricing` }] : [], meta: [
+    { title: "AI Visibility Tracking Pricing — TrackRank" },
     { name: "description", content: "TrackRank hosted plans and the 14-day no-card trial." },
   ] }),
   component: Pricing,

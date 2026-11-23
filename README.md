@@ -160,3 +160,7 @@ Follow the **Sources** link for answers mentioning the competitor alone, or open
 In **Prompts**, eligible answers sort measured questions first. Use **Unchecked** to find questions with no checks in searchable history. Import a question file or paste into the creation form and review the exact variants. In **Manage selection**, classify shared questions as discovery, comparison or branded. Use the question type filter in Questions and Answers. Open **Settings → Workspace monitoring** for the brands included in future checks, provider readiness, engine coverage and upcoming schedules.
 
 Apply migration `0028_question_type.sql` to the target D1 database before deploying this version. Existing questions begin unclassified. Reporting uses stored run snapshots and does not require another provider collection.
+
+## Public SEO discovery
+
+`src/server/seo.ts` serves default-allow robots and a public-page-only XML sitemap from the installation's `BASE_URL`. Private routes retain `X-Robots-Tag: noindex`; do not block recrawling that directive. Home and Pricing emit deployment-aware canonical links. Pricing structured data derives from the same live offers as the visible cards, with separate provider costs explicit. Add genuinely public routes to the sitemap allowlist when shipping them. Cloudflare edge-managed robots rules may alter the app response: verify the public `/robots.txt` and `/sitemap.xml` after release.

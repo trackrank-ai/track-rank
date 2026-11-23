@@ -131,3 +131,7 @@ Homepage and `/pricing` must reuse the live offer catalog and shared pricing com
 Use the common recorded brand cohort for side-by-side comparisons, share of tracked mentions and source overlap. Keep the workspace, period, comparison and evidence filters in UI links, REST, MCP and CSV. Show prior-period coverage and disclose changed question or engine mix. Derive historical match passages from the answer and snapshotted names or aliases. Keep recommendation rank and sentiment separate from textual order.
 
 Store the optional question type on the shared workspace question. Bulk classification validates every selected variant and updates its question across engines. Apply migration `0028_question_type.sql` before deploying the release. Settings separates workspace monitoring from organization providers, access and billing.
+
+## Public SEO discovery
+
+`src/server/seo.ts` serves default-allow robots and a public-page-only XML sitemap from the installation's `BASE_URL`. Private routes retain `X-Robots-Tag: noindex`; do not block recrawling that directive. Home and Pricing emit deployment-aware canonical links. Pricing structured data derives from the same live offers as the visible cards, with separate provider costs explicit. Add genuinely public routes to the sitemap allowlist when shipping them. Cloudflare edge-managed robots rules may alter the app response: verify the public `/robots.txt` and `/sitemap.xml` after release.
