@@ -416,10 +416,12 @@ function App() {
     if (nextTab === tab) return next;
     const engine = tab === "prompts" ? search.promptEngine : search.engine;
     if (nextTab === "prompts") {
-      return { ...next, from: search.from, to: search.to, promptEngine: engine };
+      return { ...next, from: search.from, to: search.to, promptEngine: engine,
+        brand: tab === "overview" || (tracking && search.set) ? reportScope.trackedBrand : undefined };
     }
     if (tab === "prompts" && (nextTab === "overview" || nextTab === "runs" || nextTab === "research")) {
-      return { ...next, from: search.from, to: search.to, engine };
+      return { ...next, from: search.from, to: search.to, engine,
+        trackedBrand: nextTab === "overview" ? search.brand : undefined };
     }
     return next;
   }
