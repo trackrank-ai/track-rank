@@ -32,6 +32,8 @@ export async function listSavedPrompts(env: Env, org: string, params: URLSearchP
   if (!parsed.success) throw new HttpError(400, "Invalid saved prompt filters or cursor");
   const filters = parsed.data;
   if (filters.from && filters.to && filters.from > filters.to) throw new HttpError(400, "Choose a valid date range");
+  if (!filters.selection && brandPromptSorts.includes(filters.sort) && !filters.tracked_brand)
+    throw new HttpError(400, "Choose a tracked brand to sort by its outcomes");
   const conditions = ["p.org_id=?", "p.archived_at IS NULL"];
   const values: unknown[] = [org];
   if (filters.workspace) {
@@ -75,8 +77,6 @@ export async function listSavedPrompts(env: Env, org: string, params: URLSearchP
     ? one<{ total: number }>(env,
       `SELECT count(*) AS total FROM (SELECT 1 FROM prompts p WHERE ${scope} GROUP BY question_id)`, ...values)
     : null;
-  if (!filters.selection && brandPromptSorts.includes(filters.sort) && !filters.tracked_brand)
-    throw new HttpError(400, "Choose a tracked brand to sort by its outcomes");
   const sort = filters.selection ? "newest" : filters.sort;
   const sortKey = {
     newest: "matching.created_at",
