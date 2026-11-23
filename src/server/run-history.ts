@@ -1,7 +1,9 @@
+import { questionTypeMatch } from "./prompt-questions";
+import { questionTypes } from "../lib/question-type";
 import { z } from "zod";
 import { HttpError } from "./types";
 import { now, one, required, type Env } from "./types";
-import { answerMetrics, DAY_MS, validDay } from "../lib/analytics-filters";
+import { answerMetrics, DAY_MS, overlapValues, validDay } from "../lib/analytics-filters";
 import { promptTags } from "./prompt-tags";
 import { promptSetPredicate, requirePromptSet, setId } from "./prompt-sets";
 import { organizationPlan } from "./plans";
@@ -34,11 +36,26 @@ export async function searchableHistoryWhere(env: Env, org: string, params: URLS
     }
   }
   const { limits } = await organizationPlan(env, org);
-  if (limits.searchable_history_days !== undefined) {
+  const searchableSince = limits.searchable_history_days === undefined ? null : now() - limits.searchable_history_days * DAY_MS;
+  if (searchableSince !== null) {
     where.conditions.push("runs.created_at>=?");
-    where.bindings.push(now() - limits.searchable_history_days * 86400000);
+    where.bindings.push(searchableSince);
   }
-  return where;
+  if (filters.match_from && filters.match_to) {
+    const { workspace, set, tags, location, engine, tracked_brand, compare_brand } = filters;
+    const reference = historyWhere(org, {
+      workspace, set, tags, location, engine, tracked_brand, compare_brand,
+      metric: tracked_brand ? "brand" : "eligible", from: filters.match_from, to: filters.match_to,
+    });
+    if (searchableSince !== null) {
+      reference.conditions.push("runs.created_at>=?");
+      reference.bindings.push(searchableSince);
+    }
+    const cell = "runs.workspace_id,runs.prompt_text,coalesce(json_extract(" + runConfig + ",'$.engine'),'')";
+    where.conditions.push(`(${cell}) IN (SELECT ${cell} FROM runs WHERE ${reference.conditions.join(" AND ")})`);
+    where.bindings.push(...reference.bindings);
+  }
+  return { ...where, searchableSince };
 }
 
 export const scopeFilters = z.object({
@@ -47,14 +64,18 @@ export const scopeFilters = z.object({
   location: z.string().trim().min(1).max(200).optional(),
   from: z.string().refine(validDay).optional(),
   to: z.string().refine(validDay).optional(),
+  match_from: z.string().refine(validDay).optional(),
+  match_to: z.string().refine(validDay).optional(),
   tracked_brand: setId.optional(),
   engine: z.enum(["chatgpt", "gemini", "google"]).optional(),
 });
 export const runHistoryFilters = scopeFilters.extend({
   workspace: setId.optional(),
   compare_brand: setId.optional(),
+  overlap: z.enum(overlapValues).optional(),
   metric: z.enum(answerMetrics).optional(),
   question_id: setId.optional(),
+  question_type: z.enum(questionTypes).optional(),
   report_evidence_run: setId.optional(),
   prompt_q: z.string().trim().max(200).optional(),
   report_question_all_engines: z.enum(["true"]).optional(),
@@ -76,6 +97,8 @@ export function parseHistoryFilters(params: URLSearchParams) {
   const parsed = runHistoryFilters.safeParse(input);
   if (!parsed.success) throw new HttpError(400, "Invalid run history filters");
   const filters = parsed.data;
+  if (!!filters.match_from !== !!filters.match_to || (filters.match_from && filters.match_to && filters.match_from > filters.match_to))
+    throw new HttpError(400, "Choose a valid date range for the matched question and engine cohort");
   if (filters.from && filters.to && filters.from > filters.to)
     throw new HttpError(400, "The start date must be on or before the end date");
   if (filters.report_question_all_engines && !filters.report_evidence_run) throw new HttpError(400, "Choose a recorded question");
@@ -86,6 +109,7 @@ export function parseHistoryFilters(params: URLSearchParams) {
     throw new HttpError(400, "Choose a tracked brand");
   if (filters.compare_brand && (!filters.tracked_brand || filters.compare_brand === filters.tracked_brand))
     throw new HttpError(400, "Choose two distinct tracked brands");
+  if (filters.overlap && !filters.compare_brand) throw new HttpError(400, "Choose two brands for the overlap cohort");
   if (filters.metric?.startsWith("compare_") && !filters.compare_brand)
     throw new HttpError(400, "Choose a comparison brand");
   return filters;
@@ -140,8 +164,9 @@ function historyWhere(org: string, filters: z.output<typeof runHistoryFilters>) 
     conditions.push("runs.workspace_id=?");
     bindings.push(filters.workspace);
   }
-  if (filters.question_id || filters.prompt_q !== undefined || filters.set || filters.tags?.length || filters.metric === "coverage") {
+  if (filters.question_type || filters.question_id || filters.prompt_q !== undefined || filters.set || filters.tags?.length || filters.metric === "coverage") {
     const selected = currentPromptWhere(filters);
+    if (filters.question_type) { selected.conditions.push(questionTypeMatch); selected.bindings.push(filters.question_type); }
     if (filters.question_id) {
       selected.conditions.push("p.question_id=?");
       selected.bindings.push(filters.question_id);
@@ -187,6 +212,17 @@ function historyWhere(org: string, filters: z.output<typeof runHistoryFilters>) 
     if (filters.metric !== "brand") {
       conditions.push(brandOutcome("?", filters.metric.endsWith("mention") ? "mentioned" : "cited"));
       bindings.push(filters.metric.startsWith("compare_") ? filters.compare_brand : filters.tracked_brand);
+    }
+  }
+  if (filters.overlap) {
+    conditions.push(eligibleAnswer, brandTracked, brandTracked);
+    bindings.push(filters.tracked_brand, filters.compare_brand);
+    if (filters.overlap !== "all") {
+      const client = filters.overlap === "client_only" || filters.overlap === "both";
+      const competitor = filters.overlap === "competitor_only" || filters.overlap === "both";
+      conditions.push((client ? "" : "NOT ") + brandOutcome("?", "mentioned"),
+        (competitor ? "" : "NOT ") + brandOutcome("?", "mentioned"));
+      bindings.push(filters.tracked_brand, filters.compare_brand);
     }
   }
   if (filters.prompt_id) {

@@ -16,7 +16,7 @@ function pagePath(path: string, params: URLSearchParams, cursor: Cursor | null) 
 }
 
 export function useBulkPages(path: string | null, field: string, read: ReadPage, refresh: unknown) {
-  type Page = { path: string; rows: Row[]; total: number; tags: string[]; next: Cursor | null; history: (Cursor | null)[] };
+  type Page = { path: string; rows: Row[]; total: number; unchecked?: number; tags: string[]; next: Cursor | null; history: (Cursor | null)[] };
   const [page, setPage] = useState<Page | null>(null);
   const [loading, setLoading] = useState(false);
   const [selecting, setSelecting] = useState(false);
@@ -32,7 +32,7 @@ export function useBulkPages(path: string | null, field: string, read: ReadPage,
       if (signal.aborted) return;
       setPage({
         path: scope, rows: data[field], total: data.total ?? previous?.total ?? 0,
-        tags: data.tags ?? [], next: data.next_cursor, history,
+        unchecked: data.unchecked ?? previous?.unchecked, tags: data.tags ?? [], next: data.next_cursor, history,
       });
     } catch (error) {
       if (!signal.aborted) setError(error instanceof Error ? error.message : "Unable to load this page.");

@@ -1,3 +1,4 @@
+import { questionTypes, type QuestionType } from "./question-type";
 import { promptLibrarySortKeys, type PromptLibrarySort } from "./prompt-library-sort";
 import { analyticsScope, answerMetrics, type AnalyticsScope, type AnswerMetric, type TrendMetric } from "./analytics-filters";
 import { normalizePromptTag, validPromptTag } from "./prompt-tags";
@@ -7,7 +8,7 @@ export type AppTab = typeof appTabs[number];
 export const researchSorts = ["answers", "questions", "last_seen", "value"] as const;
 const researchTypes = ["domain", "page", "query"] as const;
 export type ResearchType = typeof researchTypes[number];
-export const settingsSections = { providers: "Providers", team: "Team & access", billing: "Billing" } as const;
+export const settingsSections = { monitoring: "Workspace monitoring", providers: "Providers", team: "Team & access", billing: "Billing" } as const;
 export type SettingsSection = keyof typeof settingsSections;
 
 export const runStatuses = ["queued", "submitting", "submitted", "succeeded", "failed", "uncertain"] as const;
@@ -25,10 +26,13 @@ export type AppSearch = AnalyticsScope & {
   prompt?: string;
   question?: string;
   trackingView?: "overview" | "questions" | "answers" | "settings";
+  questionEngine?: AnalyticsScope["engine"] | "all";
   questionMetric?: "mention" | "citation";
   questionView?: "answers" | "settings";
   promptView?: "create" | "schedule" | "answers";
   promptSort?: PromptLibrarySort;
+  questionType?: QuestionType;
+  promptChecks?: "unchecked";
   setupIntent?: "schedule";
   setupFrom?: "tracking";
   promptEngine?: AnalyticsScope["engine"];
@@ -75,7 +79,7 @@ export function parseAppSearch(search: Record<string, unknown>): AppSearch {
   const sourcePage = (value: unknown) => (typeof value === "number" || typeof value === "string") && /^(?:[1-9][0-9]{0,5}|1000000)$/.test(String(value)) ? String(value) : undefined;
   const tag = typeof search.tag === "string" ? normalizePromptTag(search.tag) : "";
   const scoped = !tab || tab === "overview" || tab === "runs" || tab === "research" || tab === "tracking";
-  const scope = analyticsScope(tab === "research" ? { ...search, compareBrand: undefined } : search);
+  const scope = analyticsScope(researchContext ? search : { ...search, overlap: undefined });
   const metric = answerMetrics.find(value => value === search.metric);
   const trendMetric = search.trendMetric === "mention" || search.trendMetric === "citation" ? search.trendMetric : undefined;
   const trackingSet = resourceId(search.set);
@@ -103,10 +107,13 @@ export function parseAppSearch(search: Record<string, unknown>): AppSearch {
     tab,
     prompt: tab === "prompts" ? resourceId(search.prompt) : undefined,
     question,
+    questionEngine: question ? search.questionEngine === "all" ? "all" : analyticsScope({ engine: search.questionEngine }).engine : undefined,
     questionMetric: question && (search.questionMetric === "mention" || search.questionMetric === "citation") ? search.questionMetric : undefined,
     questionView: question
       ? (["answers", "settings"] as const).find(value => value === search.questionView) : undefined,
     promptView,
+    promptChecks: libraryContext && search.promptChecks === "unchecked" ? "unchecked" : undefined,
+    questionType: libraryContext ? questionTypes.find(type => type === search.questionType) : undefined,
     promptSort: libraryContext ? promptLibrarySortKeys.find(value => value === search.promptSort) : undefined,
     setupFrom: tab === "prompts" && search.promptView === "create" && search.setupFrom === "tracking" ? "tracking" : undefined,
     setupIntent: tab === "prompts" && search.promptView === "create" && search.setupIntent === "schedule" ? "schedule" : undefined,
@@ -150,7 +157,10 @@ export function parseAppSearch(search: Record<string, unknown>): AppSearch {
 export function appReturnPath(value: string | null) {
   if (!value || !/^\/app(?:\?|$)/.test(value)) return "/app";
   const url = new URL(value, "https://trackrank.invalid");
-  const search = parseAppSearch(Object.fromEntries(url.searchParams));
+  return appPath(parseAppSearch(Object.fromEntries(url.searchParams)));
+}
+
+export function appPath(search: AppSearch) {
   const query = new URLSearchParams();
   for (const [key, entry] of Object.entries(search)) if (entry) query.set(key, entry);
   return query.size ? "/app?" + query : "/app";

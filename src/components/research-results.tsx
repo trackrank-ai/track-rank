@@ -5,6 +5,9 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { researchSorts, type AppSearch, type ResearchType } from "@/lib/app-location";
 
+import { DomainTrends, type DomainDay } from "./source-comparison";
+import type { ReportBrand } from "./competitive-report";
+
 const groups = [
   { id: "domain", label: "Domains" },
   { id: "page", label: "Pages" },
@@ -22,8 +25,10 @@ export type SourceItem = {
   last_seen: number;
   workspace_id: string | null;
   evidence_run_id: string | null;
+  ownership?: Pick<ReportBrand, "id" | "name" | "kind">[];
 };
 export type ResearchSummary = {
+  domain_trends?: DomainDay[];
   answers: number;
   items: SourceItem[];
   total: number;
@@ -89,6 +94,7 @@ export function SourceTable({ rows, link, title, questionRows, questionContext, 
         <th scope="row">
           <Link to="/app" search={link(item)}>{item.title || item.value}</Link>
           {item.title && item.title !== item.value && <small>{item.value}</small>}
+          {item.ownership?.map(brand => <small key={brand.id}>{brand.kind === "competitor" ? "Competitor domain" : "Brand domain"} · {brand.name}</small>)}
           {questionContext && <small>{questionContext(item)}</small>}
           {item.kind === "page" && /^https?:\/\//i.test(item.value) && <a className="small-link" href={item.value} target="_blank" rel="noreferrer"
             aria-label={`Open original for ${item.title || item.value}`}><ExternalLink size={13} aria-hidden="true" /> Open original</a>}
@@ -127,10 +133,11 @@ export function ResearchResults({ data, group, search, error, onSearch }: {
       {search.sourceSearch && <Button size="sm" variant="ghost" onClick={() => { setDraft(""); onSearch(""); }} type="button">Clear</Button>}
     </form>
     {error ? <p role="alert" className="mt-4">{error}</p> : !data ? <p role="status" className="data-note mt-4">Loading sources…</p> : <>
+      {group === "domain" && !!data.domain_trends?.length && <DomainTrends rows={data.domain_trends} search={search} />}
       <p className="data-note my-4" role="status">{data.total.toLocaleString()} {data.total === 1 ? "match" : "matches"} across {data.answers.toLocaleString()} eligible {data.answers === 1 ? "answer" : "answers"}. Each answer counts once per source.</p>
       {data.items.length ? <SourceTable rows={data.items} title={title} search={search}
-        link={item => ({ ...search, researchType: group, researchValue: item.value })} />
-        : <p className="data-note">{search.sourceSearch ? "No matches. Try another search." : "No results in this scope. Try a different engine or date range."}</p>}
+        link={item => ({ ...search, researchType: group, researchValue: item.value, sourceView: search.overlap ? "answers" : undefined })} />
+        : <p className="data-note">{search.sourceSearch ? "No matches. Try another search." : "No results in this scope. Try a different comparison, engine or date range."}</p>}
       <SourcePagination data={data} search={search} field="sourcePage" />
     </>}
   </CardContent></Card>;

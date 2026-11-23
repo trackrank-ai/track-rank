@@ -1,3 +1,4 @@
+import { firstBrandMatch, snapshotNames } from "../lib/brand-passage";
 import {assertProviderOptions} from "./provider-options";
 import { maintenance } from "./erasure";
 import { organizationPlan } from "./plans";
@@ -241,20 +242,7 @@ export function normalize(result: Row, config: Config) {
   if (config.engine !== "google") walk({ ...result, items: undefined });
   const text = [...new Set(textParts)].join("\n\n").slice(0, 250000);
   const mentions = config.brands.map((b) => {
-    const aliases = [
-      String(b.name),
-      ...(JSON.parse(String(b.aliases || "[]")) as string[]),
-    ];
-    const mentioned = aliases.some((a) => {
-      const esc = a.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      return (
-        a.trim().length > 1 &&
-        new RegExp(
-          `(?:^|[^\\p{L}\\p{N}])${esc}(?=$|[^\\p{L}\\p{N}])`,
-          "iu",
-        ).test(text)
-      );
-    });
+    const mentioned = !!firstBrandMatch(text, snapshotNames(b));
     const domain = String(b.domain || "")
       .toLowerCase()
       .replace(/^www\./, "");

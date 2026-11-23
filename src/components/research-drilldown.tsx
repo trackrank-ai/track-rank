@@ -163,6 +163,7 @@ export function ResearchDrilldown({ search, type, value, engines, workspaceNames
                 <small>
                   {engines[run.config?.engine] ?? "Unknown engine"} · {workspaceNames[run.workspace_id] ?? "Unavailable workspace"} · {new Date(run.created_at).toLocaleString()}
                 </small>
+                {run.answer_excerpt && <p className="research-answer-excerpt">{run.answer_excerpt}</p>}
               </Link>
               <span>{(run.mentions || []).filter((brand: Item) => brand.mentioned).map((brand: Item) => brand.name).join(", ")}</span>
             </div>

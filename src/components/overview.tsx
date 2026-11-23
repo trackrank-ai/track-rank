@@ -1,15 +1,16 @@
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { analyticsQuery, analyticsScope, utcDay, type AnalyticsScope, type AnswerMetric, type TrendMetric } from "@/lib/analytics-filters";
+import { analyticsQuery, analyticsScope, DAY_MS, utcDay, type AnalyticsScope, type AnswerMetric, type TrendMetric } from "@/lib/analytics-filters";
 import type { AppSearch } from "@/lib/app-location";
 import { MAX_PROMPT_TAGS, splitPromptTags, validPromptTag } from "@/lib/prompt-tags";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { BrandComparison, PeriodChange, type EngineBrand, type MentionShare, type PreviousPeriod, type ReportBrand } from "./competitive-report";
 import type { PromptSet } from "./prompt-sets";
 
 type Item = Record<string, any>;
 type RequestData = (path: string) => Promise<Item>;
-type Brand = { id: string; name: string };
+type Brand = ReportBrand;
 type Counts = { samples: number; mentions: number; citations: number };
 type Day = Counts & { day: string; compare_mentions?: number; compare_citations?: number };
 type QuestionBreakdownRow = {
@@ -38,6 +39,9 @@ type OverviewData = {
   covered_prompts: number;
   daily: Day[];
   comparison_daily: Day[];
+  engine_brands: EngineBrand[];
+  previous_period: PreviousPeriod;
+  mention_share: MentionShare | null;
   domains: { domain: string; answers: number }[];
 };
 
@@ -72,7 +76,7 @@ export function OverviewFilters({ scope, org, workspace, workspaceNames, sets, b
   lockSet?: boolean;
 }) {
   const [error, setError] = useState("");
-  const locationQuery = analyticsQuery({ ...scope, location: undefined, trackedBrand: undefined, compareBrand: undefined }, workspace);
+  const locationQuery = analyticsQuery({ ...scope, location: undefined, trackedBrand: undefined, compareBrand: undefined, overlap: undefined }, workspace);
   const locations = useReport<{ locations: string[] }>("/analytics/locations?" + locationQuery, request, revision);
   const activeSet = sets.find(set => set.id === scope.set);
   const activeBrand = brands.find(brand => brand.id === scope.trackedBrand);
@@ -82,6 +86,7 @@ export function OverviewFilters({ scope, org, workspace, workspaceNames, sets, b
     scope.tags && `Tags: ${scope.tags.split(",").join(", ")}`,
     scope.engine && (engines[scope.engine] ?? scope.engine),
     scope.location && `Location: ${scope.location}`,
+    scope.matchFrom && `Matched to ${scope.matchFrom} – ${scope.matchTo}`,
     showBrand && scope.trackedBrand && `Brand: ${activeBrand?.name ?? "Selected historical brand"}`,
   ].filter(Boolean);
   function apply(event: FormEvent<HTMLFormElement>) {
@@ -91,7 +96,7 @@ export function OverviewFilters({ scope, org, workspace, workspaceNames, sets, b
       const tags = splitPromptTags(String(data.tags ?? ""));
       if (tags.length > MAX_PROMPT_TAGS || tags.some(tag => !validPromptTag(tag)))
         throw new Error("Enter up to 20 tags of 1–50 characters each.");
-      onChange(analyticsScope({ ...data, set: lockSet ? scope.set : data.set, compareBrand: scope.compareBrand, tags: tags.join(",") }));
+      onChange(analyticsScope({ ...data, trackedBrand: showBrand ? data.trackedBrand : scope.trackedBrand, set: lockSet ? scope.set : data.set, compareBrand: scope.compareBrand, overlap: scope.overlap, matchFrom: data.from === scope.from && data.to === scope.to ? scope.matchFrom : undefined, matchTo: data.from === scope.from && data.to === scope.to ? scope.matchTo : undefined, tags: tags.join(",") }));
       setError("");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Invalid tags");
@@ -148,7 +153,7 @@ export function OverviewFilters({ scope, org, workspace, workspaceNames, sets, b
 
 export function Overview({
   org, workspace, workspaceName, scope, brands, sets, engines, hasTrackedBrand, brandWorkspace, credentialsConnected, canWrite,
-  canManageCredentials, request, revision, filters, trendMetric = "mention", reportLink, evidenceLink, workspaceNames, emptyScope,
+  canManageCredentials, request, revision, filters, trendMetric = "mention", reportLink, evidenceLink, workspaceNames, emptyScope, automaticBrand = false,
 }: {
   org: string;
   workspace: string;
@@ -170,8 +175,17 @@ export function Overview({
   evidenceLink?: EvidenceLink;
   workspaceNames?: Record<string, string>;
   emptyScope?: ReactNode;
+  automaticBrand?: boolean;
 }) {
   const result = useReport<OverviewData>("/analytics?" + analyticsQuery(scope, workspace), request, revision);
+  const navigate = useNavigate({ from: "/app" });
+  const observed = result?.data?.engine_brands;
+  const fallbackId = automaticBrand && observed?.length && !observed.some(row => row.id === scope.trackedBrand)
+    ? (brands.find(brand => brand.kind !== "competitor" && observed.some(row => row.id === brand.id))?.id ??
+       brands.find(brand => observed.some(row => row.id === brand.id))?.id ?? observed[0].id) : undefined;
+  useEffect(() => {
+    if (fallbackId) void navigate({ search: previous => ({ ...previous, trackedBrand: fallbackId, compareBrand: undefined }), replace: true });
+  }, [fallbackId, navigate]);
   if (result?.error) return <><p role="alert">{result.error}</p>{filters}</>;
   if (!result?.data) return <p role="status">Calculating visibility…</p>;
   const data = result.data;
@@ -211,8 +225,9 @@ export function Overview({
   const dateLabel = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeZone: "UTC" })
     .formatRange(new Date(data.from), new Date(data.to));
   const setName = sets.find(set => set.id === scope.set)?.name;
-  const brandName = brands.find(brand => brand.id === scope.trackedBrand)?.name;
-  const comparisonName = scope.compareBrand ? brands.find(brand => brand.id === scope.compareBrand)?.name ?? "Historical comparison brand" : undefined;
+  const nameFor = (id?: string) => brands.find(brand => brand.id === id)?.name ?? data.engine_brands.find(row => row.id === id)?.name;
+  const brandName = nameFor(scope.trackedBrand);
+  const comparisonName = scope.compareBrand ? nameFor(scope.compareBrand) ?? "Historical comparison brand" : undefined;
   const selectedBrand = scope.trackedBrand ? brandName ?? "Historical tracked brand" : undefined;
   const scopeLabel = [workspaceName, `${dateLabel} (UTC)`, scope.engine ? engines[scope.engine] : "All engines",
     selectedBrand ?? "No tracked brand", scope.set && (setName || "Selected prompt set"), scope.location,
@@ -240,18 +255,35 @@ export function Overview({
     { label: "Citation rate", metric: "citation", count: "citations", comparisonCount: "compare_citations" },
   ] as const;
   const activeLabel = trendMetric === "mention" ? "Mention rate" : "Citation rate";
+  const comparison = <BrandComparison rows={data.engine_brands} brands={brands} engines={engines} scope={scope}
+    metric={trendMetric} mentionShare={data.mention_share} toReport={toReport} evidence={metricLink} sources={{ ...scope, org, workspace, tab: "research" }} />;
   return <>
     <Card><CardContent className="overview-findings">
-      <div className="panel-title"><div><h2>Visibility</h2><p className="overview-scope">{scopeLabel}</p></div></div>
+      <div className="panel-title"><div><h2>Visibility</h2><p className="overview-scope">{scopeLabel}</p></div>
+        <nav className="report-period-shortcuts" aria-label="Reporting period">
+          {[7, 30].map(length => {
+            const today = utcDay(Date.now());
+            const from = utcDay(Date.parse(today) - (length - 1) * DAY_MS);
+            return <Link key={length} to="/app" aria-current={scope.from === from && scope.to === today ? "true" : undefined}
+              search={toReport({ ...scope, from, to: today, matchFrom: undefined, matchTo: undefined })}>Last {length} days</Link>;
+          })}
+          <a href={"/api/v1/analytics/export?" + new URLSearchParams({ ...Object.fromEntries(analyticsQuery(scope, workspace)), org })}>
+            Export report CSV
+          </a>
+        </nav>
+      </div>
       {filters}
+      {scope.matchFrom && <p className="data-note">Matching questions and engines observed {scope.matchFrom} – {scope.matchTo} UTC.</p>}
       {!data.total_runs ? <p>No collections match these filters. <Link to="/app" search={availableHistory}>Show available history</Link>.</p>
         : !data.eligible_answers ? <p>No AI answers were recorded in these collections. <a href="#overview-collection-coverage">Review collection outcomes</a>.</p>
-        : !selectedBrand ? <p>No brand is selected. <Link to="/app" search={metricLink("eligible")}>{collectedAnswersLabel(data.eligible_answers)}</Link></p>
+        : !selectedBrand ? <><p>No brand is selected. <Link to="/app" search={metricLink("eligible")}>{collectedAnswersLabel(data.eligible_answers)}</Link></p>{comparison}</>
         : !totals.samples ? <>
           <p>{comparisonName ? "No answers tracked both brands." : `No collected answers tracked ${selectedBrand}.`}
             {" "}<Link to="/app" search={metricLink("eligible")}>{collectedAnswersLabel(data.eligible_answers)}</Link>
           </p>
-          {comparisonName && <Link className="small-link" to="/app" search={toReport({ ...scope, compareBrand: undefined })}>Remove comparison</Link>}
+          {scope.matchFrom && <Link className="small-link" to="/app" search={toReport({ ...scope, matchFrom: undefined, matchTo: undefined })}>Include all question and engine combinations</Link>}
+          {comparison}
+          {!data.engine_brands.length && canWrite && <Link className="small-link" to="/app" search={{ org, workspace: brandWorkspace, tab: "brands" }}>Manage brands for future checks</Link>}
         </> : <>
           {comparisonName && <p className="data-note">{selectedBrand} compared with {comparisonName}</p>}
           <nav className="overview-rates" aria-label="Visibility metric">
@@ -267,14 +299,10 @@ export function Overview({
             {comparisonName && ` or ${comparisonName}`}. Rates use successful AI answers that tracked {comparisonName ? "both brands" : selectedBrand}.
             {" "}<Link to="/app" search={metricLink("brand")}>View all {answerCount(totals.samples, "eligible ")}</Link>.
           </p>
-          {(comparisonName || brands.some(brand => brand.id !== scope.trackedBrand)) && <div className="app-inline-form">
-            {comparisonName ? <Link to="/app" search={toReport({ ...scope, compareBrand: undefined })}>Remove comparison</Link>
-              : <details><summary>Compare with another brand</summary><ul>
-                {brands.filter(brand => brand.id !== scope.trackedBrand).map(brand =>
-                  <li key={brand.id}><Link to="/app" search={toReport({ ...scope, compareBrand: brand.id })}>{brand.name}</Link></li>
-                )}
-              </ul></details>}
-          </div>}
+          <PeriodChange previous={data.previous_period} metric={trendMetric} samples={totals.samples}
+            count={trendMetric === "mention" ? totals.mentions : totals.citations} evidence={metricLink()} report={toReport} scope={scope}
+            brand={selectedBrand} comparison={comparisonName} comparisonCount={trendMetric === "mention" ? totals.compare_mentions : totals.compare_citations} />
+          {comparison}
           <section className="mt-5" aria-label={`Daily ${activeLabel.toLowerCase()}`}>
             <h3 className="font-semibold">{activeLabel} over time</h3>
             <DailyTrend days={days} from={data.from} to={data.to} metric={trendMetric} brand={selectedBrand} comparison={comparisonName} link={metricLink} />

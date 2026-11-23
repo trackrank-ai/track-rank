@@ -107,3 +107,7 @@ fabricated and organic-only results do not count as AI brand mentions.
 ## Commercial ownership
 
 `billing_accounts` has a stable primary ID and a unique organization foreign key. Its unique nullable `customer_id` binds to Stripe, and its unique nullable `subscription_id` permits one current subscription. Organization insertion creates the account transactionally. The customer is created lazily with account-scoped idempotency, never tied to the employee who clicks Checkout. Checkout locking is account-scoped. Signed webhooks map Customer IDs to accounts and their exact organization plan; metadata is not ownership proof. `billing_account_admins` delegates financial access to current organization members through composite foreign keys. It is independent of content roles and commercial limits. Multiple organizations cannot currently share an account; consolidated enterprise billing requires a deliberate quota/access design rather than reusing customer IDs.
+
+## Competitive reporting
+
+Run snapshots and normalized answer evidence supply the reporting cohort. Shared server predicates specify brand overlap, the searchable window, engine and matched-period question membership for each detail and export. A textual brand match in run detail uses snapshotted names and aliases and offsets into the stored answer. Question classification is current workspace metadata on `prompt_questions`; migration 0028 adds a nullable constrained field, and existing questions start unclassified.

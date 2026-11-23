@@ -10,6 +10,9 @@ export function defaultPeriod(time = Date.now()) {
   return { from: utcDay(time - 29 * DAY_MS), to: utcDay(time) };
 }
 
+export const overlapValues = ["all", "client_only", "competitor_only", "both", "neither"] as const;
+export type BrandOverlap = typeof overlapValues[number];
+
 export type AnalyticsScope = {
   set?: string;
   tags?: string;
@@ -19,6 +22,9 @@ export type AnalyticsScope = {
   to?: string;
   trackedBrand?: string;
   compareBrand?: string;
+  overlap?: BrandOverlap;
+  matchFrom?: string;
+  matchTo?: string;
 };
 export const answerMetrics = ["eligible", "coverage", "brand", "mention", "citation", "compare_mention", "compare_citation"] as const;
 export type AnswerMetric = typeof answerMetrics[number];
@@ -33,7 +39,12 @@ export function analyticsScope(search: Record<string, unknown>): AnalyticsScope 
   const tags = bounded(search.tags, 1020)?.split(",").map(normalizePromptTag);
   const trackedBrand = id(search.trackedBrand);
   const compareBrand = id(search.compareBrand);
+  const matchFrom = day(search.matchFrom);
+  const matchTo = day(search.matchTo);
+  const matched = matchFrom && matchTo && matchFrom <= matchTo;
   return {
+    matchFrom: matched ? matchFrom : undefined,
+    matchTo: matched ? matchTo : undefined,
     set: id(search.set),
     tags: tags && tags.length <= 20 && tags.every(validPromptTag) ? [...new Set(tags)].sort().join(",") : undefined,
     engine: engine === "chatgpt" || engine === "gemini" || engine === "google" ? engine : undefined,
@@ -42,14 +53,17 @@ export function analyticsScope(search: Record<string, unknown>): AnalyticsScope 
     to: day(search.to),
     trackedBrand,
     compareBrand: trackedBrand && trackedBrand !== compareBrand ? compareBrand : undefined,
+    overlap: trackedBrand && compareBrand && trackedBrand !== compareBrand && overlapValues.includes(search.overlap as BrandOverlap)
+      ? search.overlap as BrandOverlap : undefined,
   };
 }
 
 export function analyticsQuery(scope: AnalyticsScope, workspace?: string) {
   const query = new URLSearchParams();
   if (workspace && workspace !== "all") query.set("workspace", workspace);
+  const apiName: Record<string, string> = { trackedBrand: "tracked_brand", compareBrand: "compare_brand", matchFrom: "match_from", matchTo: "match_to" };
   for (const [key, value] of Object.entries(scope)) {
-    if (value) query.set(key === "trackedBrand" ? "tracked_brand" : key === "compareBrand" ? "compare_brand" : key, value);
+    if (value) query.set(apiName[key] ?? key, value);
   }
   return query;
 }

@@ -1,3 +1,5 @@
+import { questionTypes } from "../lib/question-type";
+import { questionTypePatch } from "./prompt-questions";
 import { promptLibrarySortKeys } from "../lib/prompt-library-sort";
 import { overviewQuestionsPage, researchReportInput } from "./analytics";
 import { bulkPromptSettingsSchema } from "./prompt-settings";
@@ -102,6 +104,10 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
     },
     async () => invoke("/workspaces"),
   );
+  server.registerTool("get_workspace_monitoring", {
+    description: "Inspect a workspace’s brand assignments, provider readiness, questions, engine coverage and next scheduled checks.",
+    inputSchema: { workspace_id: z.string().min(1).max(100) },
+  }, async ({ workspace_id }) => invoke(`/workspaces/${encodeURIComponent(workspace_id)}/monitoring`));
   server.registerTool(
     "create_workspace",
     {
@@ -187,9 +193,13 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
   }, async ({ set_id, ...args }) => invoke(`/prompt-sets/${set_id}/members`, "PATCH", args));
   const reportingInput = { ...scopeFilters.shape, ...workspaceInput };
   server.registerTool("get_overview", {
-    description: "Compute full-period visibility totals, coverage, brand rates and UTC daily trends. Pass tracked_brand for daily brand statistics and compare_brand for their common cohort.",
+    description: "Compute full-period visibility totals, brand-by-engine counts, previous-period rates, coverage and UTC daily trends. Pass tracked_brand for daily brand statistics and compare_brand for their common cohort.",
     inputSchema: { ...reportingInput, compare_brand: runHistoryFilters.shape.compare_brand },
   }, async args => invoke(filteredPath("/analytics", args)));
+  server.registerTool("export_overview", {
+    description: "Export brand-by-engine rates, mention shares, previous-window counts, question coverage and metric definitions from the full Overview cohort as CSV.",
+    inputSchema: { ...reportingInput, compare_brand: runHistoryFilters.shape.compare_brand },
+  }, async args => invoke(filteredPath("/analytics/export", args)));
   server.registerTool("get_overview_questions", {
     description: "Page through per-question and engine counts from the Overview evidence cohort. Pass a row's evidence_run_id as report_evidence_run to list_runs.",
     inputSchema: { ...reportingInput, compare_brand: runHistoryFilters.shape.compare_brand, page: overviewQuestionsPage.optional() },
@@ -199,8 +209,8 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
     inputSchema: reportingInput,
   }, async args => invoke(filteredPath("/analytics/locations", args)));
   server.registerTool("get_research_summary", {
-    description: "Search and page through cited domains, pages or grounding queries by group. Pass research_type and research_value for complete-cohort source metrics and pages or questions.",
-    inputSchema: { ...reportingInput, ...researchReportInput },
+    description: "Search and page through cited domains, pages or grounding queries by group. Use tracked_brand, compare_brand and overlap to investigate sources cited when only one brand, both or neither appeared. Pass research_type and research_value for complete-cohort source metrics and pages or questions.",
+    inputSchema: { ...reportingInput, compare_brand: runHistoryFilters.shape.compare_brand, overlap: runHistoryFilters.shape.overlap, ...researchReportInput },
   }, async args => invoke(filteredPath("/research", args)));
   const historyInput = { ...runHistoryFilters.omit({ workspace: true }).shape, ...workspaceInput };
   server.registerTool("export_runs", {
@@ -214,6 +224,7 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
       inputSchema: {
         workspace_id: z.string().min(1).max(100).optional(),
         question_id: setId.optional(),
+        question_type: z.enum(questionTypes).optional(),
         tag: promptTag.optional(),
         set: setId.optional(),
         limit: listPageLimit.max(100).optional(),
@@ -221,6 +232,7 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
         q: z.string().max(200).optional(),
         engine: z.enum(["chatgpt", "gemini", "google"]).optional(),
         schedule: z.enum(["active", "inactive"]).optional(),
+        checks: z.literal("unchecked").optional(),
         brand: z.string().min(1).max(100).optional(),
         tracked_brand: scopeFilters.shape.tracked_brand,
         from: scopeFilters.shape.from,
@@ -240,6 +252,10 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
       return invoke("/prompts?" + query);
     },
   );
+  server.registerTool("classify_questions", {
+    description: "Classify shared questions using up to 100 selected variant IDs. The type applies to every engine for each selected question. Pass null to clear it.",
+    inputSchema: questionTypePatch,
+  }, args => invoke("/prompts/question-type", "PATCH", args));
   server.registerTool("update_prompt_settings", {
     description: "Update execution mode, location, language, brand, or tags on up to 100 prompt variants. Unspecified settings stay the same.",
     inputSchema: bulkPromptSettingsSchema,
@@ -363,7 +379,7 @@ export async function mcp(req: Request, env: Env, ctx: Ctx) {
     "list_runs",
     {
       description:
-        "List run history with status, citations, grounding queries and mentions. Filter by question_id across engine variants. Research matches include the full total_matches before pagination. Continue with next_before and next_before_id.",
+        "List run history with answer excerpts, status, citations, grounding queries and mentions. Filter by question_id across engine variants with an answer metric to include first-page daily matching answer counts. Research matches include the full total_matches before pagination. Continue with next_before and next_before_id.",
       inputSchema: z.object({
         ...historyInput,
         limit: listPageLimit.max(100).optional(),

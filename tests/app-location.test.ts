@@ -95,11 +95,24 @@ test("prompt answer views preserve the question-library scope through sign-in an
   for (const selected of [
     { tab: "prompts", promptView: "answers" },
     { tab: "runs", promptView: "answers", run: "answer", evidence: "citations" },
-    { tab: "runs", run: "answer", question: "question", questionView: "answers", questionMetric: "citation" },
+    { tab: "runs", run: "answer", question: "question", questionView: "answers", questionEngine: "all", questionMetric: "citation" },
   ] as Record<string, string>[]) {
     const query = new URLSearchParams({ ...scope, ...selected });
     const login = new URL(appLoginPath("?" + query, ""), "https://example.test");
     const next = new URL(appReturnPath(login.searchParams.get("next")), login);
     assert.deepEqual(Object.fromEntries(next.searchParams), Object.fromEntries(query));
   }
+});
+
+test("source overlap, matches and evidence URLs retain the common brand cohort", () => {
+  const scope = { org: "agency", workspace: "client", trackedBrand: "primary", compareBrand: "rival", overlap: "competitor_only",
+    from: "2026-11-01", to: "2026-11-15", engine: "gemini", researchGroup: "domain",
+    researchType: "domain", researchValue: "example.test", sourceView: "answers" };
+  for (const patch of [{ tab: "research" }, { tab: "runs", run: "recorded-answer" }]) {
+    const url = "/app?" + new URLSearchParams({ ...scope, ...patch } as Record<string, string>);
+    assert.deepEqual(Object.fromEntries(new URL(appReturnPath(url), "https://example.test").searchParams),
+      { ...scope, ...patch });
+  }
+  assert.equal(parseAppSearch({ ...scope, tab: "research", compareBrand: "primary" }).overlap, undefined);
+  assert.equal(parseAppSearch({ ...scope, tab: "overview" }).overlap, undefined);
 });

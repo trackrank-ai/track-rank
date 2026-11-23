@@ -1,11 +1,18 @@
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync, readdirSync } from "node:fs";
-import {test} from 'node:test';import assert from 'node:assert/strict';import {inspectPromptInput,parsePromptInput} from '../src/lib/prompt-input';import {savePromptBatch} from '../src/server/prompt-batch';import {fixture} from './helpers/billing-fixture';
+import {test} from 'node:test';import assert from 'node:assert/strict';import {inspectPromptInput,parsePromptInput,parseQuestionFile} from '../src/lib/prompt-input';import {savePromptBatch} from '../src/server/prompt-batch';import {fixture} from './helpers/billing-fixture';
 test("a single line preserves commas and counts repeated nonblank questions", () => {
   const question = "For a small agency, which reporting tools work best?";
   assert.deepEqual(inspectPromptInput(`  ${question} \r\n\n${question}`), {
     prompts: [question], repeated: 1, error: "",
   });
+});
+test("question file import preserves quoted commas, escaped quotes and blank lines", () => {
+  assert.deepEqual(parseQuestionFile('\uFEFFQuestion\r\n"Which ""red, blue"" tools?"\r\n\r\nTools for me?', "prompts.csv"),
+    ['Which "red, blue" tools?', "Tools for me?"]);
+  assert.deepEqual(parseQuestionFile("Which tools, and why?", "prompts.txt"), ["Which tools, and why?"]);
+  assert.throws(() => parseQuestionFile("Question, engine", "prompts.csv"), /one question/);
+  assert.throws(() => parseQuestionFile("Question", "prompts.csv"), /no questions/);
 });
 const base={workspace_id:'space',texts:['Best cleaners?','Affordable cleaners?'],engines:['chatgpt','gemini','google']};
 function setup(){const f=fixture();f.sql.exec("INSERT INTO workspaces(id,org_id,name,created_at) VALUES('space','org','Space',0)");return f;}
