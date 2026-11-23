@@ -148,7 +148,7 @@ export function OverviewFilters({ scope, org, workspace, workspaceNames, sets, b
 
 export function Overview({
   org, workspace, workspaceName, scope, brands, sets, engines, hasTrackedBrand, brandWorkspace, credentialsConnected, canWrite,
-  canManageCredentials, request, revision, filters, trendMetric = "mention", reportLink, evidenceLink, reviewCollectionsLink, workspaceNames, emptyScope,
+  canManageCredentials, request, revision, filters, trendMetric = "mention", reportLink, evidenceLink, workspaceNames, emptyScope,
 }: {
   org: string;
   workspace: string;
@@ -168,7 +168,6 @@ export function Overview({
   trendMetric?: TrendMetric;
   reportLink?: (scope: AnalyticsScope, trendMetric: TrendMetric) => AppSearch;
   evidenceLink?: EvidenceLink;
-  reviewCollectionsLink?: AppSearch;
   workspaceNames?: Record<string, string>;
   emptyScope?: ReactNode;
 }) {
@@ -176,31 +175,32 @@ export function Overview({
   if (result?.error) return <><p role="alert">{result.error}</p>{filters}</>;
   if (!result?.data) return <p role="status">Calculating visibility…</p>;
   const data = result.data;
+  if (!data.total_runs && emptyScope) return <>{emptyScope}{filters}</>;
   if (!data.workspace_has_runs) {
-    if (emptyScope) return <>{emptyScope}{filters}</>;
     const next = !hasTrackedBrand ? "brands" : !data.workspace_prompts ? "prompts"
       : !credentialsConnected ? "settings" : "collect";
     const steps = [
       { id: "brands", complete: hasTrackedBrand, tab: "brands", label: "Track a brand", action: "Add or assign brand",
         description: "Assign a brand to a workspace to measure mentions and citations.", permitted: canWrite },
-      { id: "prompts", complete: !!data.workspace_prompts, tab: "prompts", label: "Save questions", action: "Open Prompts",
+      { id: "prompts", complete: !!data.workspace_prompts, tab: "prompts", label: "Save questions", action: "Add prompts",
         description: "Choose the questions and engines you want to track.", permitted: canWrite },
       { id: "settings", complete: credentialsConnected, tab: "settings", label: "Connect DataForSEO", action: "Open Providers",
         description: "Connect your organization’s provider account to collect answers.", permitted: canManageCredentials },
       { id: "collect", complete: false, tab: "prompts", label: "Start a collection", action: "Choose variants",
         description: "Review and run saved combinations from Prompts.", permitted: canWrite },
     ] as const;
+    const nextStep = steps.find(step => step.id === next)!;
     return <>
       <Card><CardContent className="form-stack overview-setup">
         <div><h2>{next === "collect" ? "Ready to collect answers" : "Get ready to collect answers"}</h2>
           <p className="overview-scope">{workspaceName} · No runs in searchable history</p>
         </div>
         <ol>
-          {steps.map(step => <li key={step.id}>
+          {[nextStep, ...steps.filter(step => step.id !== next)].map(step => <li key={step.id}>
             <div><strong>{step.label}</strong><p className="overview-scope">{step.description}</p></div>
             {step.complete ? <span className="overview-scope">Complete</span>
               : step.permitted ? <Button size="sm" variant={step.id === next ? "default" : "outline"} asChild>
-                <Link to="/app" search={{ org, workspace: step.id === "brands" ? brandWorkspace : workspace, tab: step.tab, ...(step.id === "settings" ? { settingsSection: "providers" as const } : {}) }}>{step.action}</Link>
+                <Link to="/app" search={{ org, workspace: step.id === "brands" ? brandWorkspace : workspace, tab: step.tab, ...(step.id === "prompts" ? { promptView: "create" as const } : {}), ...(step.id === "settings" ? { settingsSection: "providers" as const } : {}) }}>{step.action}</Link>
               </Button> : <span className="overview-scope">{step.id === "settings" ? "Organization admin required" : "Editor access required"}</span>}
           </li>)}
         </ol>
@@ -227,7 +227,6 @@ export function Overview({
     set: scope.set, trackedBrand: scope.trackedBrand,
     from: data.workspace_first_run === null ? undefined : utcDay(data.workspace_first_run), to: utcDay(Date.now()),
   });
-  const reviewCollections = reviewCollectionsLink ?? metricLink();
   const days = scope.compareBrand ? data.comparison_daily : data.daily;
   const totals = days.reduce((total, day) => ({
     samples: total.samples + day.samples,
@@ -237,67 +236,56 @@ export function Overview({
     compare_citations: total.compare_citations + (day.compare_citations ?? 0),
   }), { samples: 0, mentions: 0, citations: 0, compare_mentions: 0, compare_citations: 0 });
   const metrics = [
-    { label: "Brand mention rate", metric: "mention", comparison: "compare_mention", count: "mentions", comparisonCount: "compare_mentions",
-      definition: "Share of eligible answers that mention the tracked brand." },
-    { label: "Website citation rate", metric: "citation", comparison: "compare_citation", count: "citations", comparisonCount: "compare_citations",
-      definition: "Share of eligible answers that cite the tracked brand’s website." },
+    { label: "Mention rate", metric: "mention", count: "mentions", comparisonCount: "compare_mentions" },
+    { label: "Citation rate", metric: "citation", count: "citations", comparisonCount: "compare_citations" },
   ] as const;
-  const rate = (count: number) => totals.samples
-    ? new Intl.NumberFormat(undefined, { style: "percent", maximumSignificantDigits: 3 }).format(count / totals.samples)
-    : "No eligible answers";
-  const formatCount = (count: number) => `${count.toLocaleString()} of ${totals.samples.toLocaleString()} eligible answers`;
+  const activeLabel = trendMetric === "mention" ? "Mention rate" : "Citation rate";
   return <>
     <Card><CardContent className="overview-findings">
-      <h2>Visibility findings</h2>
-      <p className="overview-scope">{scopeLabel}</p>
-      {!data.total_runs && (emptyScope ?? <p>No collections match these filters. <Link to="/app" search={availableHistory}>Show available history</Link></p>)}
+      <div className="panel-title"><div><h2>Visibility</h2><p className="overview-scope">{scopeLabel}</p></div></div>
       {filters}
-      {selectedBrand && <>
-        <p className="data-note">Eligible answers come from successful collections that recorded an AI answer and tracked {selectedBrand}
-          {comparisonName && <> and {comparisonName} together</>}.</p>
-        <dl className="overview-rates">
-          {metrics.map(({ label, metric, comparison, count, comparisonCount, definition }) => <div key={metric}>
-            <dt><strong>{label}</strong><p className="data-note">{definition}</p></dt>
-            <dd><strong>{rate(totals[count])}</strong>
-              <span>{formatCount(totals[count])}</span>
-              <Link to="/app" search={metricLink(metric)}>View {comparisonName ? `${selectedBrand} evidence` : totals[count] ? "matching runs" : "evidence for this result"}</Link>
-            </dd>
-            {comparisonName && <dd><strong>{rate(totals[comparisonCount])}</strong>
-              <span>{formatCount(totals[comparisonCount])}</span>
-              <Link to="/app" search={metricLink(comparison)}>View {comparisonName} evidence</Link>
-            </dd>}
-          </div>)}
-        </dl>
-        <Link className="small-link" to="/app" search={metricLink("brand")}>View all {totals.samples.toLocaleString()} eligible answers for these rates</Link>
-      </>}
+      {!data.total_runs ? <p>No collections match these filters. <Link to="/app" search={availableHistory}>Show available history</Link>.</p>
+        : !data.eligible_answers ? <p>No AI answers were recorded in these collections. <a href="#overview-collection-coverage">Review collection outcomes</a>.</p>
+        : !selectedBrand ? <p>No brand is selected. <Link to="/app" search={metricLink("eligible")}>{collectedAnswersLabel(data.eligible_answers)}</Link></p>
+        : !totals.samples ? <>
+          <p>{comparisonName ? "No answers tracked both brands." : `No collected answers tracked ${selectedBrand}.`}
+            {" "}<Link to="/app" search={metricLink("eligible")}>{collectedAnswersLabel(data.eligible_answers)}</Link>
+          </p>
+          {comparisonName && <Link className="small-link" to="/app" search={toReport({ ...scope, compareBrand: undefined })}>Remove comparison</Link>}
+        </> : <>
+          {comparisonName && <p className="data-note">{selectedBrand} compared with {comparisonName}</p>}
+          <nav className="overview-rates" aria-label="Visibility metric">
+            {metrics.map(({ label, metric, count, comparisonCount }) => <Link key={metric} to="/app"
+              search={toReport(scope, metric)} aria-current={trendMetric === metric ? "true" : undefined}>
+              <span>{label}</span>
+              <strong>{formatRate(totals[count], totals.samples)}{comparisonName && ` / ${formatRate(totals[comparisonCount], totals.samples)}`}</strong>
+              <span>{totals[count].toLocaleString()}{comparisonName && ` / ${totals[comparisonCount].toLocaleString()}`} of {answerCount(totals.samples)}</span>
+            </Link>)}
+          </nav>
+          <p className="data-note">
+            {trendMetric === "mention" ? `Answers that mention ${selectedBrand}` : `Answers that cite ${selectedBrand}’s website`}
+            {comparisonName && ` or ${comparisonName}`}. Rates use successful AI answers that tracked {comparisonName ? "both brands" : selectedBrand}.
+            {" "}<Link to="/app" search={metricLink("brand")}>View all {answerCount(totals.samples, "eligible ")}</Link>.
+          </p>
+          {(comparisonName || brands.some(brand => brand.id !== scope.trackedBrand)) && <div className="app-inline-form">
+            {comparisonName ? <Link to="/app" search={toReport({ ...scope, compareBrand: undefined })}>Remove comparison</Link>
+              : <details><summary>Compare with another brand</summary><ul>
+                {brands.filter(brand => brand.id !== scope.trackedBrand).map(brand =>
+                  <li key={brand.id}><Link to="/app" search={toReport({ ...scope, compareBrand: brand.id })}>{brand.name}</Link></li>
+                )}
+              </ul></details>}
+          </div>}
+          <section className="mt-5" aria-label={`Daily ${activeLabel.toLowerCase()}`}>
+            <h3 className="font-semibold">{activeLabel} over time</h3>
+            <DailyTrend days={days} from={data.from} to={data.to} metric={trendMetric} brand={selectedBrand} comparison={comparisonName} link={metricLink} />
+          </section>
+          <QuestionBreakdown key={JSON.stringify([org, workspace, scope])} scope={scope} workspace={workspace}
+            request={request} revision={revision} engines={engines} workspaceNames={workspaceNames} showWorkspace={workspace === "all"}
+            brand={selectedBrand} comparison={comparisonName} metric={trendMetric} link={metricLink} />
+        </>}
     </CardContent></Card>
-    {selectedBrand && <Card><CardContent>
-      <div className="panel-title"><div><h2>Visibility over time</h2><p>Daily rates and underlying answers in UTC.</p></div>
-        <div className="app-inline-form overview-trend-controls" aria-label="Trend metric">
-          {metrics.map(({ metric, label }) => <Button key={metric} size="sm" variant="outline" asChild>
-            <Link to="/app" search={toReport(scope, metric)} aria-current={trendMetric === metric ? "true" : undefined}>{label}</Link>
-          </Button>)}
-        </div>
-      </div>
-      {(comparisonName || brands.some(brand => brand.id !== scope.trackedBrand)) && <div className="app-inline-form">
-        {comparisonName ? <>
-          <p className="data-note">Comparing with {comparisonName} on answers that tracked both brands.</p>
-          <Link to="/app" search={toReport({ ...scope, compareBrand: undefined })}>Remove comparison</Link>
-        </> : <details><summary>Compare with another brand</summary><ul>
-          {brands.filter(brand => brand.id !== scope.trackedBrand).map(brand =>
-            <li key={brand.id}><Link to="/app" search={toReport({ ...scope, compareBrand: brand.id })}>{brand.name}</Link></li>)}
-        </ul></details>}
-      </div>}
-      {!days.length ? <p className="data-note">{comparisonName ? "No eligible answers tracked both brands." : "No eligible answers in this period."}</p>
-        : <DailyTrend days={days} from={data.from} to={data.to} metric={trendMetric} brand={selectedBrand} comparison={comparisonName} link={metricLink} />}
-    </CardContent></Card>}
-    <QuestionBreakdown key={JSON.stringify([org, workspace, scope])} scope={scope} workspace={workspace} request={request} revision={revision}
-      totalRuns={data.total_runs} eligibleAnswers={data.eligible_answers}
-      engines={engines} workspaceNames={workspaceNames} showWorkspace={workspace === "all"} brand={selectedBrand} comparison={comparisonName}
-      link={metricLink} availableHistory={availableHistory} reviewCollections={reviewCollections}
-      singleBrand={toReport({ ...scope, compareBrand: undefined })} />
     <Card><CardContent>
-      <div className="panel-title"><div><h2>Collection coverage</h2><p>All runs in this scope, regardless of which brands they tracked.</p></div></div>
+      <div className="panel-title"><div><h2 id="overview-collection-coverage" tabIndex={-1}>Collection coverage</h2><p>All runs in this scope, regardless of which brands they tracked.</p></div></div>
       <div className="app-inline-form overview-outcomes" aria-label="Collection outcomes">
         {([["pending", "Pending"], ["failed", "Failed"], ["uncertain", "Uncertain"], ["organic", "Organic only (no AI Overview)"],
           ["no_answer", "No AI answer or organic results"], ["eligible", "Eligible AI answers"]] as const)
@@ -319,22 +307,23 @@ export function Overview({
   </>;
 }
 
-function QuestionBreakdown({ scope, workspace, request, revision, totalRuns, eligibleAnswers, engines, workspaceNames, showWorkspace, brand, comparison, link, availableHistory, reviewCollections, singleBrand }: {
+const percent = new Intl.NumberFormat(undefined, { style: "percent", maximumSignificantDigits: 3 });
+const formatRate = (count: number, samples: number) => percent.format(count / samples);
+const answerCount = (count: number, description = "") => `${count.toLocaleString()} ${description}${count === 1 ? "answer" : "answers"}`;
+const collectedAnswersLabel = (count: number) => `View ${answerCount(count, "collected ")}`;
+
+function QuestionBreakdown({ scope, workspace, request, revision, engines, workspaceNames, showWorkspace, brand, comparison, metric, link }: {
   scope: AnalyticsScope;
   workspace: string;
   request: RequestData;
   revision: unknown;
-  totalRuns: number;
-  eligibleAnswers: number;
   engines: Record<string, string>;
   workspaceNames?: Record<string, string>;
   showWorkspace: boolean;
-  brand?: string;
+  brand: string;
   comparison?: string;
+  metric: TrendMetric;
   link: EvidenceLink;
-  availableHistory: AppSearch;
-  reviewCollections: AppSearch;
-  singleBrand: AppSearch;
 }) {
   const [page, setPage] = useState(1);
   const query = analyticsQuery(scope, workspace);
@@ -343,53 +332,58 @@ function QuestionBreakdown({ scope, workspace, request, revision, totalRuns, eli
     "/analytics/questions?" + query, request, revision,
   );
   const rows = result?.data?.questions ?? [];
-  const columns: { label: string; field: keyof Pick<QuestionBreakdownRow, "eligible_answers" | "mentions" | "citations" | "compare_mentions" | "compare_citations">; metric: AnswerMetric }[] = [
-    { label: "Eligible answers", field: "eligible_answers", metric: brand ? "brand" : "eligible" },
-  ];
-  if (brand) columns.push(
-    { label: comparison ? `${brand} mentions` : "Brand mentions", field: "mentions", metric: "mention" },
-    { label: comparison ? `${brand} website citations` : "Website citations", field: "citations", metric: "citation" },
-  );
-  if (comparison) columns.push(
-    { label: `${comparison} mentions`, field: "compare_mentions", metric: "compare_mention" },
-    { label: `${comparison} website citations`, field: "compare_citations", metric: "compare_citation" },
-  );
-  return <Card><CardContent>
-    <h2>Contributing questions</h2>
+  const label = metric === "mention" ? "Mention rate" : "Citation rate";
+  const columns = [
+    { brand, field: metric === "mention" ? "mentions" : "citations", metric },
+    ...(comparison ? [{
+      brand: comparison, field: metric === "mention" ? "compare_mentions" : "compare_citations",
+      metric: metric === "mention" ? "compare_mention" : "compare_citation",
+    }] as const : []),
+  ] as const;
+  return <section className="overview-questions" aria-labelledby="overview-questions-title">
+    <h3 id="overview-questions-title" className="font-semibold">Contributing questions</h3>
     {result?.error ? <p role="alert">{result.error}</p>
       : !result?.data ? <p role="status">Loading contributing questions…</p>
-      : page === 1 && !rows.length ? <p className="data-note">
-      {!totalRuns ? <>No collections match this view. <Link to="/app" search={availableHistory}>Broaden the report filters</Link>.</>
-        : !eligibleAnswers ? <>Matching collections recorded zero eligible AI answers. <Link to="/app" search={reviewCollections}>Review collection outcomes</Link>.</>
-        : comparison ? <>No eligible answers tracked both brands. <Link to="/app" search={singleBrand}>Remove the comparison</Link>.</>
-        : <>No eligible answers tracked {brand}. <Link to="/app" search={reviewCollections}>Review matching collections</Link>.</>}
-    </p> : <>
-      {comparison && <p className="data-note">Only answers that tracked both brands contribute to these counts.</p>}
-      <ul className="divide-y">
-        {rows.map(row => <li key={row.evidence_run_id} className="grid gap-3 py-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-          <div className="min-w-0">
-            <h3 className="break-words text-sm font-semibold">{row.question}</h3>
-            <p className="data-note">{row.engine ? engines[row.engine] ?? row.engine : "Engine unavailable"}
-              {showWorkspace && workspaceNames?.[row.workspace_id] && ` · ${workspaceNames[row.workspace_id]}`}</p>
-          </div>
-          <dl className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,7rem),1fr))] gap-x-4 gap-y-2 text-sm">
-            {columns.map(({ label, field, metric }) => <div key={field} className="min-w-0">
-              <dt className="break-words text-xs text-muted-foreground">{label}</dt>
-              <dd className="tabular-nums">
-                <Link to="/app" className="inline-flex min-h-8 items-center min-w-8 font-semibold underline! underline-offset-2 hover:text-primary pointer-coarse:min-h-11"
-                  aria-label={`${row[field]} ${label.toLowerCase()} for ${row.question} on ${row.engine ? engines[row.engine] ?? row.engine : "the recorded engine"}`}
-                  search={link(metric, undefined, { evidence_run_id: row.evidence_run_id, engine: row.engine ?? undefined })}>{row[field].toLocaleString()}</Link>
-              </dd>
-            </div>)}
-          </dl>
-        </li>)}
+      : !rows.length ? <p className="data-note">No contributing questions on this page.</p> : <>
+      <div className="overview-question-grid overview-question-head" aria-hidden="true">
+        <span>Question</span><span>{label}</span><span>Engine</span>
+      </div>
+      <ul>
+        {rows.map(row => {
+          const rowScope = { evidence_run_id: row.evidence_run_id, engine: row.engine ?? undefined };
+          const engineName = row.engine ? engines[row.engine] ?? row.engine : "Engine unavailable";
+          return <li key={row.evidence_run_id} className="overview-question-grid">
+            <h4 className="font-medium">{row.question}</h4>
+            <dl className="tabular-nums">
+              {columns.map(column => {
+                const count = row[column.field];
+                const samples = row.eligible_answers;
+                return <div key={column.field}>
+                  <dt className={comparison ? "data-note" : "sr-only"}>{comparison ? column.brand : label}</dt>
+                  <dd className="overview-question-rate">
+                    <strong>{formatRate(count, samples)}</strong>
+                    <Link to="/app"
+                      aria-label={count
+                        ? `View the ${count} matching answers of ${samples} eligible for ${column.brand}, ${row.question} on ${engineName}`
+                        : `View all ${samples} eligible answers for ${row.question} on ${engineName} (${label.toLowerCase()} 0%)`}
+                      search={link(count ? column.metric : "brand", undefined, rowScope)}>{count.toLocaleString()} / {samples.toLocaleString()}</Link>
+                    {count > 0 && count < samples && <Link className="overview-all-answers" to="/app"
+                      aria-label={`View all ${samples} eligible answers for ${row.question} on ${engineName}`}
+                      search={link("brand", undefined, rowScope)}>All {samples.toLocaleString()}</Link>}
+                  </dd>
+                </div>;
+              })}
+            </dl>
+            <p className="data-note">{engineName}{showWorkspace && workspaceNames?.[row.workspace_id] && ` · ${workspaceNames[row.workspace_id]}`}</p>
+          </li>;
+        })}
       </ul>
       {(page > 1 || result.data.next_page) && <div className="form-actions" aria-label="Contributing question pages">
         <Button size="sm" variant="outline" disabled={page === 1} onClick={() => setPage(page - 1)}>Previous questions</Button>
         <Button size="sm" variant="outline" disabled={!result.data.next_page} onClick={() => setPage(page + 1)}>Next questions</Button>
       </div>}
     </>}
-  </CardContent></Card>;
+  </section>;
 }
 
 function DailyTrend({ days, from, to, metric, brand, comparison, link }: {
@@ -438,7 +432,7 @@ function DailyTrend({ days, from, to, metric, brand, comparison, link }: {
         <time dateTime={day.day}>{day.day}</time>
         <Link to="/app" search={link(metric, day.day)}>{brand} · {day[field]} of {day.samples}</Link>
         {comparison && <Link to="/app" search={link(otherMetric, day.day)}>{comparison} · {day[otherField]} of {day.samples}</Link>}
-        <Link to="/app" search={link("brand", day.day)}>All {day.samples} eligible answers</Link>
+        <Link to="/app" search={link("brand", day.day)}>All {answerCount(day.samples, "eligible ")}</Link>
       </div>)}
     </details>
   </>;

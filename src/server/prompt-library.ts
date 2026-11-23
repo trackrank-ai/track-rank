@@ -1,6 +1,7 @@
-import { activePromptSchedule, associatedPromptBrand, brandOutcome, brandSnapshot, brandSnapshotId, eligibleAnswer } from "./run-history";
+import { activePromptSchedule, associatedPromptBrand, brandOutcome, brandTracked, eligibleAnswer, runConfig } from "./run-history";
 import { organizationPlan } from "./plans";
 import { defaultPeriod, DAY_MS, validDay } from "../lib/analytics-filters";
+import { brandPromptSorts, promptLibrarySortKeys } from "../lib/prompt-library-sort";
 import { promptSetPredicate, requirePromptSet, setId } from "./prompt-sets";
 import { decodePrompt, promptTag } from "./prompt-tags";
 import { z } from "zod";
@@ -21,7 +22,8 @@ const libraryFilters = z.object({
   set: setId.optional(),
   limit: z.coerce.number().pipe(listPageLimit.max(100)).optional(),
   selection: z.literal("1").optional(),
-  before: z.coerce.number().int().nonnegative().optional(),
+  sort: z.enum(promptLibrarySortKeys).default("newest"),
+  before: z.coerce.number().min(0).max(Number.MAX_SAFE_INTEGER).optional(),
   before_id: z.string().min(1).max(100).optional(),
 }).refine(filters => (filters.before === undefined) === (filters.before_id === undefined));
 
@@ -30,6 +32,8 @@ export async function listSavedPrompts(env: Env, org: string, params: URLSearchP
   if (!parsed.success) throw new HttpError(400, "Invalid saved prompt filters or cursor");
   const filters = parsed.data;
   if (filters.from && filters.to && filters.from > filters.to) throw new HttpError(400, "Choose a valid date range");
+  if (!filters.selection && brandPromptSorts.includes(filters.sort) && !filters.tracked_brand)
+    throw new HttpError(400, "Choose a tracked brand to sort by its outcomes");
   const conditions = ["p.org_id=?", "p.archived_at IS NULL"];
   const values: unknown[] = [org];
   if (filters.workspace) {
@@ -73,15 +77,47 @@ export async function listSavedPrompts(env: Env, org: string, params: URLSearchP
     ? one<{ total: number }>(env,
       `SELECT count(*) AS total FROM (SELECT 1 FROM prompts p WHERE ${scope} GROUP BY question_id)`, ...values)
     : null;
-  const cursor = filters.before === undefined ? "" : "AND (created_at,id)<(?,?)";
+  const sort = filters.selection ? "newest" : filters.sort;
+  const sortKey = {
+    newest: "matching.created_at",
+    last_checked: "coalesce(last_checked_at,0)",
+    never_checked: "CASE WHEN last_checked_at IS NULL THEN 1 ELSE 0 END",
+    answers: "coalesce(eligible_answers,0)",
+    mentions: "CASE WHEN eligible_answers>0 THEN 1 + mentions ELSE 0 END",
+    citations: "CASE WHEN eligible_answers>0 THEN 1 + citations ELSE 0 END",
+    // Place measured rates, including 100%, ahead of empty cohorts.
+    lowest_mention_rate: "CASE WHEN eligible_answers>0 THEN 2 - (1.0 * mentions / eligible_answers) ELSE 0 END",
+  }[sort];
+  const cursor = filters.before === undefined ? "" : "WHERE (sort_key,id)<(?,?)";
   const cursorValues = filters.before === undefined ? [] : [filters.before, filters.before_id];
   const pageSize = filters.selection ? 1000 : filters.limit ?? 100;
   const historyDays = filters.selection ? undefined : (await organizationPlan(env, org)).limits.searchable_history_days;
-  const historyFloor = historyDays === undefined ? 0 : now() - historyDays * DAY_MS;
-  const period = defaultPeriod(now());
+  const time = now();
+  const historyFloor = historyDays === undefined ? 0 : time - historyDays * DAY_MS;
+  const period = defaultPeriod(time);
   const start = Math.max(historyFloor, Date.parse(filters.from ?? period.from));
   const end = Date.parse(filters.to ?? period.to) + DAY_MS;
-  const runScope = "runs.org_id=p.org_id AND runs.prompt_id=p.id AND runs.workspace_id=p.workspace_id";
+  const runScope = "runs.org_id=p.org_id AND runs.prompt_id=p.id AND runs.workspace_id=p.workspace_id" +
+    (filters.engine ? ` AND json_extract(${runConfig},'$.engine')=p.engine` : "");
+  const evidence = filters.selection ? "" : `, evidence AS (
+          SELECT runs.question_id,
+            max(CASE WHEN runs.status IN ('succeeded','failed') THEN runs.updated_at END) AS last_checked_at,
+            sum(CASE WHEN runs.status IN ('succeeded','failed') AND runs.created_at>=? AND runs.created_at<? THEN 1 ELSE 0 END) AS checks,
+            sum(in_cohort) AS eligible_answers,
+            sum(CASE WHEN in_cohort THEN mentioned ELSE 0 END) AS mentions,
+            sum(CASE WHEN in_cohort THEN cited ELSE 0 END) AS citations
+          FROM (
+            SELECT runs.created_at, runs.updated_at, runs.status, p.question_id,
+              CASE WHEN ${eligibleAnswer} AND runs.created_at>=? AND runs.created_at<?
+                ${filters.tracked_brand ? `AND ${brandTracked}` : ""} THEN 1 ELSE 0 END AS in_cohort,
+              ${filters.tracked_brand ? brandOutcome("?", "mentioned") : "0"} AS mentioned,
+              ${filters.tracked_brand ? brandOutcome("?", "cited") : "0"} AS cited
+            FROM matching p JOIN runs ON ${runScope} AND runs.created_at>=?
+          ) AS runs
+          GROUP BY runs.question_id
+        )`;
+  const evidenceParams = filters.selection ? [] : [start, end, start, end, ...(filters.tracked_brand
+    ? [filters.tracked_brand, filters.tracked_brand, filters.tracked_brand] : []), historyFloor];
   const columns = filters.selection
     ? "p.id, p.workspace_id, p.created_at"
     : `p.*, (${activePromptSchedule}) AS actively_scheduled,
@@ -93,21 +129,25 @@ export async function listSavedPrompts(env: Env, org: string, params: URLSearchP
          ORDER BY created_at DESC,id DESC LIMIT 1) AS latest_answer_id${filters.tracked_brand ? `,
        (SELECT json_object('samples',count(*),'mentions',coalesce(sum(${brandOutcome("?", "mentioned")}),0))
         FROM runs WHERE ${runScope} AND ${eligibleAnswer} AND created_at>=? AND created_at<?
-        AND EXISTS (SELECT 1 FROM ${brandSnapshot} AS snapshot WHERE ${brandSnapshotId}=?)) AS brand_period` : ""}`;
+        AND ${brandTracked}) AS brand_period` : ""}`;
   const historyParams = filters.selection ? [] : [historyFloor, historyFloor, historyFloor, ...(filters.tracked_brand
     ? [filters.tracked_brand, start, end, filters.tracked_brand] : [])];
+  const groupMetrics = filters.selection ? "" : ", last_checked_at, checks, eligible_answers, mentions, citations";
+  const pageMetrics = filters.selection ? "" : ", page.last_checked_at, page.checks, page.eligible_answers, page.mentions, page.citations";
   const [rows, tags, count] = await Promise.all([
     all<Row>(env, `WITH matching AS (
           SELECT p.*, row_number() OVER (PARTITION BY question_id ORDER BY created_at DESC,id DESC) AS variant_rank
           FROM prompts p WHERE ${scope}
+        ) ${evidence}, ranked AS (
+          SELECT matching.id,matching.question_id,matching.text,matching.created_at, ${sortKey} AS sort_key ${groupMetrics}
+          FROM matching ${filters.selection ? "" : "LEFT JOIN evidence ON evidence.question_id=matching.question_id"} WHERE variant_rank=1
         ), page AS (
-          SELECT id,question_id,text,created_at FROM matching WHERE variant_rank=1 ${cursor}
-          ORDER BY created_at DESC,id DESC LIMIT ?
+          SELECT * FROM ranked ${cursor} ORDER BY sort_key DESC,id DESC LIMIT ?
         )
-        SELECT ${columns}, page.question_id AS group_id, page.id AS cursor_id, page.created_at AS group_created_at, page.text AS group_text
+        SELECT ${columns}, page.question_id AS group_id, page.id AS cursor_id, page.sort_key, page.created_at AS group_created_at, page.text AS group_text ${pageMetrics}
         FROM page JOIN matching p ON p.question_id=page.question_id
-        ORDER BY page.created_at DESC,page.id DESC,p.created_at DESC,p.id DESC`,
-      ...values, ...cursorValues, pageSize + 1, ...historyParams),
+        ORDER BY page.sort_key DESC,page.id DESC,p.created_at DESC,p.id DESC`,
+      ...values, ...evidenceParams, ...cursorValues, pageSize + 1, ...historyParams),
     filters.selection ? [] : all<{ tag: string }>(env,
       `SELECT DISTINCT t.value AS tag FROM prompts p, json_each(p.tags) t
        WHERE ${tagScope} ORDER BY tag`, ...tagValues,
@@ -124,10 +164,15 @@ export async function listSavedPrompts(env: Env, org: string, params: URLSearchP
   }
 
   const groups = new Map<unknown, Row>();
-  for (const { group_id, group_created_at, group_text, cursor_id, variant_rank, ...row } of rows) {
+  for (const { group_id, group_created_at, group_text, cursor_id, sort_key, variant_rank, last_checked_at, checks, eligible_answers, mentions, citations, ...row } of rows) {
     let group = groups.get(group_id);
     if (!group) {
-      group = { id: group_id, cursor_id, created_at: group_created_at, workspace_id: row.workspace_id, text: group_text, variants: [] };
+      group = { id: group_id, cursor_id, sort_key, created_at: group_created_at, workspace_id: row.workspace_id, text: group_text, variants: [] };
+      if (!filters.selection) {
+        group.last_checked_at = last_checked_at ?? null;
+        group.period = { checks: checks ?? 0, eligible_answers: eligible_answers ?? 0, mentions: filters.tracked_brand ? mentions ?? 0 : null,
+          citations: filters.tracked_brand ? citations ?? 0 : null };
+      }
       groups.set(group_id, group);
     }
     (group.variants as unknown[]).push(variant(row));
@@ -135,9 +180,9 @@ export async function listSavedPrompts(env: Env, org: string, params: URLSearchP
   const entries = [...groups.values()];
   const last = entries.length > pageSize ? entries[pageSize - 1] : null;
   return {
-    prompts: entries.slice(0, pageSize).map(({ cursor_id, ...group }) => group),
+    prompts: entries.slice(0, pageSize).map(({ cursor_id, sort_key, ...group }) => group),
     ...(count ? { total: count.total } : {}),
     tags: tags.map(row => row.tag),
-    next_cursor: last ? { before: last.created_at, before_id: last.cursor_id } : null,
+    next_cursor: last ? { before: last.sort_key, before_id: last.cursor_id } : null,
   };
 }

@@ -1,8 +1,10 @@
+import { promptLibrarySortKeys, type PromptLibrarySort } from "./prompt-library-sort";
 import { analyticsScope, answerMetrics, type AnalyticsScope, type AnswerMetric, type TrendMetric } from "./analytics-filters";
 import { normalizePromptTag, validPromptTag } from "./prompt-tags";
 
 const appTabs = ["overview", "tracking", "prompts", "research", "runs", "brands", "schedules", "team", "settings", "agents", "workspaces"] as const;
 export type AppTab = typeof appTabs[number];
+export const researchSorts = ["answers", "questions", "last_seen", "value"] as const;
 const researchTypes = ["domain", "page", "query"] as const;
 export type ResearchType = typeof researchTypes[number];
 export const settingsSections = { providers: "Providers", team: "Team & access", billing: "Billing" } as const;
@@ -23,8 +25,10 @@ export type AppSearch = AnalyticsScope & {
   prompt?: string;
   question?: string;
   trackingView?: "overview" | "questions" | "answers" | "settings";
+  questionMetric?: "mention" | "citation";
   questionView?: "answers" | "settings";
-  promptView?: "create" | "schedule";
+  promptView?: "create" | "schedule" | "answers";
+  promptSort?: PromptLibrarySort;
   setupIntent?: "schedule";
   setupFrom?: "tracking";
   promptEngine?: AnalyticsScope["engine"];
@@ -41,6 +45,17 @@ export type AppSearch = AnalyticsScope & {
   outcome?: typeof runOutcomes[number];
   brand?: string;
   researchGroup?: ResearchType;
+  sourceSearch?: string;
+  sourceSort?: typeof researchSorts[number];
+  sourceDirection?: "asc" | "desc";
+  sourcePage?: string;
+  sourceBrandPage?: string;
+  sourceDetailPage?: string;
+  sourceView?: "pages" | "questions" | "answers";
+  sourceQuestion?: string;
+  sourceDomain?: string;
+  sourceDomainPage?: string;
+  sourceBackRun?: string;
   researchType?: ResearchType;
   researchValue?: string;
   settingsSection?: SettingsSection;
@@ -56,6 +71,8 @@ export function parseAppSearch(search: Record<string, unknown>): AppSearch {
   const researchType = researchTypes.find(type => type === search.researchType);
   const researchValue = typeof search.researchValue === "string" && search.researchValue.length <= 4096
     ? search.researchValue.trim() : "";
+  const researchContext = tab === "research" || tab === "runs";
+  const sourcePage = (value: unknown) => (typeof value === "number" || typeof value === "string") && /^(?:[1-9][0-9]{0,5}|1000000)$/.test(String(value)) ? String(value) : undefined;
   const tag = typeof search.tag === "string" ? normalizePromptTag(search.tag) : "";
   const scoped = !tab || tab === "overview" || tab === "runs" || tab === "research" || tab === "tracking";
   const scope = analyticsScope(tab === "research" ? { ...search, compareBrand: undefined } : search);
@@ -69,7 +86,9 @@ export function parseAppSearch(search: Record<string, unknown>): AppSearch {
   const reportQuestion = historyContext ? resourceId(search.reportQuestion) : undefined;
   const questionContext = tab === "prompts" || (tab === "runs" && !!resourceId(search.run));
   const question = questionContext ? resourceId(search.question) : undefined;
-  const libraryContext = tab === "prompts" || !!question;
+  const promptView = (tab === "prompts" || (tab === "runs" && resourceId(search.run) && search.promptView === "answers"))
+    ? (["create", "schedule", "answers"] as const).find(value => value === search.promptView) : undefined;
+  const libraryContext = tab === "prompts" || !!question || promptView === "answers";
   return {
     ...(scoped ? scope : tab === "prompts"
       ? { set: resourceId(search.set), from: analyticsScope(search).from, to: analyticsScope(search).to } : tab === "schedules" ? { set: trackingSet } : {}),
@@ -84,9 +103,11 @@ export function parseAppSearch(search: Record<string, unknown>): AppSearch {
     tab,
     prompt: tab === "prompts" ? resourceId(search.prompt) : undefined,
     question,
+    questionMetric: question && (search.questionMetric === "mention" || search.questionMetric === "citation") ? search.questionMetric : undefined,
     questionView: question
       ? (["answers", "settings"] as const).find(value => value === search.questionView) : undefined,
-    promptView: tab === "prompts" && (search.promptView === "create" || search.promptView === "schedule") ? search.promptView : undefined,
+    promptView,
+    promptSort: libraryContext ? promptLibrarySortKeys.find(value => value === search.promptSort) : undefined,
     setupFrom: tab === "prompts" && search.promptView === "create" && search.setupFrom === "tracking" ? "tracking" : undefined,
     setupIntent: tab === "prompts" && search.promptView === "create" && search.setupIntent === "schedule" ? "schedule" : undefined,
     promptEngine: libraryContext ? analyticsScope({ engine: search.promptEngine }).engine : undefined,
@@ -104,7 +125,20 @@ export function parseAppSearch(search: Record<string, unknown>): AppSearch {
     status: historyContext ? runStatuses.find(value => value === search.status) : undefined,
     outcome: historyContext ? runOutcomes.find(value => value === search.outcome) : undefined,
     brand: historyContext || tab === "prompts" ? resourceId(search.brand) : undefined,
-    researchGroup: tab === "research" || tab === "runs" ? researchTypes.find(type => type === search.researchGroup) : undefined,
+    ...(researchContext ? {
+      researchGroup: researchTypes.find(type => type === search.researchGroup),
+      sourceSearch: typeof search.sourceSearch === "string" && search.sourceSearch.length <= 200 ? search.sourceSearch : undefined,
+      sourceSort: researchSorts.find(value => value === search.sourceSort),
+      sourceDirection: search.sourceDirection === "asc" || search.sourceDirection === "desc" ? search.sourceDirection : undefined,
+      sourcePage: sourcePage(search.sourcePage),
+      sourceBrandPage: sourcePage(search.sourceBrandPage),
+      sourceDetailPage: sourcePage(search.sourceDetailPage),
+      sourceView: search.sourceView === "pages" || search.sourceView === "questions" || search.sourceView === "answers" ? search.sourceView : undefined,
+      sourceQuestion: resourceId(search.sourceQuestion),
+      sourceDomain: typeof search.sourceDomain === "string" && search.sourceDomain.length <= 4096 ? search.sourceDomain : undefined,
+      sourceDomainPage: sourcePage(search.sourceDomainPage),
+      sourceBackRun: resourceId(search.sourceBackRun),
+    } : {}),
     settingsSection: tab === "settings"
       ? (Object.keys(settingsSections) as SettingsSection[]).find(section => section === search.settingsSection) : undefined,
     researchType: (tab === "research" || tab === "runs") && researchValue ? researchType : undefined,
