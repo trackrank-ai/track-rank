@@ -4,6 +4,7 @@ import type { AppSearch, ResearchType } from "@/lib/app-location";
 import { Link } from "@tanstack/react-router";
 import { ArrowUpRight, Download } from "lucide-react";
 import { useEffect, useState } from "react";
+import { AnswerPreview } from "./answer-preview";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -15,7 +16,8 @@ type RunPage = {
   next_before: number | null;
   next_before_id: string | null;
   error?: string;
-  denominator?: "available" | "empty" | "unavailable";
+  counts?: Record<string, number>;
+  question?: { prompt_text: string; engine: string; workspace_id: string };
 };
 type HistoryPrompt = { question: string; engine?: string; workspace: string };
 
@@ -42,7 +44,7 @@ export function RunStatus({ value }: { value: string }) {
   return <Badge variant="outline" className={"run-status status-" + value}>{value}</Badge>;
 }
 
-export function WorkspaceRunHistory({ org, workspace, workspaceName, workspaceNames, runPrompt, prompts, brands, engines, request, refresh, canWrite, scope, metric, trendMetric, evidenceDay, researchType, researchValue, filters, onChange, historyLink, backLink, lockSet = false }: {
+export function WorkspaceRunHistory({ org, workspace, workspaceName, workspaceNames, runPrompt, prompts, brands, engines, request, refresh, canWrite, scope, metric, trendMetric, evidenceDay, researchType, researchValue, filters, onChange, restoreFocus, historyLink, recordLink, backLink, primaryHeading = false, lockSet = false }: {
   org: string;
   workspace: string;
   workspaceName: string;
@@ -60,9 +62,12 @@ export function WorkspaceRunHistory({ org, workspace, workspaceName, workspaceNa
   evidenceDay?: string;
   researchType?: ResearchType;
   researchValue?: string;
-  filters: Pick<AppSearch, "q" | "status" | "brand" | "outcome" | "run" | "reportQuestion" | "reportEngine">;
+  filters: Pick<AppSearch, "q" | "status" | "brand" | "outcome" | "run" | "reportQuestion" | "reportEngine" | "sourceQuestion">;
   lockSet?: boolean;
   historyLink?: (patch: Partial<AppSearch>) => AppSearch;
+  primaryHeading?: boolean;
+  restoreFocus?: (link: HTMLAnchorElement | null) => void;
+  recordLink?: (run: string) => AppSearch;
   backLink?: AppSearch;
   onChange: (patch: Partial<AppSearch>) => void;
 }) {
@@ -83,13 +88,14 @@ export function WorkspaceRunHistory({ org, workspace, workspaceName, workspaceNa
   if (outcome) query.set("outcome", outcome);
   if (brand) query.set("brand_id", brand);
   if (filters.reportQuestion) query.set("report_evidence_run", filters.reportQuestion);
+  if (filters.sourceQuestion && researchType) {
+    query.set("report_evidence_run", filters.sourceQuestion);
+    query.set("report_question_all_engines", "true");
+  }
+  if (metric) query.set("include_report_counts", "true");
   if (runPrompt) query.set("prompt_id", runPrompt);
   const path = "/runs?" + query;
   const numerator = metric?.endsWith("mention") || metric?.endsWith("citation");
-  const denominatorQuery = new URLSearchParams(query);
-  denominatorQuery.set("metric", "brand");
-  denominatorQuery.set("limit", "1");
-  const denominatorPath = numerator ? "/runs?" + denominatorQuery : undefined;
   const current = page?.key === path ? page : null;
   const narrowed = Boolean(keyword.trim() || status || brand || outcome || runPrompt || filters.reportQuestion || metric || researchType || Object.values(scope).some(Boolean));
   const [runPrompts, setRunPrompts] = useState(new Map<string, HistoryPrompt>());
@@ -114,18 +120,10 @@ export function WorkspaceRunHistory({ org, workspace, workspaceName, workspaceNa
     let canceled = false;
     setPage(null);
     const timer = window.setTimeout(() => {
-      request(path).then(async data => {
-        let denominator: RunPage["denominator"];
-        if (!canceled && !data.runs.length && denominatorPath) {
-          try {
-            const matches = await request(denominatorPath);
-            denominator = matches.runs.length ? "available" : "empty";
-          } catch {
-            denominator = "unavailable";
-          }
-        }
+      request(path).then(data => {
         if (!canceled) {
-          setPage({ key: path, runs: data.runs, next_before: data.next_before, next_before_id: data.next_before_id, denominator });
+          setPage({ key: path, runs: data.runs, next_before: data.next_before, next_before_id: data.next_before_id,
+            counts: data.report_counts, question: data.recorded_question });
           setRunPrompts(known => includeRunPrompts(known, data.runs));
         }
       }).catch(error => {
@@ -133,7 +131,7 @@ export function WorkspaceRunHistory({ org, workspace, workspaceName, workspaceNa
       });
     }, 180);
     return () => { canceled = true; window.clearTimeout(timer); };
-  }, [path, denominatorPath, request, refresh]);
+  }, [path, request, refresh]);
 
   async function loadOlder() {
     if (!current || current.next_before === null || !current.next_before_id || loadingMore) return;
@@ -143,7 +141,7 @@ export function WorkspaceRunHistory({ org, workspace, workspaceName, workspaceNa
       const data = await request(path + "&" + cursor);
       setRunPrompts(known => includeRunPrompts(known, data.runs));
       setPage(previous => previous === current ? {
-        key: path, runs: [...current.runs, ...data.runs], next_before: data.next_before, next_before_id: data.next_before_id,
+        ...current, runs: [...current.runs, ...data.runs], next_before: data.next_before, next_before_id: data.next_before_id,
       } : previous);
     } catch (error) {
       setPage(previous => previous === current ? {
@@ -164,34 +162,27 @@ export function WorkspaceRunHistory({ org, workspace, workspaceName, workspaceNa
       ? "No eligible answers in this view tracked both brands."
       : "No eligible answers in this view tracked the selected brand.";
   }
-  if (current?.denominator === "available") {
+  if (numerator && current?.counts?.eligible) {
     emptyMetricMessage = metric?.endsWith("citation")
       ? `Eligible answers match these filters. None cited ${metricBrandName}’s website.`
       : `Eligible answers match these filters. None mentioned ${metricBrandName}.`;
   }
-  if (current?.denominator === "unavailable") {
-    emptyMetricMessage = "No answers match this metric. The eligible answer count could not be checked.";
-  }
+
   const historySearch: AppSearch = {
     ...scope, org, workspace: workspace || "all", tab: "runs", runPrompt, metric, trendMetric, evidenceDay,
     q: filters.q, status: filters.status, outcome, brand, researchType, researchValue,
     reportQuestion: filters.reportQuestion, reportEngine: filters.reportEngine,
   };
+  const report = !!(metric || researchType);
+  const counts = current?.counts;
+  const citation = metric?.endsWith("citation") || (metric === "brand" && trendMetric === "citation");
+  const outcomeLabel = citation ? "cited" : "mentioned";
+  const field = citation ? "citations" : "mentions";
+  const reportEngine = current?.question?.engine || scope.engine;
+  const heading = current?.question?.prompt_text || researchValue || (report ? "Matching answers" : "Collection history");
   const clearLink = historyLink?.({}) ?? { org, workspace: workspace || "all", tab: "runs" as const };
-  return (
-    <Card><CardContent>
-      <div className="panel-title">
-        <div>
-          <h2>Collection history</h2>
-          <p>{workspace ? `Runs recorded in ${workspaceName}.` : "Runs across all workspaces."}</p>
-        </div>
-        {overviewLink && !filters.run && <Link className="small-link" to="/app" search={overviewLink}>{backLink ? "Back to tracking overview" : "Back to Overview"}</Link>}
-        {(!!current?.runs.length || (trendMetric && current && !current.error)) && <a className="small-link" href={"/api/v1/export?" + new URLSearchParams({ ...Object.fromEntries(query), org })}
-          title="Export up to 1,000 matching runs">
-          <Download size={14} /> Export CSV
-        </a>}
-      </div>
-      {narrowed && <div className="app-inline-form" aria-label="Active filters">
+  const filterEditor = <>
+      {narrowed && <div className="app-inline-form history-chips" aria-label="Active filters">
         {Object.entries({
           reportQuestion: filters.reportQuestion ? `Recorded question · ${engines[filters.reportEngine ?? ""] ?? "Recorded engine"}` : undefined,
           engine, q: keyword, status, outcome, brand, runPrompt, metric, researchValue,
@@ -200,7 +191,7 @@ export function WorkspaceRunHistory({ org, workspace, workspaceName, workspaceNa
         }).filter(([, value]) => value).map(([key, value]) => {
           const labels: Record<string, string> = { reportQuestion: "Question breakdown", q: "Search", runPrompt: "Prompt variant", trackedBrand: "Tracked brand", compareBrand: "Comparison brand", evidenceDay: "Evidence day", researchValue: "Research", set: "Prompt set" };
           const displayed = key === "engine" ? engines[value!] : key === "brand" || key === "trackedBrand" || key === "compareBrand"
-            ? brands.find(item => item.id === value)?.name ?? value : key === "runPrompt" ? optionLabels.get(value!) : key === "metric" && metric ? metricLabels[metric] : value;
+            ? brands.find(item => item.id === value)?.name ?? "Historical brand" : key === "runPrompt" ? optionLabels.get(value!) : key === "metric" && metric ? metricLabels[metric] : value;
           return <Button type="button" variant="outline" size="sm" key={key}
             onClick={() => onChange({ [key]: undefined, ...(key === "researchValue" ? { researchType: undefined } : {}),
               ...(key === "trackedBrand" ? { compareBrand: undefined } : {}),
@@ -243,6 +234,27 @@ export function WorkspaceRunHistory({ org, workspace, workspaceName, workspaceNa
           </select>
         </label>
       </div>}
+  </>;
+  return (
+    <Card className="history-results" tabIndex={-1}><CardContent>
+      <div className="panel-title">
+        <div>
+          {primaryHeading ? <h1>{heading}</h1> : <h2>{heading}</h2>}
+          {report ? <p>{current?.question ? workspaceNames[current.question.workspace_id] ?? workspaceName : workspaceName}
+            {reportEngine && ` · ${engines[reportEngine] ?? "Recorded engine"}`}
+            {evidenceDay ? ` · ${evidenceDay} UTC` : scope.from && scope.to ? ` · ${scope.from} to ${scope.to} UTC` : ""}</p>
+            : <p>{workspace ? `Runs recorded in ${workspaceName}.` : "Runs across all workspaces."}</p>}
+          {counts && (counts.eligible === 0 ? <p>No eligible answers in this scope.</p> : counts[field] === undefined ? <p>{counts.eligible} eligible answers</p> :
+            [[scope.trackedBrand, counts[field]], [scope.compareBrand, counts["compare_" + field]]].map(([id, count]) =>
+              typeof id === "string" && typeof count === "number" && <p key={id}><strong>{count} of {counts.eligible}</strong> eligible answers {outcomeLabel} {brands.find(brand => brand.id === id)?.name ?? "the recorded brand"}{citation && "’s website"}</p>))}
+        </div>
+        {overviewLink && !filters.run && <Link className="small-link" to="/app" search={overviewLink}>{backLink ? "Back to tracking overview" : "Back to Overview"}</Link>}
+        {(!!current?.runs.length || (trendMetric && current && !current.error)) && <a className="small-link" href={"/api/v1/export?" + new URLSearchParams({ ...Object.fromEntries(query), org })}
+          title="Export up to 1,000 matching runs">
+          <Download size={14} /> Export CSV
+        </a>}
+      </div>
+      {report ? <details className="history-disclosure"><summary>Report filters</summary>{filterEditor}</details> : filterEditor}
       {!current && <p role="status">Loading run history…</p>}
       {current?.error && <p role="alert">{current.error}</p>}
       {firstRun && <div className="form-stack">
@@ -258,7 +270,7 @@ export function WorkspaceRunHistory({ org, workspace, workspaceName, workspaceNa
         ? <div className="form-stack">
           <p className="data-note">{emptyMetricMessage}</p>
           <div className="form-actions">
-            {(current.denominator === "available" || current.denominator === "unavailable") && <Button size="sm" variant="outline" asChild>
+            {(numerator && !!current.counts?.eligible) && <Button size="sm" variant="outline" asChild>
               <Link to="/app" search={historyLink?.({ metric: "brand" }) ?? { ...historySearch, metric: "brand" }}>View eligible answers</Link>
             </Button>}
             {overviewLink && <Button size="sm" variant="outline" asChild>
@@ -267,8 +279,14 @@ export function WorkspaceRunHistory({ org, workspace, workspaceName, workspaceNa
           </div>
         </div>
         : <p className="data-note">No runs match these filters. Try a different keyword or clear a filter.</p>)}
-      {current?.runs.map(run => (
-        <Link key={run.id} className="run-row" to="/app" search={historyLink?.({ run: run.id }) ?? { ...historySearch, run: run.id }}>
+      {current?.runs.map(run => report ? <article key={run.id} className="history-answer" aria-current={filters.run === run.id ? "true" : undefined}>
+        <Link ref={restoreFocus} data-evidence-run={run.id} className="small-link" to="/app" search={recordLink?.(run.id) ?? historyLink?.({ run: run.id }) ?? { ...historySearch, run: run.id }}>
+          <strong>{current.question ? "Open " + (engines[run.config?.engine] ?? "recorded") + " answer" : run.prompt_text}</strong>
+        </Link>
+        <p className="data-note">{collectionVariantLabel(run.config?.engine, workspaceNames[run.workspace_id] ?? "", engines)} · {new Date(run.created_at).toLocaleString()} · {(run.citations ?? []).length} citations</p>
+        <AnswerPreview excerpt={run.answer_excerpt} passage={run.brand_passage} />
+      </article> : (
+        <Link key={run.id} ref={restoreFocus} data-evidence-run={run.id} className="run-row" to="/app" search={recordLink?.(run.id) ?? historyLink?.({ run: run.id }) ?? { ...historySearch, run: run.id }}>
           <span><strong>{run.prompt_text}</strong><small>
             {collectionVariantLabel(run.config?.engine, workspaceNames[run.workspace_id] ?? "", engines)}
             {" · "}{new Date(run.created_at).toLocaleString()} · {run.config?.mode}

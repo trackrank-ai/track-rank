@@ -75,7 +75,7 @@ export async function analytics(env: Env, org: string, params: URLSearchParams) 
     SELECT 'day',date(created_at/1000,'unixepoch'),count(*),sum(mentioned),sum(cited),0,0,0,0,0
       FROM samples WHERE brand_id=? GROUP BY date(created_at/1000,'unixepoch')
     UNION ALL
-    SELECT 'brand',brand_id,count(*),sum(mentioned),sum(cited),0,0,0,0,0 FROM samples GROUP BY brand_id
+    SELECT 'brand',json_array(brand_id,max(name)),count(*),sum(mentioned),sum(cited),0,0,0,0,0 FROM samples GROUP BY brand_id
     UNION ALL
     SELECT 'domain',domain,answers,0,0,0,0,0,0,0 FROM (
       SELECT ${citationDomain} AS domain,count(DISTINCT runs.id) AS answers
@@ -106,6 +106,24 @@ export async function analytics(env: Env, org: string, params: URLSearchParams) 
     competitor: total.competitor + day.compare_mentions,
   }), { samples: 0, primary: 0, competitor: 0 });
   const mentions = credited.primary + credited.competitor;
+  const brands = rows.filter(row => row.kind === "brand").map(({ key, samples, mentions, citations }) => {
+    const [id, name] = JSON.parse(key) as [string, string | null];
+    return { id, name, samples, mentions, citations };
+  });
+  const individual_coverage = primary && competitor && !credited.samples
+    ? await Promise.all([primary, competitor].map(async id => {
+      if (!filters.match_from && !filters.overlap && !filters.metric)
+        return { id, samples: brands.find(brand => brand.id === id)?.samples ?? 0 };
+      const individual = new URLSearchParams(query);
+      individual.delete("compare_brand");
+      individual.delete("overlap");
+      individual.set("tracked_brand", id);
+      individual.set("metric", "brand");
+      const single = await searchableHistoryWhere(env, org, individual);
+      const [count] = await all<{ samples: number }>(env,
+        `SELECT count(*) AS samples FROM runs WHERE ${single.conditions.join(" AND ")}`, ...single.bindings);
+      return { id, samples: count.samples };
+    })) : [];
   return {
     from: filters.from, to: filters.to,
     mention_share: primary && competitor ? {
@@ -115,14 +133,14 @@ export async function analytics(env: Env, org: string, params: URLSearchParams) 
     } : null,
     workspace_prompts: workspaceTotals[0].prompts, workspace_has_runs: workspaceTotals[0].first_run !== null, workspace_first_run: workspaceTotals[0].first_run,
     outcomes: Object.fromEntries(outcomes.map(row => [row.outcome, row.count])),
-    previous_period,
+    previous_period, individual_coverage,
     engine_brands: rows.filter(row => row.kind === "engine_brand").map(({ key, samples, mentions, citations }) => {
       const [engine, id, name] = JSON.parse(key) as [string | null, string, string | null];
       return { engine, id, name, samples, mentions, citations };
     }),
     total_runs: total.samples, eligible_answers: total.eligible_answers,
     covered_prompts: total.covered_prompts, selected_prompts: total.selected_prompts,
-    brands: rows.filter(row => row.kind === "brand").map(({ key, samples, mentions, citations }) => ({ id: key, samples, mentions, citations })),
+    brands,
     domains: rows.filter(row => row.kind === "domain").map(({ key, samples }) => ({ domain: key, answers: samples }))
       .sort((a, b) => b.answers - a.answers || a.domain.localeCompare(b.domain)),
     comparison_daily: pairedDays

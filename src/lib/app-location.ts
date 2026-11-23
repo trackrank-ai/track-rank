@@ -63,6 +63,7 @@ export type AppSearch = AnalyticsScope & {
   researchType?: ResearchType;
   researchValue?: string;
   settingsSection?: SettingsSection;
+  monitoringPage?: string;
   trial?: "start";
 };
 
@@ -146,6 +147,7 @@ export function parseAppSearch(search: Record<string, unknown>): AppSearch {
       sourceDomainPage: sourcePage(search.sourceDomainPage),
       sourceBackRun: resourceId(search.sourceBackRun),
     } : {}),
+    monitoringPage: tab === "settings" && search.settingsSection === "monitoring" && search.workspace === "all" ? sourcePage(search.monitoringPage) : undefined,
     settingsSection: tab === "settings"
       ? (Object.keys(settingsSections) as SettingsSection[]).find(section => section === search.settingsSection) : undefined,
     researchType: (tab === "research" || tab === "runs") && researchValue ? researchType : undefined,

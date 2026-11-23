@@ -13,6 +13,7 @@ import { RunBatch } from "@/components/run-batch";
 import { CollectionDetails, CollectionReview, type Readiness } from "@/components/collection-review";
 import { defaultMonitoringTiming, MonitoringEditor, monitoringProjection } from "@/components/monitoring-timing";
 import { ScheduleBulkEditor } from "@/components/schedule-bulk-editor";
+import { reportBrandLabels, type RecordedBrand, type ReportBrand } from "@/lib/report-brands";
 import { Overview, OverviewFilters, useReport } from "@/components/overview";
 import { PromptSettingsEditor, type PromptSettings } from "@/components/prompt-settings-editor";
 import { TrackingSetDetail, TrackingSetEmptyReport, TrackingSetList, TrackingSetSettings, type TrackingSet } from "@/components/tracking-sets";
@@ -295,7 +296,7 @@ function App() {
   const workspaceReady = orgReady && !billingBlocksWorkspace(billing.access_status);
   const isAdmin = workspaceReady && ["owner", "admin"].includes(settings.role),
     canWrite = workspaceReady && ["owner", "admin", "member"].includes(settings.role);
-  const settingsSection = search.settingsSection ?? (tab === "team" ? "team" : billingBlocksWorkspace(billing.access_status) ? "billing" : search.workspace && search.workspace !== ALL_WORKSPACES ? "monitoring" : "providers");
+  const settingsSection = search.settingsSection ?? (tab === "team" ? "team" : billingBlocksWorkspace(billing.access_status) ? "billing" : "monitoring");
   const teamSettings = settingsTab && settingsSection === "team";
   const researchGroup = search.researchGroup ?? search.researchType ?? "domain";
   const linkedPrompt = promptDetail?.id === search.prompt && promptDetail?.org_id === org ? promptDetail : null;
@@ -315,6 +316,9 @@ function App() {
   const trackingView = search.trackingView ?? "overview";
   const trackingQuestions = tracking && !!search.set && trackingView === "questions";
   const showingQuestion = tab === "prompts" && !!search.question;
+  const fromQuestionAnswers = tab === "runs" && !!search.run && !!(search.question || search.promptView === "answers");
+  const splitEvidence = tab === "runs" && !!search.run && !search.batch && !!(search.metric || search.researchType || fromQuestionAnswers);
+
   const selectingForSchedule = tab === "prompts" && search.promptView === "schedule" && !showingQuestion && canWrite;
   const creatingPrompts = tab === "prompts" && search.promptView === "create" && !showingQuestion;
   const scheduleSetup = search.setupIntent === "schedule";
@@ -422,6 +426,25 @@ function App() {
       ...sectionSearch("research"), researchGroup, researchType: search.researchType, researchValue: search.researchValue,
     } : { ...sectionSearch("runs"), runPrompt: search.runPrompt, batch: search.batch, receipt: search.receipt };
   const closeRunLabel = search.question ? "Back to question answers" : search.promptView === "answers" ? "Back to prompt answers" : fromTracking ? "Back to tracking answers" : search.researchType ? "Back to matching answers" : "Close run";
+  const openedAnswer = useRef<{ id: string; destination?: Tab; workspace?: string; org?: string } | null>(null);
+  const answerHeading = useRef<HTMLHeadingElement>(null);
+  const returnDestination = closeRun.tab;
+  useEffect(() => {
+    if (selectedRun && search.run) {
+      openedAnswer.current = { id: search.run, destination: returnDestination, workspace, org };
+      answerHeading.current?.focus();
+    } else if (!search.run && openedAnswer.current?.destination !== tab) {
+      openedAnswer.current = null;
+    }
+  }, [selectedRun?.id, search.run, returnDestination, tab, workspace, org]);
+  const restoreAnswerFocus = useCallback((link: HTMLAnchorElement | null) => {
+    const opened = openedAnswer.current;
+    if (!search.run && link && opened && opened.org === org && opened.workspace === workspace &&
+      opened.destination === tab && link.dataset.evidenceRun === opened.id) {
+      link.focus();
+      openedAnswer.current = null;
+    }
+  }, [search.run, workspace, org, tab]);
   function updatePromptFilters(filters: Partial<AppSearch>) {
     void navigate({ search: { ...sectionSearch("prompts"), ...filters }, replace: true });
   }
@@ -879,10 +902,10 @@ function App() {
 
   const questionPeriod = { from: search.from ?? defaultPeriod().from, to: search.to ?? defaultPeriod().to };
   const answerEngine = search.questionEngine === "all" ? undefined : search.questionEngine ?? search.promptEngine;
-  const answersQuery = question ? analyticsQuery({
+  const answersQuery = analyticsQuery({
     ...questionPeriod, engine: answerEngine, trackedBrand: search.brand, tags: search.tag, set: search.set,
-  }, question.workspace_id) : new URLSearchParams();
-  if (question) answersQuery.set("question_id", question.id);
+  }, question?.workspace_id ?? workspaceId);
+  if (search.question) answersQuery.set("question_id", search.question);
   answersQuery.set("metric", search.brand ? search.questionMetric ?? "brand" : "eligible");
   if (search.promptSchedule) answersQuery.set("prompt_schedule", search.promptSchedule);
   if (search.promptBrand) answersQuery.set("prompt_brand", search.promptBrand);
@@ -897,7 +920,17 @@ function App() {
   if (search.promptBrand) promptAnswersQuery.set("prompt_brand", search.promptBrand);
   if (search.questionType) promptAnswersQuery.set("question_type", search.questionType);
   const promptAnswersPath = "/runs?" + promptAnswersQuery;
-  const selectedMetricBrand = scopeBrands.find(brand => brand.id === search.brand);
+  const missingBrandIds = [...new Set([reportScope.trackedBrand, search.compareBrand, search.brand])]
+    .filter((id): id is string => !!id && !scopeBrands.some(brand => brand.id === id));
+  const identityQuery = new URLSearchParams({ ids: missingBrandIds.join(",") });
+  if (workspaceId) identityQuery.set("workspace", workspaceId);
+  const identities = useReport<{ brands: RecordedBrand[] }>(
+    workspaceReady && !unavailableWorkspace && missingBrandIds.length && (reportTab || tracking || tab === "runs" || tab === "prompts")
+      ? "/analytics/brand-identities?" + identityQuery : "", request, prompts,
+  );
+  const reportBrands = reportBrandLabels(scopeBrands as ReportBrand[], identities?.data?.brands ?? [],
+    workspaceRecords.map(w => ({ id: w.id, name: workspaceNames[w.id], brand_ids: w.brand_ids })));
+  const selectedMetricBrand = reportBrands.find(brand => brand.id === search.brand);
   const filteredQuestionQuery = new URLSearchParams(libraryQuery);
   if (search.question) filteredQuestionQuery.set("question_id", search.question);
   if (search.questionEngine) {
@@ -1175,6 +1208,60 @@ function App() {
         </Button>
       </main>
     );
+  const signOut = () => action(async () => {
+    const response = await fetch("/api/auth/sign-out", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+    });
+    if (!response.ok) throw new Error("Unable to sign out. Please try again.");
+    location.assign("/login");
+  });
+  const workspaceForm = (
+    <details className="create-org">
+      <summary>
+        <Plus size={14} /> New workspace
+      </summary>
+      <form
+        onSubmit={(e) => {
+          const popover = e.currentTarget.closest("details");
+          return submit(e, async (f) => {
+            const d = await request("/workspaces", "POST", {
+              name: f.get("name"),
+              brand_id: f.get("brand_id") || null,
+            });
+            await load();
+            if (popover) popover.open = false;
+            setWorkspace(d.id);
+          });
+        }}
+      >
+        <input
+          required
+          name="name"
+          maxLength={100}
+          placeholder="Workspace name"
+          aria-label="Workspace name"
+        />
+        <select name="brand_id" aria-label="Primary brand">
+          <option value="">No primary brand</option>
+          {brands.map((b) => (
+            <option key={b.id} value={b.id}>
+              {b.name}
+            </option>
+          ))}
+        </select>
+        <Button size="sm" disabled={busy}>
+          Create workspace
+        </Button>
+      </form>
+    </details>
+  );
+  const accountActions = <>
+    <ThemeToggle />
+    {org && isAdmin && <Button size="sm" variant="outline" asChild><Link to="/app" search={settingsSearch("team")}><Users size={14} /> Invite teammates</Link></Button>}
+    <Button size="sm" variant="outline" disabled={loading || !org} onClick={() => { setError(""); void load(); }}>
+      {loading ? <Loader2 className="animate-spin" size={13} /> : <RefreshCw size={13} />} Refresh
+    </Button>
+  </>;
   return (
     <div className="app-shell">
       <aside className="app-sidebar">
@@ -1190,6 +1277,17 @@ function App() {
           </span>
           trackrank<span className="brand-suffix">.ai</span>
         </Link>
+        <details className="compact-account" key={org + workspace + tab}>
+          <summary>Account &amp; actions</summary>
+          <div className="compact-account-content">
+            <strong>{session.user.name}</strong>
+            <small>{session.user.email}</small>
+            <Link to="/app" search={sectionSearch("settings")}>{orgs.find(o => o.id === org)?.name || "Organization settings"}</Link>
+            {workspaceReady && <Link to="/app" search={sectionSearch("workspaces")}>Manage workspaces</Link>}
+            {accountActions}
+            <Button size="sm" variant="ghost" onClick={signOut}><LogOut size={14} /> Sign out</Button>
+          </div>
+        </details>
         <label className="org-switcher">
           <span>WORKSPACE</span>
           <select aria-label="Workspace" value={workspace} disabled={!workspaceReady || busy}
@@ -1199,46 +1297,7 @@ function App() {
             {workspaces.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
           </select>
         </label>
-        {canWrite && (
-            <details className="create-org">
-              <summary>
-                <Plus size={14} /> New workspace
-              </summary>
-              <form
-                onSubmit={(e) => {
-                  const popover = e.currentTarget.closest("details");
-                  return submit(e, async (f) => {
-                    const d = await request("/workspaces", "POST", {
-                      name: f.get("name"),
-                      brand_id: f.get("brand_id") || null,
-                    });
-                    await load();
-                    if (popover) popover.open = false;
-                    setWorkspace(d.id);
-                  });
-                }}
-              >
-                <input
-                  required
-                  name="name"
-                  maxLength={100}
-                  placeholder="Workspace name"
-                  aria-label="Workspace name"
-                />
-                <select name="brand_id" aria-label="Primary brand">
-                  <option value="">No primary brand</option>
-                  {brands.map((b) => (
-                    <option key={b.id} value={b.id}>
-                      {b.name}
-                    </option>
-                  ))}
-                </select>
-                <Button size="sm" disabled={busy}>
-                  Create workspace
-                </Button>
-              </form>
-            </details>
-        )}
+        {workspaceReady && canWrite && tab !== "workspaces" && workspaceForm}
         {workspaceReady && <Link className="workspace-management-link" to="/app" search={sectionSearch("workspaces")}>Manage workspaces</Link>}
         <nav className="app-nav" aria-label="Application">
           {navigationGroups.map(group => (
@@ -1279,16 +1338,7 @@ function App() {
           <Button
             size="sm"
             variant="ghost"
-            onClick={() =>
-              action(async () => {
-                await fetch("/api/auth/sign-out", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: "{}",
-                });
-                location.assign("/login");
-              })
-            }
+            onClick={signOut}
           >
             <LogOut size={14} /> Sign out
           </Button>
@@ -1307,44 +1357,7 @@ function App() {
             <span className="app-slash">/</span>
             <strong>{paneName}</strong>
           </div>
-          <div className="topbar-actions">
-          <ThemeToggle />
-          {org && isAdmin && <Button className="invite-shortcut" size="sm" variant="outline" asChild><Link to="/app" search={settingsSearch("team")}><Users size={14} /> Invite teammates</Link></Button>}
-          <Button
-            className="app-mobile-signout"
-            variant="ghost"
-            size="sm"
-            aria-label="Sign out"
-            onClick={() =>
-              action(async () => {
-                await fetch("/api/auth/sign-out", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: "{}",
-                });
-                location.assign("/login");
-              })
-            }
-          >
-            <LogOut size={14} />
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => {
-              setError("");
-              void load();
-            }}
-            disabled={loading || !org}
-          >
-            {loading ? (
-              <Loader2 className="animate-spin" size={13} />
-            ) : (
-              <RefreshCw size={13} />
-            )}{" "}
-            Refresh
-          </Button>
-          </div>
+          <div className="topbar-actions">{accountActions}</div>
         </header>
         <main className="app-content">
           {settingsTab && org && (
@@ -1529,7 +1542,7 @@ function App() {
             </CardContent></Card>
           ) : (
             <>
-              {!settingsTab && !tracking && !showingQuestion && !(tab === "runs" && selectedRun) && <div className="app-page-heading">
+              {!settingsTab && !tracking && !showingQuestion && !(tab === "runs" && (search.run || search.metric)) && <div className="app-page-heading">
                 <div>
                   <h1>{creatingPrompts ? setupTitle : paneName}</h1>
                   {tab === "prompts" && <p>{workspaceName}</p>}
@@ -1549,14 +1562,14 @@ function App() {
                 const filters = <OverviewFilters
                   key={JSON.stringify([org, workspace, tab, search, reportScope])}
                   org={org} workspace={workspace} workspaceNames={workspaceNames} scope={reportScope} sets={promptSets} summarize={tab === "research"} showBrand={tab !== "research"}
-                  brands={scopeBrands as { id: string; name: string }[]} engines={engines} request={request} revision={prompts}
+                  brands={reportBrands} engines={engines} request={request} revision={prompts}
                   onChange={scope => void navigate({ search: { org, workspace, tab, ...scope,
                     ...(tab === "research" ? { ...sourceContext, sourcePage: undefined, sourceDetailPage: undefined, sourceBrandPage: undefined, sourceQuestion: undefined } : {}), researchType: search.researchType, researchValue: search.researchValue, trendMetric: search.trendMetric } })}
                 />;
                 return tab === "research" ? <>{filters}<SourceComparison key={JSON.stringify([org, workspace, reportScope])}
-                  brands={scopeBrands as { id: string; name: string; kind: string }[]}
+                  brands={reportBrands}
                   search={{ ...sectionSearch("research"), researchType: search.researchType, researchValue: search.researchValue }} /></> : <Overview org={org} workspace={workspace} workspaceName={workspaceName} workspaceNames={workspaceNames}
-                  automaticBrand={!search.trackedBrand} scope={reportScope} sets={promptSets} engines={engines} brands={scopeBrands as { id: string; name: string }[]}
+                  automaticBrand={!search.trackedBrand} scope={reportScope} sets={promptSets} engines={engines} brands={reportBrands}
                   hasTrackedBrand={allWorkspaces ? workspaces.some(w => brandIds(w.id).length > 0) : trackedBrandIds.size > 0}
                   brandWorkspace={workspaceId || workspaces[0]?.id || workspace}
                   credentialsConnected={!!settings.dataforseo_configured} canWrite={canWrite} canManageCredentials={isAdmin}
@@ -1570,7 +1583,7 @@ function App() {
               </> : !trackedSet || allWorkspaces ? <p role="status">Loading tracking set…</p>
                 : <TrackingSetDetail org={org} set={trackedSet} search={search} workspaceName={workspaceName} engines={engines}>
                   {trackingView === "overview" && <Overview org={org} workspace={workspace} workspaceName={workspaceName}
-                    automaticBrand={!search.trackedBrand} scope={reportScope} sets={[trackedSet]} engines={engines} brands={scopeBrands as { id: string; name: string }[]}
+                    automaticBrand={!search.trackedBrand} scope={reportScope} sets={[trackedSet]} engines={engines} brands={reportBrands}
                     hasTrackedBrand={trackedBrandIds.size > 0} brandWorkspace={workspace}
                     credentialsConnected={!!settings.dataforseo_configured} canWrite={canWrite} canManageCredentials={isAdmin}
                     request={request} revision={promptLibraryRevision} trendMetric={search.trendMetric}
@@ -1582,7 +1595,7 @@ function App() {
                     })}
                     filters={<OverviewFilters key={JSON.stringify(reportScope)} summarize={false} lockSet
                       org={org} workspace={workspace} workspaceNames={workspaceNames} scope={reportScope} sets={[trackedSet]}
-                      brands={scopeBrands as { id: string; name: string }[]} engines={engines} request={request} revision={prompts}
+                      brands={reportBrands} engines={engines} request={request} revision={prompts}
                       onChange={scope => void navigate({ search: { ...scope, org, workspace, tab: "tracking",
                         trackingView: "overview", set: trackedSet.id, trendMetric: search.trendMetric } })} />} />}
                   {trackingQuestions && <Card><CardContent className="form-stack">
@@ -1614,9 +1627,9 @@ function App() {
                     })}
                     <BulkPageNavigation pages={promptPages} label="questions" />
                   </CardContent></Card>}
-                  {trackingView === "answers" && <WorkspaceRunHistory key={trackedSet.id} lockSet
+                  {trackingView === "answers" && <WorkspaceRunHistory key={trackedSet.id} restoreFocus={restoreAnswerFocus} lockSet
                     org={org} workspace={workspaceId} workspaceName={workspaceName} workspaceNames={workspaceNames}
-                    runPrompt={search.runPrompt} prompts={[]} brands={scopeBrands} engines={engines} request={request}
+                    runPrompt={search.runPrompt} prompts={[]} brands={reportBrands} engines={engines} request={request}
                     refresh={prompts} canWrite={canWrite} scope={linkScope} filters={search} metric={search.metric ?? (search.outcome ? undefined : "eligible")}
                     trendMetric={search.trendMetric} evidenceDay={search.evidenceDay}
                     backLink={trackingLink("overview")}
@@ -1632,7 +1645,7 @@ function App() {
               {tab === "workspaces" && (
                 <Card><CardContent>
                   <h2>Manage workspaces</h2>
-                  <p className="data-note">Use New workspace in the sidebar to create a workspace.</p>
+                  {canWrite && workspaceForm}
                   {workspaces.map(w => (
                     <div className="workspace-manager-row" key={w.id}>
                       {editingWorkspace === w.id ? (
@@ -1744,7 +1757,7 @@ function App() {
                           <option value="">All engines</option>
                           {Object.entries(engines).map(([id, name]) => <option key={id} value={id}>{name}</option>)}
                         </select></FormField>
-                        <QuestionAnswers key={org + answersPath} path={answersPath} request={request} org={org}
+                        <QuestionAnswers restoreFocus={restoreAnswerFocus} key={org + answersPath} path={answersPath} request={request} org={org}
                         context={{ ...sectionSearch("prompts"), question: question.id, questionMetric: search.questionMetric, questionEngine: search.questionEngine }} engines={engines} brand={selectedMetricBrand?.name} period={questionPeriod} revision={prompts}
                         engine={answerEngine ? engines[answerEngine] : undefined}
                         outcome={search.questionMetric}
@@ -1942,7 +1955,24 @@ function App() {
                             </FormField>
                           )}
                           {pinnedSetupSetId && setupSet && <p>Adding to <strong className="break-words">{setupSet.name}</strong></p>}
-                          <FormField label="Questions" hint="Paste one question per line. Import a text file or a single-column CSV to append questions. Questions and engine settings are kept in this tab.">
+                          {savingWorkspace && <p className="data-note">{workspaceNames[savingWorkspace]} · {promptEngineChoices.map(e => engines[e]).join(", ") || "Choose engines"} · {promptLocation} · {promptLanguage}</p>}
+                          <div className="question-row-actions" role="group" aria-label="Question entry methods">
+                            <Button type="button" size="sm" variant="outline" disabled={!savingWorkspace} onClick={() => setupQuestions.current?.focus()}>Paste questions</Button>
+                            <QuestionImport key={draftScope} disabled={!savingWorkspace} onImport={questions => {
+                              const entries = promptSeparator === "commas"
+                                ? questions.map(text => '"' + text.replaceAll('"', '""') + '"').join(",\n") : questions.join("\n");
+                              setPromptText(promptText.trim() ? promptText + (promptSeparator === "commas" ? ",\n" : "\n") + entries : entries);
+                              setDraftReview(null);
+                            }} />
+                            <Button type="button" size="sm" variant="outline" disabled={!savingWorkspace} onClick={() => {
+                              const templates = document.querySelector<HTMLDetailsElement>("#question-templates");
+                              if (templates) {
+                                templates.open = true;
+                                templates.querySelector<HTMLInputElement>("input")?.focus();
+                              }
+                            }}>Browse templates</Button>
+                          </div>
+                          <FormField label="Questions" hint="Enter one question per line. Your questions and engine settings are kept in this tab.">
                             <textarea
                               ref={setupQuestions}
                               disabled={!savingWorkspace}
@@ -1955,17 +1985,6 @@ function App() {
                               rows={3}
                             />
                           </FormField>
-                          <div className="question-row-actions">
-                            {!!savingWorkspace && <QuestionImport key={draftScope} onImport={questions => {
-                              const entries = promptSeparator === "commas"
-                                ? questions.map(text => '"' + text.replaceAll('"', '""') + '"').join(",\n") : questions.join("\n");
-                              setPromptText(promptText.trim() ? promptText + (promptSeparator === "commas" ? ",\n" : "\n") + entries : entries);
-                              setDraftReview(null);
-                            }} />}
-                            <a className="small-link" href="#question-templates" onClick={() => {
-                              document.querySelector<HTMLDetailsElement>("#question-templates")?.setAttribute("open", "");
-                            }}>Browse templates</a>
-                          </div>
                           <p className="data-note" role="status">
                             {promptInput.prompts.length} {promptInput.prompts.length === 1 ? "prompt" : "prompts"} detected
                             {" × "}{promptEngineChoices.length} {promptEngineChoices.length === 1 ? "engine" : "engines"}
@@ -2069,6 +2088,7 @@ function App() {
                             <label className="check-field"><input type="radio" name="setup-intent" checked={setupSchedules}
                               onChange={() => setSetupIntent("schedule")} /> Track on a schedule</label>
                           </fieldset>
+                          {draftAvailable !== undefined && <p className="data-note">{draftAvailable.toLocaleString()} organization checks remaining this month.</p>}
                           <p className="data-note">{setupIntent === "save" ? "Keep the questions and engine settings ready for later."
                             : setupSchedules ? "Collect new answers at the scheduled times." : "Collect answers now using your DataForSEO account."}</p>
                           {setupIntent === "check" && <details className="advanced-settings">
@@ -2106,7 +2126,7 @@ function App() {
                             {setupIntent !== "save" && <CollectionDetails org={org} workspaceId={savingWorkspace} workspace={draftReview.data.workspace.name}
                               brands={promptBrands.map(brand => brand.name)}
                               locales={promptEngineChoices.map(engine => `${engines[engine]} · ${promptLocation} · ${promptLanguage}`)}
-                              provider={!!settings.dataforseo_configured} available={draftAvailable} showProviderCharges={false} />}
+                              provider={!!settings.dataforseo_configured} showProviderCharges={false} />}
                             {setupIntent === "save" && <p><strong>{draftReview.data.workspace.name}</strong> · {promptLocation} · {promptLanguage}</p>}
                             {draftReview.payload.brand_id && <p>Associated prompt brand {promptBrands.find(brand => brand.id === draftReview.payload.brand_id)?.name}.</p>}
                             {(setupSchedules || setupRuns) && existingEligible.length > 0 && <label className="check-field">
@@ -2116,6 +2136,7 @@ function App() {
                             </label>}
                             <div className="form-stack">
                               <h3>Projected checks</h3>
+                              {draftAvailable !== undefined && <p>{draftAvailable.toLocaleString()} organization checks remaining this month.</p>}
                               <p>{immediateChecks} {immediateChecks === 1 ? "check" : "checks"} now
                                 {setupSchedules && setupProjection.valid && ` · ${setupProjection.weekly} checks per scheduled week`}</p>
                               {setupSchedules && approvedRows.length > 0 && setupProjection.next && <p>First scheduled check {setupProjection.next}</p>}
@@ -2175,8 +2196,7 @@ function App() {
                       </Button>
                     </form>
                     <p className="data-note">
-                      Deterministic templates, not AI-generated or researched
-                      demand data.
+                      Free templates use your topic and location. They work without provider credentials.
                     </p>
                     {ideas.map((i) => (
                       <button
@@ -2222,10 +2242,10 @@ function App() {
                             {Object.entries(engines).map(([id, name]) => <option key={id} value={id}>{name}</option>)}
                           </select>
                         </FormField>
-                        {!selectingForSchedule && !!scopeBrands.length && <FormField label="Tracked brand">
+                        {!selectingForSchedule && !!reportBrands.length && <FormField label="Tracked brand">
                           <select value={search.brand ?? ""} onChange={e => updatePromptFilters({ brand: e.target.value || undefined })}>
                             <option value="">All eligible answers</option>
-                            {scopeBrands.map(brand => <option key={brand.id} value={brand.id}>{brand.name}</option>)}
+                            {reportBrands.map(brand => <option key={brand.id} value={brand.id}>{brand.name}</option>)}
                           </select>
                         </FormField>}
                         {!showingPromptAnswers && !selectingForSchedule && <FormField label="Sort questions">
@@ -2284,7 +2304,7 @@ function App() {
                         request={request} onFilter={filterBySet} onChange={() => setSetRevision(value => value + 1)} />}
                       </details>
                       {showingPromptAnswers ? <>
-                        <QuestionAnswers key={org + promptAnswersPath} path={promptAnswersPath} request={request} org={org}
+                        <QuestionAnswers restoreFocus={restoreAnswerFocus} key={org + promptAnswersPath} path={promptAnswersPath} request={request} org={org}
                           context={sectionSearch("prompts")} engines={engines} brand={selectedMetricBrand?.name}
                           period={questionPeriod} revision={prompts} engine={promptEngineFilter ? engines[promptEngineFilter] : undefined}
                           hasCollections showQuestion />
@@ -2460,7 +2480,7 @@ function App() {
                 </>
               )}
               {tab === "research" && (search.researchType && search.researchValue ? (
-                <ResearchDrilldown
+                <ResearchDrilldown restoreFocus={restoreAnswerFocus}
                   key={JSON.stringify([org, workspace, reportScope, search.researchType, search.researchValue, search.sourceQuestion])}
                   search={{ ...sectionSearch("research"), researchType: search.researchType, researchValue: search.researchValue }} type={search.researchType} value={search.researchValue}
                   engines={engines} workspaceNames={workspaceNames} request={request}
@@ -2520,7 +2540,7 @@ function App() {
                 </>
               ))}
               {tab === "runs" && (
-                <>
+                <div className={splitEvidence ? "run-investigation split-evidence" : "run-investigation"}>
                   {search.run && !selectedRun && (
                     <Card><CardContent>
                       {detailError ? <p role="alert">{detailError}</p> : <p role="status">Loading run…</p>}
@@ -2532,8 +2552,15 @@ function App() {
                     <Card className="selected-run">
                       <CardContent>
                         <header className="run-detail-header">
-                          <h1>{selectedRun.prompt_text}</h1>
+                          <h1 ref={answerHeading} tabIndex={-1}>{selectedRun.prompt_text}</h1>
                           <div className="app-inline-form">
+                            {splitEvidence && <Button className="choose-another-answer" variant="ghost" size="sm"
+                              onClick={() => {
+                                const list = document.querySelector<HTMLElement>(".split-evidence .history-results");
+                                const link = list?.querySelector<HTMLAnchorElement>(`a[data-evidence-run="${CSS.escape(selectedRun.id)}"]`)
+                                  ?? list?.querySelector<HTMLAnchorElement>("a[data-evidence-run]");
+                                (link ?? list)?.focus();
+                              }}>Choose another answer</Button>}
                             {search.trendMetric && <Link to="/app" search={fromTracking ? trackingLink("overview") : sectionSearch("overview")}>Back to Overview</Link>}
                             <Button variant="ghost" size="sm" asChild>
                               <Link to="/app" search={closeRun}>{closeRunLabel}</Link>
@@ -2575,41 +2602,7 @@ function App() {
                               <RefreshCw size={13} /> Check provider result
                             </Button>
                           )}
-                          {selectedRun.status === "succeeded" && (
-                            <>
-                              {canWrite && (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  disabled={
-                                    busy || !settings.openrouter_configured
-                                  }
-                                  onClick={() => {
-                                    if (
-                                      confirm(
-                                        "Analyze this result using your OpenRouter account? Inference charges apply.",
-                                      )
-                                    )
-                                      action(async () => {
-                                        const d = await request(
-                                          "/runs/" +
-                                            selectedRun.id +
-                                            "/analyze",
-                                          "POST",
-                                          {},
-                                        );
-                                        setSelectedRun((r: Item | null) => ({
-                                          ...r,
-                                          analysis: d.analysis,
-                                        }));
-                                      });
-                                  }}
-                                >
-                                  <Sparkles size={13} /> Analyze with OpenRouter
-                                </Button>
-                              )}
-                            </>
-                          )}
+
                         </div>
                         <Tabs key={selectedRun.id} value={search.evidence ?? (!selectedRun.has_answer && selectedRun.organic_results?.length ? "organic" : "answer")}
                           onValueChange={value => void navigate({ search: { ...search, org, workspace,
@@ -2694,10 +2687,32 @@ function App() {
                             )}
                           </TabsContent>
                           <TabsContent value="analysis">
-                            <pre className="answer-content">
-                              {selectedRun.analysis ||
-                                "No analysis yet. Add an OpenRouter key and model in Settings, then choose Analyze. Recommendations are hypotheses based on this collected evidence, not verified ranking causes."}
-                            </pre>
+                            <h3>Recorded evidence</h3>
+                            {selectedRun.status === "succeeded" && selectedRun.has_answer ? <>
+                              <p>{selectedRun.mentions?.length
+                                ? `${selectedRun.mentions.filter((m: Item) => m.mentioned).length} of ${selectedRun.mentions.length} tracked brands mentioned.`
+                                : "No brand observations were recorded."} {selectedRun.citations?.length ?? 0} provider citations.</p>
+                              <Link className="small-link" to="/app" search={{ ...search, evidence: "answer" }}>Read answer and brand observations</Link>
+                              <Link className="small-link" to="/app" search={{ ...search, evidence: "citations" }}>Inspect citations</Link>
+                            </> : <p>No eligible AI answer has been recorded for this run.</p>}
+                            <h3 className="mt-4">Optional AI analysis</h3>
+                            {selectedRun.analysis && <pre className="answer-content">{selectedRun.analysis}</pre>}
+                            <p className="data-note">OpenRouter can generate an opportunity brief from this run. Your organization pays for inference only when a member confirms a request.</p>
+                            {canWrite && selectedRun.status === "succeeded" && settings.openrouter_configured && settings.openrouter_model
+                              ? <Button size="sm" variant="outline" disabled={busy} onClick={() => {
+                                const id = selectedRun.id;
+                                if (!confirm("Generate a brief with your organization’s OpenRouter account? Inference charges apply.")) return;
+                                void action(async () => {
+                                  const result = await request("/runs/" + id + "/analyze", "POST", {});
+                                  setSelectedRun(current => current?.id === id && current?.org_id === org
+                                    ? { ...current, analysis: result.analysis } : current);
+                                });
+                              }}><Sparkles size={13} /> Analyze with OpenRouter</Button>
+                              : (!settings.openrouter_configured || !settings.openrouter_model) && <p className="data-note">
+                                Reports, answer evidence and citations work without OpenRouter.{" "}
+                                {isAdmin ? <Link className="small-link" to="/app" search={settingsSearch("providers")}>Set up optional AI analysis</Link>
+                                  : "An organization administrator can connect a key and model in Settings."}
+                              </p>}
                           </TabsContent>
                         </Tabs>
                       </CardContent>
@@ -2708,7 +2723,12 @@ function App() {
                   })} />}
                   {search.batch && <RunBatch key={search.batch} org={org} workspace={workspace} batch={search.batch}
                     receipt={search.receipt} request={request} engines={engines} />}
-                  {!search.batch && !(fromTracking && search.run) && <WorkspaceRunHistory
+                  {fromQuestionAnswers && <Card className="history-results"><CardContent>
+                    <QuestionAnswers selected={search.run} path={search.question ? answersPath : promptAnswersPath} request={request} org={org}
+                      context={{ ...search, run: undefined, evidence: undefined }} engines={engines} brand={selectedMetricBrand?.name}
+                      period={questionPeriod} revision={prompts} hasCollections showQuestion={!search.question} />
+                  </CardContent></Card>}
+                  {!search.batch && !fromQuestionAnswers && !(fromTracking && search.run && !splitEvidence) && <WorkspaceRunHistory restoreFocus={restoreAnswerFocus}
                     key={JSON.stringify([org, workspace])}
                     org={org}
                     workspace={workspaceId}
@@ -2716,7 +2736,7 @@ function App() {
                     workspaceNames={workspaceNames}
                     runPrompt={search.runPrompt}
                     prompts={visiblePrompts}
-                    brands={scopeBrands}
+                    brands={reportBrands}
                     engines={engines}
                     request={request}
                     refresh={prompts}
@@ -2727,11 +2747,13 @@ function App() {
                     researchType={search.researchType}
                     researchValue={search.researchValue}
                     filters={search}
+                    primaryHeading={!!search.metric && !search.run}
+                    recordLink={run => ({ ...search, org, workspace, tab: "runs", run, evidence: undefined })}
                     onChange={patch => {
                       void navigate({ search: { ...search, org, workspace, tab: "runs", ...patch }, replace: "q" in patch });
                     }}
                   />}
-                </>
+                </div>
               )}
               {tab === "brands" && (
                 <>
@@ -3034,7 +3056,7 @@ function App() {
               )}
               {settingsTab && settingsSection === "monitoring" && <WorkspaceMonitoring
                 key={workspaceKey} org={org} workspace={workspaceId} request={request} revision={prompts}
-                engines={engines} workspaces={workspaces.map(w => ({ id: w.id, name: w.name }))} />}
+                engines={engines} page={Number(search.monitoringPage ?? 1)} />}
               {teamSettings && (
                 <>
                   <Card>

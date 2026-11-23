@@ -1,9 +1,10 @@
 import { firstBrandMatch, recordedListNumber, snapshotNames } from "../lib/brand-passage";
-import { workspaceMonitoring } from "./workspace-monitoring";
+import { organizationMonitoring, workspaceMonitoring } from "./workspace-monitoring";
 import { classifyQuestions, promptQuestionText, questionTypePatch } from "./prompt-questions";
 import { applyReceiptAction, readReceiptAction, receiptActionSchema, submitPromptBatch, submitPromptBatchSchema } from "./receipt-actions";
 import { promptSetPredicate, promptSetsRoute, requirePromptSet, setId } from "./prompt-sets";
 import { csvDownload, exportOverview } from "./report-csv";
+import { recordedBrandNames } from "./report-brand-identities";
 import { analytics, collectionLocations, overviewQuestions, researchSummary } from "./analytics";
 import { bulkPromptTagsSchema, decodePrompt, promptTags, updatePromptTags } from "./prompt-tags";
 import { bulkPromptSettingsSchema, promptSettingsSchema, updatePromptSettings } from "./prompt-settings";
@@ -12,7 +13,8 @@ import { bulkPromptIdsSchema, movePromptsSchema, bulkRunSchema, bulkScheduleSche
 import { assertProviderOptions, providerOptions } from "./provider-options";
 import { MAX_PROMPT_BATCH_BYTES, promptBatchSchema, getPromptReceipt, previewPromptBatch, savePromptBatch } from "./prompt-batch";
 import { listSavedPrompts, listPageLimit } from "./prompt-library";
-import { searchableHistoryWhere } from "./run-history";
+import { historyReportCounts, searchableHistoryWhere } from "./run-history";
+import { answerPreview } from "./answer-preview";
 import { requireWorkspaceBrand } from "./workspace-brands";
 import { archivePrompts, archiveWorkspace, deleteBrand } from "./resource-archive";
 import { createOrganization } from "./organization-create";
@@ -179,6 +181,11 @@ export async function api(
         org,
       ),
     });
+  if (path === "/workspaces/monitoring" && method === "GET") {
+    const page = Number(u.searchParams.get("page") ?? 1);
+    if (!Number.isInteger(page) || page < 1 || page > 1_000_000) throw new HttpError(400, "Invalid workspace monitoring page");
+    return json(await organizationMonitoring(env, org, page));
+  }
   const monitoring = path.match(/^\/workspaces\/([^/]+)\/monitoring$/);
   if (monitoring && method === "GET") return json(await workspaceMonitoring(env, org, monitoring[1]));
   if (path === "/workspaces" && method === "POST") {
@@ -337,6 +344,7 @@ export async function api(
   if (path === "/prompt-sets" || path.startsWith("/prompt-sets/")) return promptSetsRoute(req, env, org, path, u.searchParams);
   if (method === "GET") {
     if (path === "/analytics") return json(await analytics(env, org, u.searchParams));
+    if (path === "/analytics/brand-identities") return json(await recordedBrandNames(env, org, u.searchParams));
     if (path === "/analytics/export") return exportOverview(env, org, u.searchParams);
     if (path === "/analytics/questions") return json(await overviewQuestions(env, org, u.searchParams));
     if (path === "/analytics/locations") return json(await collectionLocations(env, org, u.searchParams));
@@ -511,7 +519,8 @@ export async function api(
       (timestamp !== null && (!/^\d+$/.test(timestamp) || !Number.isSafeInteger(before) || !id.safeParse(beforeId).success))) {
       throw new HttpError(400, "Invalid run history cursor");
     }
-    const { conditions, bindings } = await searchableHistoryWhere(env, org, u.searchParams);
+    const { conditions, bindings, recordedQuestion } = await searchableHistoryWhere(env, org, u.searchParams);
+    const reportCounts = await historyReportCounts(env, org, u.searchParams, { conditions, bindings }, timestamp === null);
     const total = u.searchParams.has("research_type") || u.searchParams.has("overlap")
       ? await one<{ count: number }>(env, "SELECT count(*) AS count FROM runs WHERE " + conditions.join(" AND "), ...bindings)
       : undefined;
@@ -530,14 +539,21 @@ export async function api(
     const pageSize = pageLimit.data;
     const runs = await all(
       env,
-      "SELECT id,prompt_id,workspace_id,prompt_text,substr(answer_text,1,320) AS answer_excerpt,config,status,mentions,citations,grounding_queries,discovered_brands,has_answer,error,provider_cost,created_at,updated_at FROM runs WHERE " +
+      "SELECT id,prompt_id,workspace_id,prompt_text,substr(answer_text,1,16384) AS preview_input,config,status,mentions,citations,grounding_queries,discovered_brands,has_answer,error,provider_cost,created_at,updated_at FROM runs WHERE " +
         conditions.join(" AND ") + " ORDER BY created_at DESC,id DESC LIMIT ?",
       ...bindings,
       pageSize + 1,
     );
     const last = runs.length > pageSize ? runs[pageSize - 1] : null;
+    const previewBrand = u.searchParams.get("overlap") === "competitor_only" || u.searchParams.get("metric")?.startsWith("compare_")
+      ? u.searchParams.get("compare_brand") : u.searchParams.get("tracked_brand");
     return json({
-      runs: runs.slice(0, pageSize).map(decodeRun),
+      runs: runs.slice(0, pageSize).map(({ preview_input, ...row }) => {
+        const decoded = decodeRun(row);
+        return { ...decoded, ...answerPreview(preview_input, decoded.config, decoded.mentions, previewBrand) };
+      }),
+      ...(reportCounts ? { report_counts: reportCounts } : {}),
+      ...(recordedQuestion ? { recorded_question: recordedQuestion } : {}),
       ...(questionDaily ? { question_daily: questionDaily } : {}),
       ...(total ? { total_matches: total.count } : {}),
       next_before: last?.created_at ?? null,

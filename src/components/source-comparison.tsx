@@ -20,7 +20,7 @@ export function SourceComparison({ brands, search }: { brands: ReportBrand[]; se
   const other = search.compareBrand ?? (brands.find(brand => brand.kind === "competitor" && brand.id !== selected) ?? brands.find(brand => brand.id !== selected))?.id;
   const options = [...brands];
   for (const id of [selected, other]) {
-    if (id && !options.some(brand => brand.id === id)) options.push({ id, name: `Historical brand (${id})` });
+    if (id && !options.some(brand => brand.id === id)) options.push({ id, name: id === selected ? "Historical primary brand" : "Historical comparison brand" });
   }
   if (options.length < 2) return null;
   const name = (id?: string) => options.find(brand => brand.id === id)?.name;
@@ -36,7 +36,12 @@ export function SourceComparison({ brands, search }: { brands: ReportBrand[]; se
     setError("");
     void navigate({ search: { ...target, trackedBrand, compareBrand, overlap } });
   }
-  return <details className="advanced-settings mb-4" open={search.overlap ? true : undefined}>
+  return <section className="source-cohort" aria-label="Source comparison">
+    {!search.overlap && selected && other && <Link className="small-link" to="/app"
+      search={{ ...target, trackedBrand: selected, compareBrand: other, overlap: "competitor_only" }}>
+      Sources in answers mentioning {name(other)} without {name(selected)}
+    </Link>}
+    <details className="advanced-settings mb-4">
     <summary>Compare brand mentions{search.overlap && ` · ${name(selected)} / ${name(other)} · ${overlapLabels[search.overlap]}`}</summary>
     <form className="form-stack" onSubmit={apply}>
       <div className="form-grid">
@@ -57,7 +62,7 @@ export function SourceComparison({ brands, search }: { brands: ReportBrand[]; se
       </div>
       {error && <p role="alert">{error}</p>}
     </form>
-  </details>;
+  </details></section>;
 }
 
 export type DomainDay = { domain: string; day: string; answers: number };

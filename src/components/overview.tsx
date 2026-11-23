@@ -40,6 +40,8 @@ type OverviewData = {
   daily: Day[];
   comparison_daily: Day[];
   engine_brands: EngineBrand[];
+  brands: (Counts & { id: string; name: string | null })[];
+  individual_coverage: { id: string; samples: number }[];
   previous_period: PreviousPeriod;
   mention_share: MentionShare | null;
   domains: { domain: string; answers: number }[];
@@ -225,7 +227,7 @@ export function Overview({
   const dateLabel = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeZone: "UTC" })
     .formatRange(new Date(data.from), new Date(data.to));
   const setName = sets.find(set => set.id === scope.set)?.name;
-  const nameFor = (id?: string) => brands.find(brand => brand.id === id)?.name ?? data.engine_brands.find(row => row.id === id)?.name;
+  const nameFor = (id?: string) => brands.find(brand => brand.id === id)?.name ?? data.brands.find(row => row.id === id)?.name;
   const brandName = nameFor(scope.trackedBrand);
   const comparisonName = scope.compareBrand ? nameFor(scope.compareBrand) ?? "Historical comparison brand" : undefined;
   const selectedBrand = scope.trackedBrand ? brandName ?? "Historical tracked brand" : undefined;
@@ -254,8 +256,11 @@ export function Overview({
     { label: "Mention rate", metric: "mention", count: "mentions", comparisonCount: "compare_mentions" },
     { label: "Citation rate", metric: "citation", count: "citations", comparisonCount: "compare_citations" },
   ] as const;
+  const individualCoverageAvailable = data.individual_coverage.some(row => row.samples > 0);
   const activeLabel = trendMetric === "mention" ? "Mention rate" : "Citation rate";
-  const comparison = <BrandComparison rows={data.engine_brands} brands={brands} engines={engines} scope={scope}
+  const comparisonBrands = [...brands, ...data.brands.filter(row => row.name && !brands.some(brand => brand.id === row.id))
+    .map(row => ({ id: row.id, name: row.name! + " · Recorded brand" }))];
+  const comparison = <BrandComparison rows={data.engine_brands} brands={comparisonBrands} individualCoverage={data.individual_coverage} engines={engines} scope={scope}
     metric={trendMetric} mentionShare={data.mention_share} toReport={toReport} evidence={metricLink} sources={{ ...scope, org, workspace, tab: "research" }} />;
   return <>
     <Card><CardContent className="overview-findings">
@@ -274,12 +279,12 @@ export function Overview({
       </div>
       {filters}
       {scope.matchFrom && <p className="data-note">Matching questions and engines observed {scope.matchFrom} – {scope.matchTo} UTC.</p>}
-      {!data.total_runs ? <p>No collections match these filters. <Link to="/app" search={availableHistory}>Show available history</Link>.</p>
-        : !data.eligible_answers ? <p>No AI answers were recorded in these collections. <a href="#overview-collection-coverage">Review collection outcomes</a>.</p>
+      {!data.total_runs && !individualCoverageAvailable ? <p>No collections match these filters. <Link to="/app" search={availableHistory}>Show available history</Link>.</p>
+        : !data.eligible_answers && !individualCoverageAvailable ? <p>No AI answers were recorded in these collections. <a href="#overview-collection-coverage">Review collection outcomes</a>.</p>
         : !selectedBrand ? <><p>No brand is selected. <Link to="/app" search={metricLink("eligible")}>{collectedAnswersLabel(data.eligible_answers)}</Link></p>{comparison}</>
         : !totals.samples ? <>
           <p>{comparisonName ? "No answers tracked both brands." : `No collected answers tracked ${selectedBrand}.`}
-            {" "}<Link to="/app" search={metricLink("eligible")}>{collectedAnswersLabel(data.eligible_answers)}</Link>
+            {" "}{data.eligible_answers > 0 && <Link to="/app" search={metricLink("eligible")}>{collectedAnswersLabel(data.eligible_answers)}</Link>}
           </p>
           {scope.matchFrom && <Link className="small-link" to="/app" search={toReport({ ...scope, matchFrom: undefined, matchTo: undefined })}>Include all question and engine combinations</Link>}
           {comparison}
@@ -302,11 +307,13 @@ export function Overview({
           <PeriodChange previous={data.previous_period} metric={trendMetric} samples={totals.samples}
             count={trendMetric === "mention" ? totals.mentions : totals.citations} evidence={metricLink()} report={toReport} scope={scope}
             brand={selectedBrand} comparison={comparisonName} comparisonCount={trendMetric === "mention" ? totals.compare_mentions : totals.compare_citations} />
-          {comparison}
-          <section className="mt-5" aria-label={`Daily ${activeLabel.toLowerCase()}`}>
-            <h3 className="font-semibold">{activeLabel} over time</h3>
-            <DailyTrend days={days} from={data.from} to={data.to} metric={trendMetric} brand={selectedBrand} comparison={comparisonName} link={metricLink} />
-          </section>
+          <div className="overview-comparison-grid">
+            <section aria-label={`Daily ${activeLabel.toLowerCase()}`}>
+              <h3 className="font-semibold">{activeLabel} over time</h3>
+              <DailyTrend days={days} from={data.from} to={data.to} metric={trendMetric} brand={selectedBrand} comparison={comparisonName} link={metricLink} />
+            </section>
+            {comparison}
+          </div>
           <QuestionBreakdown key={JSON.stringify([org, workspace, scope])} scope={scope} workspace={workspace}
             request={request} revision={revision} engines={engines} workspaceNames={workspaceNames} showWorkspace={workspace === "all"}
             brand={selectedBrand} comparison={comparisonName} metric={trendMetric} link={metricLink} />
