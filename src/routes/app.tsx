@@ -1593,11 +1593,14 @@ function App() {
                   <h1>{creatingPrompts ? setupTitle : paneName}</h1>
                   {tab === "prompts" && <p>{workspaceName}</p>}
                 </div>
-                {tab === "prompts" && !creatingPrompts && !selectingForSchedule && canWrite && <Button asChild>
-                  <Link to="/app" search={{ ...sectionSearch("prompts"), workspace: promptSets.find(set => set.id === search.set)?.workspace_id ?? workspace, promptView: "create" }}>
+                {tab === "prompts" && !creatingPrompts && !selectingForSchedule && canWrite && <div className="question-row-actions">
+                  <Button asChild><Link to="/app" search={{ ...sectionSearch("prompts"), workspace: promptSets.find(set => set.id === search.set)?.workspace_id ?? workspace, promptView: "create" }}>
                     <Plus size={16} aria-hidden /> Add prompts
-                  </Link>
-                </Button>}
+                  </Link></Button>
+                  <Button asChild variant="outline"><Link to="/app" search={{ org, workspace, tab: "tracking", setAction: "choose" }}>
+                    Create tracking set
+                  </Link></Button>
+                </div>}
                 {selectingForSchedule && <Link className="small-link" to="/app" search={{ ...scheduleScope, tab: "schedules" }}>Back to schedules</Link>}
                 {creatingPrompts && <Link className="small-link" to="/app" search={pinnedSetupSetId ? setupSetLink : search.setupFrom ? { org, workspace, tab: "tracking" } : sectionSearch("prompts")}>
                   {pinnedSetupSetId ? "Back to tracking set" : search.setupFrom ? "Back to tracking sets" : "Back to prompts"}
