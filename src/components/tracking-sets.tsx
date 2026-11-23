@@ -57,7 +57,7 @@ export function TrackingSetList({ org, workspace, workspaceName, workspaceNames,
 }) {
   return <section className="form-stack">
     <div className="app-page-heading">
-      <div><h1>Tracking</h1><p>{workspaceName}</p></div>
+      <div><h1>Tracking sets</h1><p>{workspaceName}</p></div>
       {canWrite && <Button asChild>
         <Link to="/app" search={{ org, workspace, tab: "prompts", promptView: "create", setupFrom: "tracking" }}>
           <Plus size={16} aria-hidden /> Create tracking set
