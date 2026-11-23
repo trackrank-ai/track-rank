@@ -8,6 +8,7 @@ import { defaultPeriod } from "@/lib/analytics-filters";
 type Answer = {
   id: string;
   created_at: number;
+  prompt_text?: string;
   config: {
     engine?: string;
     location_name?: string;
@@ -18,7 +19,7 @@ type Answer = {
 };
 type Page = { runs: Answer[]; next_before: number | null; next_before_id: string | null };
 
-export function QuestionAnswers({ path, request, org, context, engines, engine, brand, period, revision, hasCollections, emptyAction }: {
+export function QuestionAnswers({ path, request, org, context, engines, engine, brand, period, revision, hasCollections, emptyAction, showQuestion, outcome }: {
   path: string;
   request: (path: string) => Promise<Record<string, any>>;
   org: string;
@@ -30,6 +31,8 @@ export function QuestionAnswers({ path, request, org, context, engines, engine, 
   revision: unknown;
   hasCollections: boolean;
   emptyAction?: React.ReactNode;
+  showQuestion?: boolean;
+  outcome?: "mention" | "citation";
 }) {
   const [page, setPage] = useState<Page>();
   const [attempt, setAttempt] = useState(0);
@@ -65,7 +68,7 @@ export function QuestionAnswers({ path, request, org, context, engines, engine, 
   return <div className="form-stack">
     <div className="panel-title">
       <div>
-        <h3>Recorded answers</h3>
+        <h2>{outcome === "mention" ? "Answers with brand mentions" : outcome === "citation" ? "Answers with brand citations" : "Recorded answers"}</h2>
         <p>{period.from} to {period.to} (UTC){engine && ` · ${engine}`}{brand && ` · Tracked brand: ${brand}`}</p>
       </div>
       {!!page?.runs.length && <a className="small-link" href={"/api/v1/export?" + path.split("?")[1] + "&org=" + encodeURIComponent(org)}>
@@ -89,7 +92,8 @@ export function QuestionAnswers({ path, request, org, context, engines, engine, 
       const citations = answer.citations?.length ?? 0;
       return <article className="question-answer" key={answer.id}>
         <div>
-          <strong>{engines[answer.config?.engine ?? ""] ?? "Recorded engine"}</strong>
+          {showQuestion && <strong>{answer.prompt_text}</strong>}
+          <div className={showQuestion ? "data-note" : "font-semibold"}>{engines[answer.config?.engine ?? ""] ?? "Recorded engine"}</div>
           <p className="data-note">{new Date(answer.created_at).toLocaleString()}
             {answer.config?.location_name && ` · ${answer.config.location_name}`}</p>
           {answer.config?.brands?.map(snapshot => {

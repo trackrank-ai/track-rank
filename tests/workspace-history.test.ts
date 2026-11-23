@@ -577,21 +577,27 @@ test("comparison rates, outcome counts and matching evidence use recorded run co
 });
 
 test("question answers reconcile with the library while remaining scoped to current workspace variants", async () => {
-  const { sql, call } = setup();
+  const { sql, env, call } = setup();
   sql.exec(`INSERT INTO prompts(id,org_id,workspace_id,text,engine,created_at,updated_at,tags) VALUES
     ('gemini','org','source','First question','gemini',1,1,'["research"]'),
-    ('copy','org','target','First question','gemini',1,1,'["research"]');
+    ('copy','org','target','First question','gemini',1,1,'["research"]'),
+    ('no-check','org','source','Never checked','gemini',1,1,'["research"]'),
+    ('no-ai','org','source','Organic-only question','gemini',1,1,'["research"]'),
+    ('zero','org','source','Measured zero','gemini',1,1,'["research"]');
     UPDATE prompts SET tags='["research"]' WHERE id='prompt';`);
   const now = Date.now();
   const day = new Date(now).toISOString().slice(0, 10);
   const insert = sql.prepare(`INSERT INTO runs(id,org_id,prompt_id,workspace_id,prompt_text,config,status,answer_text,citations,mentions,has_answer,idempotency_key,created_at,updated_at)
-    VALUES(?,'org',?,?,'First question',?,?,'Recorded answer','[{"url":"https://example.test/source"}]',?,?,?,?,?)`);
-  function run(id: string, prompt: string, workspace: string, engine: string, brand: string, mentioned: boolean, status = "succeeded", hasAnswer = 1) {
-    insert.run(id, prompt, workspace, JSON.stringify({ engine, brands: [{ id: brand, name: "Client" }] }), status,
-      JSON.stringify([{ brand_id: brand, mentioned }]), hasAnswer, id, now, now);
+    VALUES(?,'org',?,?,(SELECT text FROM prompts WHERE id=?),?,?,'Recorded answer','[{"url":"https://example.test/source"}]',?,?,?,?,?)`);
+  function run(id: string, prompt: string, workspace: string, engine: string, brand: string, mentioned: boolean, status = "succeeded", hasAnswer = 1, cited = false) {
+    insert.run(id, prompt, workspace, prompt, JSON.stringify({ engine, brands: [{ id: brand, name: "Client" }] }), status,
+      JSON.stringify([{ brand_id: brand, mentioned, cited }]), hasAnswer, id, now, now);
   }
   run("match-chatgpt", "prompt", "source", "chatgpt", "client", false);
-  run("match-gemini", "gemini", "source", "gemini", "client", true);
+  run("match-gemini", "gemini", "source", "gemini", "client", true, "succeeded", 1, true);
+  run("match-gemini-unmentioned", "gemini", "source", "gemini", "client", false);
+  run("organic-only", "no-ai", "source", "gemini", "client", false, "succeeded", 0);
+  run("zero-outcomes", "zero", "source", "gemini", "client", false);
   run("legacy", "gemini", "source", "gemini", "other", false);
   run("failed", "gemini", "source", "gemini", "client", true, "failed");
   run("no-answer", "gemini", "source", "gemini", "client", true, "succeeded", 0);
@@ -603,12 +609,48 @@ test("question answers reconcile with the library while remaining scoped to curr
   const library = await (await call(`/prompts?question_id=${question}&workspace=source&engine=gemini&tracked_brand=client&from=${day}&to=${day}`, undefined, "viewer")).json() as any;
   assert.equal(library.prompts.length, 1);
   assert.equal(library.prompts[0].variants[0].latest_completed_at, now);
-  assert.deepEqual(library.prompts[0].variants[0].brand_period, { samples: 1, mentions: 1 });
+  assert.deepEqual(library.prompts[0].variants[0].brand_period, { samples: 2, mentions: 1 });
   const query = `?question_id=${question}&engine=gemini&workspace=source&metric=brand&tracked_brand=client&tags=research&from=${day}&to=${day}`;
   const answers = await (await call("/runs" + query, undefined, "viewer")).json() as any;
-  assert.deepEqual(answers.runs.map((row: any) => row.id), ["match-gemini"]);
+  assert.deepEqual(library.prompts[0].period, { checks: 5, eligible_answers: 2, mentions: 1, citations: 1 });
+  assert.deepEqual(answers.runs.map((row: any) => row.id), ["match-gemini-unmentioned", "match-gemini"]);
   assert.equal(answers.runs[0].citations[0].url, "https://example.test/source");
   assert.match(await (await call("/export" + query)).text(), /match-gemini/);
+  const { mcp } = await import("../src/server/mcp");
+  const { hashToken } = await import("../src/server/crypto");
+  const key = "trk_prompt_reporting_fixture";
+  sql.prepare(`INSERT INTO api_keys(id,org_id,user_id,name,prefix,token_hash,scopes,expires_at,created_at)
+    VALUES('prompt-reporting-key','org','viewer','Read-only agent','trk',?,'["read"]',?,0)`).run(await hashToken(key), Date.now() + 60_000);
+  async function tool(name: string, args: object) {
+    const response = await mcp(new Request("https://example.test/mcp", {
+      method: "POST", headers: { Authorization: "Bearer " + key, "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }),
+    }), env, { waitUntil() {} } as any);
+    const { result } = await response.json() as any;
+    assert.equal(result.isError, false, result.content[0].text);
+    return JSON.parse(result.content[0].text);
+  }
+  const scope = { engine: "gemini", tracked_brand: "client", from: day, to: day };
+  const { runs } = await tool("list_runs", {
+    ...scope, workspace_id: "source", prompt_q: "first question", prompt_schedule: "inactive", tags: ["research"], metric: "citation",
+  });
+  assert.deepEqual(runs.map((row: any) => row.id), ["match-gemini"]);
+  const sortedScope = { ...scope, workspace_id: "source", sort: "lowest_mention_rate", limit: 2 };
+  const firstPage = await tool("list_prompts", sortedScope);
+  assert.equal(firstPage.total, 4);
+  assert.deepEqual(firstPage.prompts.map((row: any) => [row.text, row.period.mentions, row.period.eligible_answers]), [
+    ["Measured zero", 0, 1], ["First question", 1, 2],
+  ]);
+  const nextPage = await tool("list_prompts", { ...sortedScope, ...firstPage.next_cursor });
+  assert.deepEqual(nextPage.prompts.map((row: any) => [row.text, row.last_checked_at, row.period.checks]).sort(), [
+    ["Never checked", null, 0], ["Organic-only question", now, 1],
+  ]);
+  assert.equal(nextPage.next_cursor, null);
+  const never = await tool("list_prompts", { ...sortedScope, sort: "never_checked" });
+  assert.equal(never.prompts[0].text, "Never checked");
+  const selection = await tool("list_prompts", { ...sortedScope, selection: true });
+  assert.equal(selection.prompts.length, 4);
+  await assert.rejects(call("/prompts?view=library&sort=lowest_mention_rate"), { status: 400 });
   await assert.rejects(call(`/runs?question_id=${question}&workspace=target`), { status: 404 });
   await assert.rejects(call(`/runs?question_id=${foreign}`), { status: 404 });
   await assert.rejects(call(`/prompts?question_id=${foreign}`), { status: 404 });

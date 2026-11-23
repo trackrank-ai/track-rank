@@ -41,8 +41,6 @@ export async function submitPromptBatch(
   for (const item of action?.approved ?? []) {
     if (!texts[item.question] || !prompts.engines.includes(item.engine))
       throw new HttpError(400, "The confirmed combination is outside the submitted selection");
-    if (item.existing_id && !prompts.tracking_set_name && !prompts.tracking_set_id)
-      throw new HttpError(400, "Existing variants can only be approved when saving questions to a tracking set");
     const key = JSON.stringify([texts[item.question], item.engine]);
     if (approved.has(key) && approved.get(key) !== item.existing_id)
       throw new HttpError(400, "Conflicting approvals for an engine combination");

@@ -1,3 +1,4 @@
+import { promptLibrarySortKeys, type PromptLibrarySort } from "./prompt-library-sort";
 import { analyticsScope, answerMetrics, type AnalyticsScope, type AnswerMetric, type TrendMetric } from "./analytics-filters";
 import { normalizePromptTag, validPromptTag } from "./prompt-tags";
 
@@ -23,8 +24,10 @@ export type AppSearch = AnalyticsScope & {
   prompt?: string;
   question?: string;
   trackingView?: "overview" | "questions" | "answers" | "settings";
+  questionMetric?: "mention" | "citation";
   questionView?: "answers" | "settings";
-  promptView?: "create" | "schedule";
+  promptView?: "create" | "schedule" | "answers";
+  promptSort?: PromptLibrarySort;
   setupIntent?: "schedule";
   setupFrom?: "tracking";
   promptEngine?: AnalyticsScope["engine"];
@@ -69,7 +72,9 @@ export function parseAppSearch(search: Record<string, unknown>): AppSearch {
   const reportQuestion = historyContext ? resourceId(search.reportQuestion) : undefined;
   const questionContext = tab === "prompts" || (tab === "runs" && !!resourceId(search.run));
   const question = questionContext ? resourceId(search.question) : undefined;
-  const libraryContext = tab === "prompts" || !!question;
+  const promptView = (tab === "prompts" || (tab === "runs" && resourceId(search.run) && search.promptView === "answers"))
+    ? (["create", "schedule", "answers"] as const).find(value => value === search.promptView) : undefined;
+  const libraryContext = tab === "prompts" || !!question || promptView === "answers";
   return {
     ...(scoped ? scope : tab === "prompts"
       ? { set: resourceId(search.set), from: analyticsScope(search).from, to: analyticsScope(search).to } : tab === "schedules" ? { set: trackingSet } : {}),
@@ -84,9 +89,11 @@ export function parseAppSearch(search: Record<string, unknown>): AppSearch {
     tab,
     prompt: tab === "prompts" ? resourceId(search.prompt) : undefined,
     question,
+    questionMetric: question && (search.questionMetric === "mention" || search.questionMetric === "citation") ? search.questionMetric : undefined,
     questionView: question
       ? (["answers", "settings"] as const).find(value => value === search.questionView) : undefined,
-    promptView: tab === "prompts" && (search.promptView === "create" || search.promptView === "schedule") ? search.promptView : undefined,
+    promptView,
+    promptSort: libraryContext ? promptLibrarySortKeys.find(value => value === search.promptSort) : undefined,
     setupFrom: tab === "prompts" && search.promptView === "create" && search.setupFrom === "tracking" ? "tracking" : undefined,
     setupIntent: tab === "prompts" && search.promptView === "create" && search.setupIntent === "schedule" ? "schedule" : undefined,
     promptEngine: libraryContext ? analyticsScope({ engine: search.promptEngine }).engine : undefined,

@@ -88,3 +88,18 @@ test("tracking links retain workspace, view and evidence scope through sign-in",
   }
   assert.equal(parseAppSearch({ tab: "tracking", trackingView: "settings" }).trackingView, undefined);
 });
+
+test("prompt answer views preserve the question-library scope through sign-in and run detail", () => {
+  const scope = { org: "agency", workspace: "client", set: "tracked", tag: "research",
+    promptEngine: "gemini", from: "2026-11-01", to: "2026-11-20", brand: "brand", promptSort: "lowest_mention_rate" };
+  for (const selected of [
+    { tab: "prompts", promptView: "answers" },
+    { tab: "runs", promptView: "answers", run: "answer", evidence: "citations" },
+    { tab: "runs", run: "answer", question: "question", questionView: "answers", questionMetric: "citation" },
+  ] as Record<string, string>[]) {
+    const query = new URLSearchParams({ ...scope, ...selected });
+    const login = new URL(appLoginPath("?" + query, ""), "https://example.test");
+    const next = new URL(appReturnPath(login.searchParams.get("next")), login);
+    assert.deepEqual(Object.fromEntries(next.searchParams), Object.fromEntries(query));
+  }
+});
