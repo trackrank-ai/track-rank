@@ -92,3 +92,22 @@
     grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
   }
 }
+
+.evidence-source-list li > .evidence-source-actions {
+  display: grid;
+  gap: .35rem;
+}
+.evidence-source-actions > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .35rem 1rem;
+}
+.evidence-source-actions > div > a {
+  align-items: center;
+  display: inline-flex;
+  justify-content: start;
+  min-height: 1.75rem;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: .2em;
+}

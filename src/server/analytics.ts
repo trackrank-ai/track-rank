@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { DAY_MS, utcDay, validDay } from "../lib/analytics-filters";
-import { brandOutcome, brandSnapshot, brandSnapshotId, brandTracked, currentPromptWhere, eligibleAnswer, outcomePredicates, parseHistoryFilters, runConfig, searchableHistoryWhere } from "./run-history";
+import { brandOutcome, brandSnapshot, brandSnapshotId, brandTracked, currentPromptWhere, eligibleAnswer, outcomePredicates, parseHistoryFilters, runConfig, runHistoryFilters, searchableHistoryWhere } from "./run-history";
 import { all, HttpError, now, type Env } from "./types";
 
 function reportingPeriod(params: URLSearchParams) {
@@ -134,31 +134,103 @@ export async function overviewQuestions(env: Env, org: string, params: URLSearch
   return { questions: rows.slice(0, questionPageSize), next_page: rows.length > questionPageSize ? page + 1 : null };
 }
 
+export const researchReportInput = {
+  group: z.enum(["domain", "page", "query", "brand"]).optional(),
+  source_search: z.string().trim().max(200).optional(),
+  sort: z.enum(["answers", "questions", "last_seen", "value"]).optional(),
+  direction: z.enum(["asc", "desc"]).optional(),
+  page: z.number().int().min(1).max(1_000_000).optional(),
+  view: z.enum(["pages", "questions"]).optional(),
+  research_type: runHistoryFilters.shape.research_type,
+  research_value: runHistoryFilters.shape.research_value,
+};
+
 export async function researchSummary(env: Env, org: string, params: URLSearchParams) {
+  const parsed = z.object(researchReportInput).safeParse({
+    ...Object.fromEntries(params),
+    page: params.has("page") ? Number(params.get("page")) : undefined,
+  });
+  if (!parsed.success) throw new HttpError(400, "Invalid sources report filters");
+  const { group = "domain", source_search, sort = "answers", direction = "desc", page = 1,
+    view, research_type, research_value } = parsed.data;
+  if (!!research_type !== !!research_value || (view && !research_type))
+    throw new HttpError(400, "Choose a source to inspect");
+
   const { query } = reportingPeriod(params);
+  query.delete("research_type");
+  query.delete("research_value");
   const { conditions, bindings } = await searchableHistoryWhere(env, org, query);
-  const rows = await all<{ kind: string; value: string; title: string | null; count: number }>(env, `WITH answers AS MATERIALIZED (
-    SELECT id, citations, grounding_queries, discovered_brands FROM runs
-    WHERE ${conditions.join(" AND ")} AND ${eligibleAnswer}
-  ), sources AS MATERIALIZED (
-    SELECT runs.id, ${citationDomain} AS domain,
-      json_extract(citation.value,'$.url') AS url, json_extract(citation.value,'$.title') AS title
-    FROM answers runs, ${citations} AS citation WHERE citation.type='object'
-  ), facets AS (
-    SELECT 'domain' AS kind,domain AS value,NULL AS title,count(DISTINCT id) AS count FROM sources GROUP BY domain
-    UNION ALL SELECT 'page',url,max(title),count(DISTINCT id) FROM sources GROUP BY url
-    UNION ALL SELECT 'query',j.value,NULL,count(DISTINCT answers.id)
-      FROM answers,json_each(CASE WHEN json_valid(grounding_queries) THEN grounding_queries ELSE '[]' END) j WHERE j.type='text' GROUP BY j.value
-    UNION ALL SELECT 'brand',json_extract(j.value,'$.name'),NULL,count(DISTINCT answers.id)
-      FROM answers,json_each(CASE WHEN json_valid(discovered_brands) THEN discovered_brands ELSE '[]' END) j WHERE j.type='object' GROUP BY json_extract(j.value,'$.name')
-  ), ranked AS (
-    SELECT *, row_number() OVER(PARTITION BY kind ORDER BY count DESC,value) AS rank
-    FROM facets WHERE value IS NOT NULL AND value<>''
+  const cohort = `WITH answers AS MATERIALIZED (
+    SELECT id, workspace_id, prompt_text, created_at, citations, grounding_queries, discovered_brands
+    FROM runs WHERE ${conditions.join(" AND ")} AND ${eligibleAnswer}
+  )`;
+  const citationValues = (kind: "domain" | "page") => kind === "domain" ? citationDomain : "json_extract(citation.value,'$.url')";
+  const sourceValues = (kind: "domain" | "page" | "query" | "brand", from: string, restrictDomain = false) => kind === "brand"
+    ? `SELECT runs.*, json_extract(j.value,'$.name') AS value, NULL AS title FROM ${from} runs,
+        json_each(CASE WHEN json_valid(discovered_brands) THEN discovered_brands ELSE '[]' END) j WHERE j.type='object'`
+    : kind === "query" ? `SELECT runs.*, j.value AS value, NULL AS title FROM ${from} runs,
+        json_each(CASE WHEN json_valid(grounding_queries) THEN grounding_queries ELSE '[]' END) j WHERE j.type='text'`
+    : `SELECT runs.*, ${citationValues(kind)} AS value,
+        ${kind === "page" ? "json_extract(citation.value,'$.title')" : "NULL"} AS title
+        FROM ${from} runs, ${citations} AS citation WHERE citation.type='object'
+        ${restrictDomain ? `AND ${citationDomain}=?` : ""}`;
+  const cte = research_type
+    ? cohort + `, matching AS MATERIALIZED (
+      SELECT answers.* FROM answers JOIN (
+        SELECT DISTINCT id FROM (${sourceValues(research_type, "answers")}) WHERE value=?
+      ) matched USING(id)
+    )`
+    : cohort;
+  const target = research_type ? "matching" : "answers";
+  const detailView = view ?? (research_type === "domain" ? "pages" : "questions");
+  const kind = research_type ? detailView === "questions" ? "question" : "page" : group;
+  const facet = kind === "question"
+    ? `SELECT prompt_text AS value, NULL AS title, workspace_id,
+        min(id) AS evidence_run_id, count(*) AS count, 1 AS questions, max(created_at) AS last_seen
+      FROM matching GROUP BY workspace_id, prompt_text`
+    : `SELECT value, max(title) AS title, NULL AS workspace_id, NULL AS evidence_run_id,
+        count(DISTINCT id) AS count, count(DISTINCT json_array(workspace_id, prompt_text)) AS questions,
+        max(created_at) AS last_seen
+      FROM (${sourceValues(kind, target, research_type === "domain")})
+      WHERE typeof(value)='text' AND value<>'' GROUP BY value`;
+  const order = { answers: "count", questions: "questions", last_seen: "last_seen", value: "value COLLATE NOCASE" }[sort];
+  const pageSize = 25;
+  const scopedBindings = research_type ? [...bindings, research_value] : bindings;
+  const rows = await all<{
+    value: string; title: string | null; count: number; questions: number; last_seen: number | null;
+    workspace_id: string | null; evidence_run_id: string | null;
+    row_type: "item" | "facets" | "cohort" | "matching" | "day";
+  }>(env, `${cte}, facets AS MATERIALIZED (
+    SELECT * FROM (${facet})
+    WHERE instr(lower(value),lower(?))>0 OR instr(lower(coalesce(title,'')),lower(?))>0
+  ), page_rows AS (
+    SELECT * FROM facets ORDER BY ${order} ${direction}, value, evidence_run_id LIMIT ? OFFSET ?
   )
-  SELECT kind,value,title,count FROM ranked WHERE rank<=100
-  UNION ALL SELECT 'total','',NULL,count(*) FROM answers
-  ORDER BY count DESC,value`, ...bindings);
-  return { answers: rows.find(row => row.kind === "total")?.count ?? 0, items: rows.filter(row => row.kind !== "total") };
+  SELECT *, 'item' AS row_type FROM page_rows
+  UNION ALL SELECT '',NULL,NULL,NULL,count(*),0,NULL,'facets' FROM facets
+  UNION ALL SELECT '',NULL,NULL,NULL,count(*),0,NULL,'cohort' FROM answers
+  ${research_type ? `
+    UNION ALL SELECT '',NULL,NULL,NULL,count(*),count(DISTINCT json_array(workspace_id,prompt_text)),max(created_at),'matching' FROM matching
+    UNION ALL SELECT date(created_at/1000,'unixepoch'),NULL,NULL,NULL,count(*),0,NULL,'day' FROM matching GROUP BY 1
+  ` : ""}`,
+  ...scopedBindings, ...(research_type === "domain" && kind === "page" ? [research_value] : []),
+  source_search ?? "", source_search ?? "", pageSize, (page - 1) * pageSize);
+  const answers = rows.find(row => row.row_type === "cohort")!.count;
+  const match = rows.find(row => row.row_type === "matching");
+  const total = rows.find(row => row.row_type === "facets")!.count;
+  return {
+    answers, total, page, next_page: page * pageSize < total ? page + 1 : null,
+    items: rows.filter(row => row.row_type === "item").map(({ row_type, ...row }) => ({
+      ...row, kind, share: answers ? row.count / answers : 0,
+    })),
+    detail: match ? {
+      count: match.count, questions: match.questions, last_seen: match.last_seen,
+      share: answers ? match.count / answers : 0,
+      daily: rows.filter(row => row.row_type === "day")
+        .map(({ value, count }) => ({ day: value, answers: count }))
+        .sort((a, b) => a.day.localeCompare(b.day)),
+    } : null,
+  };
 }
 
 export async function collectionLocations(env: Env, org: string, params: URLSearchParams) {

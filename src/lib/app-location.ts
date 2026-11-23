@@ -4,6 +4,7 @@ import { normalizePromptTag, validPromptTag } from "./prompt-tags";
 
 const appTabs = ["overview", "tracking", "prompts", "research", "runs", "brands", "schedules", "team", "settings", "agents", "workspaces"] as const;
 export type AppTab = typeof appTabs[number];
+export const researchSorts = ["answers", "questions", "last_seen", "value"] as const;
 const researchTypes = ["domain", "page", "query"] as const;
 export type ResearchType = typeof researchTypes[number];
 export const settingsSections = { providers: "Providers", team: "Team & access", billing: "Billing" } as const;
@@ -44,6 +45,17 @@ export type AppSearch = AnalyticsScope & {
   outcome?: typeof runOutcomes[number];
   brand?: string;
   researchGroup?: ResearchType;
+  sourceSearch?: string;
+  sourceSort?: typeof researchSorts[number];
+  sourceDirection?: "asc" | "desc";
+  sourcePage?: string;
+  sourceBrandPage?: string;
+  sourceDetailPage?: string;
+  sourceView?: "pages" | "questions" | "answers";
+  sourceQuestion?: string;
+  sourceDomain?: string;
+  sourceDomainPage?: string;
+  sourceBackRun?: string;
   researchType?: ResearchType;
   researchValue?: string;
   settingsSection?: SettingsSection;
@@ -59,6 +71,8 @@ export function parseAppSearch(search: Record<string, unknown>): AppSearch {
   const researchType = researchTypes.find(type => type === search.researchType);
   const researchValue = typeof search.researchValue === "string" && search.researchValue.length <= 4096
     ? search.researchValue.trim() : "";
+  const researchContext = tab === "research" || tab === "runs";
+  const sourcePage = (value: unknown) => (typeof value === "number" || typeof value === "string") && /^(?:[1-9][0-9]{0,5}|1000000)$/.test(String(value)) ? String(value) : undefined;
   const tag = typeof search.tag === "string" ? normalizePromptTag(search.tag) : "";
   const scoped = !tab || tab === "overview" || tab === "runs" || tab === "research" || tab === "tracking";
   const scope = analyticsScope(tab === "research" ? { ...search, compareBrand: undefined } : search);
@@ -111,7 +125,20 @@ export function parseAppSearch(search: Record<string, unknown>): AppSearch {
     status: historyContext ? runStatuses.find(value => value === search.status) : undefined,
     outcome: historyContext ? runOutcomes.find(value => value === search.outcome) : undefined,
     brand: historyContext || tab === "prompts" ? resourceId(search.brand) : undefined,
-    researchGroup: tab === "research" || tab === "runs" ? researchTypes.find(type => type === search.researchGroup) : undefined,
+    ...(researchContext ? {
+      researchGroup: researchTypes.find(type => type === search.researchGroup),
+      sourceSearch: typeof search.sourceSearch === "string" && search.sourceSearch.length <= 200 ? search.sourceSearch : undefined,
+      sourceSort: researchSorts.find(value => value === search.sourceSort),
+      sourceDirection: search.sourceDirection === "asc" || search.sourceDirection === "desc" ? search.sourceDirection : undefined,
+      sourcePage: sourcePage(search.sourcePage),
+      sourceBrandPage: sourcePage(search.sourceBrandPage),
+      sourceDetailPage: sourcePage(search.sourceDetailPage),
+      sourceView: search.sourceView === "pages" || search.sourceView === "questions" || search.sourceView === "answers" ? search.sourceView : undefined,
+      sourceQuestion: resourceId(search.sourceQuestion),
+      sourceDomain: typeof search.sourceDomain === "string" && search.sourceDomain.length <= 4096 ? search.sourceDomain : undefined,
+      sourceDomainPage: sourcePage(search.sourceDomainPage),
+      sourceBackRun: resourceId(search.sourceBackRun),
+    } : {}),
     settingsSection: tab === "settings"
       ? (Object.keys(settingsSections) as SettingsSection[]).find(section => section === search.settingsSection) : undefined,
     researchType: (tab === "research" || tab === "runs") && researchValue ? researchType : undefined,
