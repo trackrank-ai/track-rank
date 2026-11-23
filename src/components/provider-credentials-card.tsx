@@ -12,7 +12,7 @@ const providers = {
   },
   openrouter: {
     name: "OpenRouter",
-    usage: "Optional. Used when you choose Analyze on a collected run. OpenRouter bills inference separately.",
+    usage: "Optional for model-generated analysis on a collected answer. Visibility, brand mentions, citations and reports work without an OpenRouter key. OpenRouter bills each requested analysis separately.",
     removal: "This removes the saved model and disables new analyses.",
   },
 };

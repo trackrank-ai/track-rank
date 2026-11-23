@@ -2970,14 +2970,6 @@ form.app-inline-form,
 .schedule-edit input {
   font-size: 10px;
 }
-.app-mobile-signout {
-  display: none;
-}
-@media (max-width: 760px) {
-  .app-mobile-signout {
-    display: inline-flex;
-  }
-}
 
 /* Dark default; light mode retains the original warm palette. */
 :root { color-scheme: light; }
@@ -3201,7 +3193,7 @@ form.app-inline-form,
 .dark .theme-toggle .theme-moon { display:none; }
 .auth-theme { position:absolute; top:28px; right:24px; }
 .topbar-actions { display:flex; flex:none; align-items:center; gap:8px; }
-@media(max-width:600px) { .header nav { gap:10px; } .header nav>a { display:none; } .topbar-actions .invite-shortcut { font-size:0; gap:0; padding:8px; } .app-topbar { flex-wrap:wrap; height:auto; min-height:64px; gap:10px; padding-block:12px; } }
+@media(max-width:600px) { .header nav { gap:10px; } .header nav>a { display:none; } .app-topbar { flex-wrap:wrap; height:auto; min-height:64px; gap:10px; padding-block:12px; } }
 
 /* Public legal/support pages share the saved light/dark theme. */
 .legal-page { min-height:100vh; }

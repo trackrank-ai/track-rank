@@ -23,11 +23,13 @@ export async function searchableHistoryWhere(env: Env, org: string, params: URLS
     where.conditions.push("runs.workspace_id=?");
     where.bindings.push(question.workspace_id);
   }
+  let recordedQuestion;
   if (filters.report_evidence_run) {
     const question = required(await one<{ workspace_id: string; prompt_text: string; engine: string | null }>(env,
       `SELECT workspace_id, prompt_text, json_extract(${runConfig},'$.engine') AS engine FROM runs WHERE org_id=? AND id=?` +
         (filters.workspace ? " AND workspace_id=?" : ""),
       org, filters.report_evidence_run, ...(filters.workspace ? [filters.workspace] : [])));
+    recordedQuestion = question;
     where.conditions.push("runs.workspace_id=?", "runs.prompt_text=?");
     where.bindings.push(question.workspace_id, question.prompt_text);
     if (!filters.report_question_all_engines) {
@@ -55,7 +57,32 @@ export async function searchableHistoryWhere(env: Env, org: string, params: URLS
     where.conditions.push(`(${cell}) IN (SELECT ${cell} FROM runs WHERE ${reference.conditions.join(" AND ")})`);
     where.bindings.push(...reference.bindings);
   }
-  return { ...where, searchableSince };
+  return { ...where, searchableSince, recordedQuestion };
+}
+
+export async function historyReportCounts(env: Env, org: string, params: URLSearchParams,
+  where: { conditions: string[]; bindings: unknown[] }, firstPage: boolean) {
+  const include = params.get("include_report_counts");
+  if (include === null) return;
+  const metric = params.get("metric");
+  if (include !== "true" || !metric) throw new HttpError(400, "Report counts require an answer metric and include_report_counts=true");
+  if (!firstPage) return;
+  const hasBrand = metric !== "eligible" && metric !== "coverage";
+  const cohortParams = new URLSearchParams(params);
+  if (hasBrand) cohortParams.set("metric", "brand");
+  const cohort = cohortParams.get("metric") === metric ? where : await searchableHistoryWhere(env, org, cohortParams);
+  const columns = ["COUNT(*) AS eligible"];
+  const ids: string[] = [];
+  if (hasBrand) {
+    for (const [key, prefix] of [["tracked_brand", ""], ["compare_brand", "compare_"]]) {
+      const brand = params.get(key);
+      if (!brand) continue;
+      columns.push(`COUNT(*) FILTER (WHERE ${brandOutcome("?", "mentioned")}) AS ${prefix}mentions`,
+        `COUNT(*) FILTER (WHERE ${brandOutcome("?", "cited")}) AS ${prefix}citations`);
+      ids.push(brand, brand);
+    }
+  }
+  return one<Record<string, number>>(env, "SELECT " + columns.join(", ") + " FROM runs WHERE " + cohort.conditions.join(" AND "), ...ids, ...cohort.bindings);
 }
 
 export const scopeFilters = z.object({

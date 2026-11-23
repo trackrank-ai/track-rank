@@ -2,7 +2,8 @@ import { Link } from "@tanstack/react-router";
 import { utcDay, type AnalyticsScope, type AnswerMetric, type TrendMetric } from "@/lib/analytics-filters";
 import type { AppSearch } from "@/lib/app-location";
 
-export type ReportBrand = { id: string; name: string; kind?: string; domain?: string };
+import type { ReportBrand } from "@/lib/report-brands";
+export type { ReportBrand } from "@/lib/report-brands";
 export type EngineBrand = { engine: NonNullable<AnalyticsScope["engine"]>; id: string; name: string | null; samples: number; mentions: number; citations: number };
 export type PreviousPeriod = {
   from: string; to: string; complete: boolean; samples: number;
@@ -46,8 +47,9 @@ export function PeriodChange({ previous, metric, samples, count, evidence, repor
 }
 
 export type MentionShare = { credited_mentions: number; brands: { id: string; mentions: number; share: number | null }[] };
-export function BrandComparison({ rows, brands, engines, scope, metric, toReport, evidence, sources, mentionShare }: {
+export function BrandComparison({ rows, brands, engines, scope, metric, toReport, evidence, sources, mentionShare, individualCoverage }: {
   mentionShare: MentionShare | null;
+  individualCoverage: { id: string; samples: number }[];
   rows: EngineBrand[];
   brands: ReportBrand[];
   engines: Record<string, string>;
@@ -58,7 +60,7 @@ export function BrandComparison({ rows, brands, engines, scope, metric, toReport
   sources: AppSearch;
 }) {
   const present = new Set(rows.map(row => row.id));
-  const brandName = (id: string) => brands.find(brand => brand.id === id)?.name ?? rows.find(row => row.id === id)?.name ?? `Historical brand (${id})`;
+  const brandName = (id: string) => brands.find(brand => brand.id === id)?.name ?? rows.find(row => row.id === id)?.name ?? (id === scope.compareBrand ? "Historical comparison brand" : "Historical tracked brand");
   const ids = Array.from(present).sort((a, b) => a === scope.trackedBrand ? -1 : b === scope.trackedBrand ? 1 : brandName(a).localeCompare(brandName(b)));
   const engineIds = Object.keys(engines).filter(id => rows.some(row => row.engine === id));
   const field = metric === "mention" ? "mentions" : "citations";
@@ -79,8 +81,15 @@ export function BrandComparison({ rows, brands, engines, scope, metric, toReport
       <span>Compare {selectedName} with</span>
       {alternatives.map(brand => <Link key={brand.id} to="/app" aria-current={scope.compareBrand === brand.id ? "true" : undefined}
         search={toReport({ ...scope, compareBrand: brand.id })}>{brand.name}</Link>)}
-      {paired && <Link className="small-link" to="/app" search={toReport({ ...scope, compareBrand: undefined })}>Remove comparison</Link>}
+      {paired && <Link className="small-link" to="/app" search={toReport({ ...scope, compareBrand: undefined, overlap: undefined })}>Remove comparison</Link>}
     </nav>}
+    {!!individualCoverage.length && <div className="individual-coverage">
+      <p className="data-note">Individual brand coverage in this period</p>
+      {individualCoverage.map(({ id, samples }) => <Link key={id} className="small-link" to="/app"
+        search={{ ...evidence("brand"), trackedBrand: id, compareBrand: undefined, overlap: undefined }}>
+        {brandName(id)} · {samples.toLocaleString()} eligible {samples === 1 ? "answer" : "answers"}
+      </Link>)}
+    </div>}
     {!!rows.length && <div className="overflow-x-auto" role="region" aria-label="Brand and engine rates" tabIndex={0}>
       <table className="comparison-table"><thead><tr><th scope="col">Tracked brand</th>
         {engineIds.map(engine => <th key={engine} scope="col">{engines[engine]}</th>)}
@@ -92,7 +101,7 @@ export function BrandComparison({ rows, brands, engines, scope, metric, toReport
           if (!row?.samples) return <td key={engine}><span className="data-note">No observations</span></td>;
           const compare = paired && id === scope.compareBrand;
           const targetMetric = row[field] ? (compare ? metric === "mention" ? "compare_mention" : "compare_citation" : metric) : "brand";
-          return <td key={engine}><Link to="/app" search={{ ...evidence(targetMetric), engine: row.engine,
+          return <td key={engine} style={{ backgroundColor: `color-mix(in srgb, var(--primary) ${Math.round(18 * row[field] / row.samples)}%, transparent)` }}><Link to="/app" search={{ ...evidence(targetMetric), engine: row.engine,
             trackedBrand: paired ? scope.trackedBrand : id, compareBrand: scope.compareBrand }}
             aria-label={`${brandName(id)}, ${engines[engine]}, ${row[field]} of ${row.samples} answers. View ${row[field] ? "matches" : "eligible answers"}`}>
               <strong>{percent.format(row[field] / row.samples)}</strong><span>{row[field]} / {row.samples}</span>
@@ -103,7 +112,7 @@ export function BrandComparison({ rows, brands, engines, scope, metric, toReport
         </Link> : <span className="data-note">No mentions</span>}</td>}
       </tr>)}</tbody></table>
     </div>}
-    {paired && <div className="mt-3">
+    {paired && !!rows.length && <div className="mt-3">
       <p className="data-note">Share of mentions counts each brand once per answer. An answer naming both contributes two mentions.</p>
       <Link className="small-link" to="/app" search={{ ...sources, overlap: "competitor_only" }}>
         Sources where {competitorName} was mentioned and {selectedName} was absent

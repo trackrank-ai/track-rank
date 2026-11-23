@@ -36,6 +36,11 @@ export async function exportOverview(env: Env, org: string, params: URLSearchPar
     record("mention_rate", cell.mentions, cell.samples, "Answers mentioning brand / eligible tracked answers", labels);
     record("citation_rate", cell.citations, cell.samples, "Answers citing brand / eligible tracked answers", labels);
   }
+  for (const brand of report.individual_coverage) {
+    rows.push({ ...context, ...range, metric: "individual_eligible_answers", brand: brand.id,
+      brand_name: report.brands.find(row => row.id === brand.id)?.name, numerator: brand.samples, common_cohort_answers: 0,
+      definition: "Eligible answers tracking this individual brand when the pair has no shared answers" });
+  }
   if (report.mention_share) {
     for (const brand of report.mention_share.brands)
       record("share_of_mentions", brand.mentions, report.mention_share.credited_mentions,
