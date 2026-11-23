@@ -10,7 +10,7 @@ export const Route = createFileRoute("/vs/$competitor")({
     return { item, catalog: await getPricingCatalog() };
   },
   head: ({ loaderData }) => loaderData ? ({
-    meta: [{ title: `TrackRank vs ${loaderData.item.name}: Open Source` }, { name: "description", content: loaderData.item.description }],
+    meta: [{ title: `TrackRank vs ${loaderData.item.name}: Open source` }, { name: "description", content: loaderData.item.description }],
     links: [{ rel: "canonical", href: `${loaderData.catalog.origin}/vs/${loaderData.item.slug}` }],
   }) : {},
   component: Page,

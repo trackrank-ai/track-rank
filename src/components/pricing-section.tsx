@@ -69,7 +69,7 @@ export function CostCalculator({ hosted, offers }: { hosted: boolean; offers: Of
       {profile === "custom" && <label>Estimated provider cost / run (USD)<input type="number" min="0" step="0.0001" value={rate} onChange={e => setRate(e.target.value)} /></label>}
     </div>
     <p className="data-note">Presets use published <a href={llmPricingUrl}>ChatGPT/Gemini</a> and <a href={googlePricingUrl}>Google Organic</a> list rates, checked {providerPricingCheckedAt}. Google budgets depth 10 plus AI Overview loading and poisoned-result resolution; unused async loading may be refunded. Search operators, optional analysis and taxes are excluded. Custom rates are your assumptions. <a href={providerBillingUrl}>DataForSEO requires a $50 minimum top-up</a>; that is prepaid credit, not a monthly fee.</p>
-    <div className="calculator-results" aria-live="polite">{!estimate ? <p>Use 1–1,000,000 prompts, 1–3 engines and 1–10 samples. Enter whole numbers for volumes and a provider rate of zero or more.</p> : <>
+    <div className="calculator-results" aria-live="polite">{!estimate ? <p>Use 1-1,000,000 prompts, 1-3 engines and 1-10 samples. Enter whole numbers for volumes and a provider rate of zero or more.</p> : <>
       <article><h3>Your workload</h3><strong>{estimate.runs.toLocaleString("en-US")}</strong><p>prompt runs over 30 days</p></article>
       {hosted && offers.length > 0 ? (
         <article><h3>TrackRank {estimate.plan?.name || "Custom"}</h3><strong>{estimate.total !== null ? usd(estimate.total) + "/mo" : "Contact us"}</strong><p>{estimate.plan ? `${usd(estimate.plan.price_cents / 100)} subscription + ${usd(estimate.provider)} estimated provider usage` : "Your workload or history needs a custom plan."}</p></article>
@@ -83,7 +83,7 @@ export function CostCalculator({ hosted, offers }: { hosted: boolean; offers: Of
   </section>;
 }
 export function AlternativesComparison({ hosted, offers }: { hosted: boolean; offers: Offer[] }) {
-  const entry = offers.filter(offer => offer.currency === "usd" && offer.interval === "month").sort((a, b) => a.price_cents - b.price_cents)[0];
+  const entry = offers.filter(offer => offer.currency === "usd" && offer.interval === "month").sort((a, b) => a.price_cents-b.price_cents)[0];
   const labels = ["Entry subscription", "Tracking allowance", "Cost model and source"];
   const rows: { name: string; values: [string, string, ReactNode] }[] = [
     {

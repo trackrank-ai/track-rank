@@ -1,5 +1,6 @@
 export type Competitor = {
   slug: string; name: string; url: string; home: string; angle: string; best: string; reason: string;
+  trackrankFacts: string[]; alternativeHeading: string; alternativeVerdict: string;
   facts: string[][]; wins: string[]; winSource: string; tradeoff: string; migration: string; faqs: string[][];
   checkedAt: string; description: string; altDescription: string;
 };
@@ -54,7 +55,16 @@ export const competitors: Competitor[] = [
     ],
     "checkedAt": "2026-11-23",
     "description": "TrackRank vs Peec AI: compare open-source control, your own provider credentials, self-hosting, workload costs and the trade-offs before switching.",
-    "altDescription": "Peec AI alternatives for teams that want open-source control, their own provider credentials or managed monitoring. Compare costs, strengths and trade-offs."
+    "altDescription": "Peec AI alternatives for teams that want open-source control, their own provider credentials or managed monitoring. Compare costs, strengths and trade-offs.",
+    "trackrankFacts": [
+      "Managed hosting and collection have separate bills. Self-hosting has no TrackRank subscription.",
+      "ChatGPT, Gemini and Google AI Overviews. You choose schedules and samples.",
+      "Hosted plans have no per-seat fees; the organization shares its run allowance.",
+      "The live catalog prices hosted tiers by monthly runs and searchable history.",
+      "350 questions checked daily on three engines use 31,500 TrackRank runs in a 30-day month."
+    ],
+    "alternativeHeading": "Peec AI alternatives for self-hosted tracking",
+    "alternativeVerdict": "Peec AI packages daily collection around a fixed prompt allowance."
   },
   {
     "slug": "ahrefs",
@@ -87,7 +97,7 @@ export const competitors: Competitor[] = [
       ]
     ],
     "wins": [
-      "You need to discover topics from Ahrefs’ pre-collected, search-backed answer index.",
+      "You need to discover topics from Ahrefs' pre-collected, search-backed answer index.",
       "You already pay for Ahrefs and its included prompt quota is enough.",
       "You want AI visibility connected to Ahrefs search-demand and wider SEO research."
     ],
@@ -106,7 +116,16 @@ export const competitors: Competitor[] = [
     ],
     "checkedAt": "2026-11-23",
     "description": "TrackRank vs Ahrefs Brand Radar: compare open-source control, your own provider credentials, self-hosting, workload costs and the trade-offs before switching.",
-    "altDescription": "Ahrefs Brand Radar alternatives: compare open-source tracking, provider credentials, self-hosting and managed monitoring, with sourced pricing and trade-offs."
+    "altDescription": "Ahrefs Brand Radar alternatives: compare open-source tracking, provider credentials, self-hosting and managed monitoring, with sourced pricing and trade-offs.",
+    "trackrankFacts": [
+      "Hosted run allowances include collection through your DataForSEO account; the provider bills you separately.",
+      "TrackRank collects questions you supply. It does not include an Ahrefs-style answer index.",
+      "Self-hosting requires no TrackRank subscription or Ahrefs subscription.",
+      "One run is one question on one engine with one sample. Select a hosted tier by monthly runs.",
+      "TrackRank collects ChatGPT, Gemini and Google AI Overviews, not Claude."
+    ],
+    "alternativeHeading": "Ahrefs Brand Radar alternatives for custom question tracking",
+    "alternativeVerdict": "Ahrefs connects custom question tracking with an existing AI-answer index."
   },
   {
     "slug": "profound",
@@ -140,7 +159,7 @@ export const competitors: Competitor[] = [
     ],
     "wins": [
       "Your procurement requires the published SSO/SAML and SOC 2 offering.",
-      "You need more engine coverage than TrackRank’s ChatGPT, Gemini and Google AI Overviews.",
+      "You need more engine coverage than TrackRank's ChatGPT, Gemini and Google AI Overviews.",
       "You need dedicated support and an enterprise marketing-agent workflow."
     ],
     "winSource": "https://www.tryprofound.com/pricing",
@@ -158,7 +177,16 @@ export const competitors: Competitor[] = [
     ],
     "checkedAt": "2026-11-23",
     "description": "TrackRank vs Profound: compare open-source control, your own provider credentials, self-hosting, workload costs and the trade-offs before switching.",
-    "altDescription": "Profound alternatives for teams that want open-source control, their own provider credentials or managed monitoring. Compare costs, strengths and trade-offs."
+    "altDescription": "Profound alternatives for teams that want open-source control, their own provider credentials or managed monitoring. Compare costs, strengths and trade-offs.",
+    "trackrankFacts": [
+      "Choose a published hosted tier or self-host without a TrackRank software subscription.",
+      "Three collection engines: ChatGPT, Gemini and Google AI Overviews.",
+      "You operate authentication and infrastructure for a self-hosted Cloudflare deployment.",
+      "CSV exports, REST API and MCP access use organization permissions.",
+      "Hosted tiers have no per-seat fees. Workspaces share organization limits."
+    ],
+    "alternativeHeading": "Profound alternatives for teams running their own tracking",
+    "alternativeVerdict": "Profound packages monitoring with SSO/SAML and dedicated support."
   },
   {
     "slug": "promptwatch",
@@ -193,7 +221,7 @@ export const competitors: Competitor[] = [
     "wins": [
       "You need its wider published model list, including Perplexity and Copilot.",
       "You want content creation and refresh within the paid marketing workflow.",
-      "You need the Business plan’s published city/state tracking and shopping tools."
+      "You need the Business plan's published city/state tracking and shopping tools."
     ],
     "winSource": "https://promptwatch.com/pricing",
     "tradeoff": "Model coverage and content workflows can matter more than raw collection volume.",
@@ -210,7 +238,16 @@ export const competitors: Competitor[] = [
     ],
     "checkedAt": "2026-11-23",
     "description": "TrackRank vs Promptwatch: compare open-source control, your own provider credentials, self-hosting, workload costs and the trade-offs before switching.",
-    "altDescription": "Promptwatch alternatives for teams that want open-source control, their own provider credentials or managed monitoring. Compare costs, strengths and trade-offs."
+    "altDescription": "Promptwatch alternatives for teams that want open-source control, their own provider credentials or managed monitoring. Compare costs, strengths and trade-offs.",
+    "trackrankFacts": [
+      "Managed hosting costs plus direct DataForSEO collection charges. Self-hosting has no TrackRank subscription.",
+      "Run allowance counts each question, engine and sample separately.",
+      "REST API and MCP access use the same organization permissions as the app.",
+      "Hosted plans have no per-seat fees.",
+      "TrackRank stores collected answers and sources. Optional OpenRouter analysis has a separate provider cost."
+    ],
+    "alternativeHeading": "Promptwatch alternatives for monitoring with your own credentials",
+    "alternativeVerdict": "Promptwatch combines question tracking with agent chat and content workflows."
   },
   {
     "slug": "otterly-ai",
@@ -244,7 +281,7 @@ export const competitors: Competitor[] = [
     ],
     "wins": [
       "A small daily-monitoring package meets your needs without provider-account setup.",
-      "You need its published engine selection beyond TrackRank’s three collection engines.",
+      "You need its published engine selection beyond TrackRank's three collection engines.",
       "You want its managed optimization and onboarding workflow."
     ],
     "winSource": "https://otterly.ai/pricing",
@@ -257,12 +294,21 @@ export const competitors: Competitor[] = [
       ],
       [
         "Are Otterly credits the same as TrackRank runs?",
-        "No. Check Otterly’s current engine-credit rules. TrackRank counts one prompt × one engine × one sample as one run."
+        "No. Check Otterly's current engine-credit rules. TrackRank counts one prompt × one engine × one sample as one run."
       ]
     ],
     "checkedAt": "2026-11-23",
     "description": "TrackRank vs OtterlyAI: compare open-source control, your own provider credentials, self-hosting, workload costs and the trade-offs before switching.",
-    "altDescription": "OtterlyAI alternatives for teams that want open-source control, their own provider credentials or managed monitoring. Compare costs, strengths and trade-offs."
+    "altDescription": "OtterlyAI alternatives for teams that want open-source control, their own provider credentials or managed monitoring. Compare costs, strengths and trade-offs.",
+    "trackrankFacts": [
+      "Self-hosting has no TrackRank subscription. Add infrastructure and collection costs.",
+      "TrackRank counts runs rather than engine-weighted credits. Provider usage has a separate bill.",
+      "For 16 questions on all three TrackRank engines daily, a 30-day month uses 1,440 runs.",
+      "Hosted plans have no per-seat fees.",
+      "Choose the live hosted tier that covers your run count and searchable-history requirement."
+    ],
+    "alternativeHeading": "OtterlyAI alternatives for run-based monitoring",
+    "alternativeVerdict": "OtterlyAI prices monitoring through monthly credits."
   }
 ];
 export const competitorBySlug = (slug: string) => competitors.find(item => item.slug === slug);
