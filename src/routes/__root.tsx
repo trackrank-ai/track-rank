@@ -36,10 +36,16 @@ export const Route = createRootRoute({
 });
 
 function RootDocument({ children }: { children: React.ReactNode }) {
+  const { googleTagManagerId } = Route.useLoaderData();
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: `(function(){try{document.documentElement.classList.toggle('dark',localStorage.getItem('trackrank-theme')==='dark')}catch(e){}})()` }} />
+        {googleTagManagerId && <script dangerouslySetInnerHTML={{ __html: `window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+window.dataLayer.push({'gtm.start': new Date().getTime(), event: 'gtm.js'});
+(function(){var script=document.createElement('script');script.async=true;script.src='https://www.googletagmanager.com/gtm.js?id=${googleTagManagerId}';document.head.appendChild(script);})();` }} />}
         <HeadContent />
       </head>
       <body>

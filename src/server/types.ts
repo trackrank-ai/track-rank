@@ -28,6 +28,7 @@ export type Env = {
   BASE_URL: string;
   PUBLIC_OPERATOR_NAME?: string;
   PUBLIC_SUPPORT_EMAIL?: string;
+  PUBLIC_GTM_ID?: string;
   SIGNUP_ENABLED?: string;
   DEV_SKIP_EMAIL_VERIFICATION?: string;
   GOOGLE_CLIENT_ID?: string;
