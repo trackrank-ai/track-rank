@@ -151,3 +151,7 @@ Edwin requires an `unslop-seo` pass for comparison and alternatives pages. Audit
 ### Dollar-first comparisons
 
 Lead commercial comparisons with the customer's monthly dollar budget, including managed hosting and modeled provider consumption. A quota such as 31,500 runs is context, not a price. Use `src/lib/comparison-cost.ts` and the live catalog for each named workload; show Standard/Priority/Live totals or an explicitly labeled range. Preserve workload, history, coverage, conditional-charge/refund and excluded-cost assumptions. Keep self-hosted provider budgets separate from unmeasured infrastructure. Never invent a numeric range for a competitor's custom quote.
+
+## Google Tag Manager
+
+Keep GTM opt-in through deployment-owned `PUBLIC_GTM_ID`, validated in the public configuration whitelist. Only hosted production config supplies our container; never enable it in local, staging or self-hosted defaults. Initialize the data layer before loading the container once in the shared root document. Do not add customer data, credentials, answers or API keys to analytics events. Keep the privacy notice accurate.

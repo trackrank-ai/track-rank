@@ -174,3 +174,7 @@ Collection cost presets live in `src/lib/provider-pricing.ts`, with dated offici
 Comparison-page editorial receipts: [Unslop SEO pass](seo/unslop-pass.md). New comparison copy follows the same source-grounding and direct-answer checks.
 
 Comparison articles display hosted monthly cost ranges and per-mode totals through `src/lib/comparison-cost.ts`. They include the live subscription and modeled provider charges for the stated question count, engines, daily samples and history. See [cost assumptions and examples](seo/competitors/dataforseo-pricing.md#dollar-first-article-budgets).
+
+## Google Tag Manager
+
+The hosted production deployment sets `PUBLIC_GTM_ID=GTM-TXR45VFN`. The shared document initializes `dataLayer` and `gtag` before asynchronously loading the GTM container, including its startup event. Local, staging and self-hosted defaults omit this variable and load no container. Operators can opt in with their own `PUBLIC_GTM_ID`; the public config exposes only a validated container ID. Container configuration controls which tags fire; installing this loader alone does not verify analytics delivery.

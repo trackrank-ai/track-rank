@@ -13,6 +13,7 @@
   "main": "src/worker.ts",
   "vars": {
     "BASE_URL": "https://trackrank.ai",
+    "PUBLIC_GTM_ID": "GTM-TXR45VFN",
     "PUBLIC_OPERATOR_NAME": "Track Rank Ai",
     "PUBLIC_SUPPORT_EMAIL": "info@trackrank.ai",
     "SIGNUP_ENABLED": "true",
