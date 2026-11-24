@@ -83,7 +83,7 @@ The Impeccable review graded the pre-redesign public site **23/36** and the auth
 | Surface | Decision carried into production |
 | --- | --- |
 | Run detail | Put the question and collection context first, with the recorded answer, brand observations and inspectable sources together. Preserve links to each evidence tab. |
-| Homepage and Pricing | Reuse the evidence view for a labeled illustrative answer linked to Penpot documentation. Show the separate provider requirement alongside the trial action. Preserve the live catalog and editable cost assumptions. |
+| Homepage and Pricing | Reuse the evidence view for a labeled illustrative answer using fictional Acme branding and a non-clickable acme.example source. Show the separate provider requirement alongside the trial action. Preserve the live catalog and editable cost assumptions. |
 | Overview and navigation | Lead with setup while the workspace awaits collection, then with findings and their reporting scope. On phones, expose the current section and workspace independently. |
 | Prompts, Schedules and Run History | Change question wording by deleting and recreating the prompt. Keep engine settings editable. Identify variants wherever people select a record to inspect, edit or delete. |
 

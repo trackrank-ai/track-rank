@@ -2038,7 +2038,7 @@ function App() {
                               minLength={3}
                               value={promptText}
                               onChange={(e) => { setDraftReview(null); setPromptText(e.target.value); }}
-                              placeholder="Who are the best house cleaning services in Seattle?"
+                              placeholder="Which project management tools work well for small teams?"
                               rows={3}
                             />
                           </FormField>
@@ -2080,14 +2080,14 @@ function App() {
                           </FormField>}
                           {creatingSetupSet && <FormField label="Tracking set name">
                             <input ref={setupName} value={trackingName} onChange={e => changeDraft({ setName: e.target.value })} required maxLength={100}
-                              placeholder="e.g. Seattle cleaning services" />
+                              placeholder="e.g. Project management tools" />
                           </FormField>}
                           <details className="advanced-settings">
                             <summary>Prompt settings{promptSeparator === "commas" ? " · Comma-separated" : ""}</summary>
                             <div className="form-grid">
                               <FormField label="Paste format"><select value={promptSeparator} onChange={e => changeDraft({ separator: e.target.value })}><option value="lines">One per line — keep commas in prompts</option><option value="commas">Comma-separated — quote prompts containing commas</option></select></FormField>
                               <FormField label="Tags (optional)" hint="Separate tags with commas. Tags apply to each new prompt and engine variant.">
-                                <input name="tags" placeholder="brand name, alternatives, seattle location"
+                                <input name="tags" placeholder="brand name, alternatives, small teams"
                                   maxLength={MAX_PROMPT_TAGS * (MAX_PROMPT_TAG_LENGTH + 2)}
                                   value={promptTagInput} onChange={e => changeDraft({ tags: e.target.value })} />
                               </FormField>
@@ -2247,7 +2247,7 @@ function App() {
                         required
                         minLength={2}
                         maxLength={150}
-                        placeholder="Topic, e.g. cleaning services"
+                        placeholder="Topic, e.g. project management tools"
                         aria-label="Research topic"
                       />
                       <input
@@ -2863,14 +2863,14 @@ function App() {
                                 name="name"
                                 defaultValue={editingBrand?.name}
                                 maxLength={100}
-                                placeholder="Puget Sound Cleaners"
+                                placeholder="Acme"
                               />
                             </FormField>
                             <FormField label="Canonical domain (optional)">
                               <input
                                 name="domain"
                                 defaultValue={editingBrand?.domain}
-                                placeholder="pugetsoundcleaners.com"
+                                placeholder="acme.example"
                                 maxLength={253}
                               />
                             </FormField>
@@ -2889,7 +2889,7 @@ function App() {
                                 name="aliases"
                                 defaultValue={editingBrand ? JSON.parse(editingBrand.aliases || "[]").join(", ") : ""}
                                 maxLength={1500}
-                                placeholder="PSC, Puget Sound Cleaning"
+                                placeholder="Acme Inc, Acme Projects"
                               />
                             </FormField>
                           </div>

@@ -101,10 +101,10 @@ Run requests replay the original admission without consuming more quota. Single-
 ### Prompt
 
 ```json
-{"workspace_id":"uuid","brand_id":null,"text":"Best cleaning services in Seattle?","engine":"chatgpt","mode":"standard","location_name":"United States","language_code":"en"}
+{"workspace_id":"uuid","brand_id":null,"text":"Which project management tools work well for small teams?","engine":"chatgpt","mode":"standard","location_name":"United States","language_code":"en"}
 ```
 
-For single and bulk prompt saves, send an optional `tags` array, for example `["brand name", "seattle location"]`. Prompts can have up to 20 tags of up to 50 characters each. Tags are trimmed, lowercased, deduplicated, and may contain spaces. Commas separate tags in the UI. Existing matches reused during a batch save keep their tags. Settings updates accept any of `mode`, `location_name`, `language_code`, `brand_id` and `tags`. Set `tags: []` to clear tags or `brand_id: null` to clear the associated brand. Each changed location or language must be supported for the selected variants.
+For single and bulk prompt saves, send an optional `tags` array, for example `["brand name", "small teams"]`. Prompts can have up to 20 tags of up to 50 characters each. Tags are trimmed, lowercased, deduplicated, and may contain spaces. Commas separate tags in the UI. Existing matches reused during a batch save keep their tags. Settings updates accept any of `mode`, `location_name`, `language_code`, `brand_id` and `tags`. Set `tags: []` to clear tags or `brand_id: null` to clear the associated brand. Each changed location or language must be supported for the selected variants.
 
 Engine is `chatgpt`, `gemini`, or `google`. Mode is `standard` (default), `priority`, or `live`. DataForSEO location names/language codes must be supported by the selected endpoint. Unsupported settings are rejected.
 

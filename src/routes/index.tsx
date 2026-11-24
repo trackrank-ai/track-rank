@@ -12,8 +12,8 @@ export const Route = createFileRoute("/")({ loader: () => getPricingCatalog(), h
 
 function ExampleAnswer() {
   return <section className="public-example" aria-labelledby="example-question">
-    <p className="public-example-label">Illustrative collection · sample answer</p>
-    <h2 id="example-question">Which design tools let clients comment on a shared prototype?</h2>
+    <p className="public-example-label">Illustrative collection · fictional brands and sources</p>
+    <h2 id="example-question">Which project management tools work well for small teams?</h2>
     <dl className="public-example-context">
       <div><dt>Engine</dt><dd>ChatGPT</dd></div>
       <div><dt>Location</dt><dd>United States</dd></div>
@@ -21,9 +21,9 @@ function ExampleAnswer() {
     </dl>
     <EvidenceReport
       illustrative
-      answer="Penpot lets teams share a prototype by link. When commenting is enabled in the link permissions, people outside the team can leave feedback directly on the prototype."
-      observations={[{ label: "Tracked brand", value: "Penpot · Mentioned" }]}
-      sources={[{ title: "Penpot User Guide · Testing: View mode", url: "https://help.penpot.app/user-guide/prototyping-testing/testing-view-mode/" }]}
+      answer="Acme Projects helps small teams organize tasks, share project updates and track deadlines in one workspace."
+      observations={[{ label: "Tracked brand", value: "Acme · Mentioned" }]}
+      sources={[{ title: "Acme Projects · Product guide (fictional)", domain: "acme.example" }]}
     />
   </section>;
 }

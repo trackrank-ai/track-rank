@@ -123,7 +123,7 @@ export function OverviewFilters({ scope, org, workspace, workspaceNames, sets, b
           </select>
         </label>}
         <label className="app-field"><span>Tags · match all</span>
-          <input name="tags" defaultValue={scope.tags} maxLength={1020} placeholder="consideration, chicago-market" />
+          <input name="tags" defaultValue={scope.tags} maxLength={1020} placeholder="consideration, small teams" />
           <small>Up to {MAX_PROMPT_TAGS} comma-separated tags.</small>
         </label>
         <label className="app-field"><span>Engine</span>
