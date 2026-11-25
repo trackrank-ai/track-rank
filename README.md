@@ -178,3 +178,7 @@ Comparison articles display hosted monthly cost ranges and per-mode totals throu
 ## Google Tag Manager
 
 The hosted production deployment sets `PUBLIC_GTM_ID=GTM-TXR45VFN`. The shared document initializes `dataLayer` and `gtag` before asynchronously loading the GTM container, including its startup event. Local, staging and self-hosted defaults omit this variable and load no container. Operators can opt in with their own `PUBLIC_GTM_ID`; the public config exposes only a validated container ID. Container configuration controls which tags fire; installing this loader alone does not verify analytics delivery.
+
+## Product examples
+
+Form placeholders and the homepage demo use fictional Acme examples and the reserved `acme.example` domain. Demo answers and sources are labeled fictional and do not represent a recorded provider result. Real integration names and sourced competitor comparisons are unchanged.

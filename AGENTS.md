@@ -155,3 +155,7 @@ Lead commercial comparisons with the customer's monthly dollar budget, including
 ## Google Tag Manager
 
 Keep GTM opt-in through deployment-owned `PUBLIC_GTM_ID`, validated in the public configuration whitelist. Only hosted production config supplies our container; never enable it in local, staging or self-hosted defaults. Initialize the data layer before loading the container once in the shared root document. Do not add customer data, credentials, answers or API keys to analytics events. Keep the privacy notice accurate.
+
+## Anonymous examples
+
+Use fictional Acme-style names and reserved `.example` domains in form placeholders and illustrative product demos. Keep fictional answers/sources explicitly labeled; do not link invented evidence to real vendor documentation. Preserve real provider names, sourced comparisons, legal/operator information and user-entered records.
